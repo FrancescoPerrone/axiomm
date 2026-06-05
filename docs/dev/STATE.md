@@ -31,8 +31,8 @@ Never start two chunks in one session without confirmation.
 | # | Chunk                                                                | Status     |
 |---|----------------------------------------------------------------------|------------|
 | 1 | Skeleton + foundations (errors, models, protocols, handoff docs)     | ✅ done    |
-| 2 | `discover_inputs` (§6) + unit tests                                  | ⬜ next    |
-| 3 | `XRMMapH5Reader` (§7) + synthetic HDF5 fixture (§20.1) + tests       | ⬜ pending |
+| 2 | `discover_inputs` (§6) + unit tests                                  | ✅ done    |
+| 3 | `XRMMapH5Reader` (§7) + synthetic HDF5 fixture (§20.1) + tests       | ⬜ next    |
 | 4 | `HyperSpyBuilder` (§8) + axis-order tests                            | ⬜ pending |
 | 5 | `HSpyWriter` (§9.4) + `convert_file` (§11.2) + end-to-end test       | ⬜ pending |
 
@@ -85,42 +85,69 @@ What does **not** yet exist (deferred to later chunks):
 * User-facing documentation under `docs/user/`.
 * `CITATION.cff` and `ACKNOWLEDGEMENTS.md`.
 
-## Next chunk: Chunk 2 — `discover_inputs`
+## Next chunk: Chunk 3 — `XRMMapH5Reader` + synthetic HDF5 fixture
 
-**Goal.** Implement spec §6 in full: a pure pathlib-based input resolver that
-takes a file or directory and returns a deterministic list of input paths,
-with extension filtering, substring sample filtering, and optional recursion.
-No HDF5 logic. No GUI.
+**Goal.** Implement spec §7 in full: the first concrete reader, plus the
+synthetic-HDF5 test fixture from spec §20.1. The reader opens XRM-map style
+HDF5 files and returns a populated `AxiommSignalPayload`, with all
+scientific defaults parameterised through a frozen `XRMMapH5Config`
+dataclass and missing optional metadata surfaced as `Diagnostic`s.
 
 **New files (expected):**
 
-* `src/axiomm/io/converters/discovery.py` — `discover_inputs(...)`.
-* `tests/io/converters/test_discovery.py` — at least the two cases named in
-  spec §20.2 (`test_discover_single_file`,
-  `test_discover_directory_sample_filter`) plus tests for: no matches +
-  `require_non_empty=True` raising `InputDiscoveryError`; case-insensitive
-  extension matching; deterministic ordering; recursive vs. non-recursive.
+* `src/axiomm/io/converters/readers/xrmmap_h5.py` — `XRMMapH5Reader` class
+  (implementing the `Reader` protocol), `XRMMapH5Config` dataclass with
+  spec §17 defaults, and helpers `decode_hdf5_string`,
+  `decode_hdf5_string_array`, `parse_micrometre_value`.
+* `tests/io/converters/fixtures.py` — synthetic-HDF5 builder helper that
+  produces a minimal valid XRM-map file with shape `(4, 3, 16)`:
+  `/xrmmap/mcasum/counts`, `/xrmmap/config/environ/{name,value}`,
+  `/xrmmap/config/rois/{name,limits}`.
+* `tests/io/converters/test_xrmmap_h5_reader.py` — the reader tests named
+  in spec §20.2 plus the helper tests.
 
-**Acceptance criteria for Chunk 2:**
+**Acceptance criteria for Chunk 3:**
 
-1. `discover_inputs(file_path)` returns `[file_path]` if the file exists.
-2. `discover_inputs(dir_path, extensions=(".h5",), sample="A21_054")` returns
-   only matching files, sorted, deterministic across runs.
-3. `discover_inputs(...)` raises `InputDiscoveryError` (not a generic
-   exception) when no files match and `require_non_empty=True`.
-4. Extensions are matched case-insensitively.
-5. `recursive=True` walks subdirectories; `recursive=False` does not.
-6. `discover_inputs` never opens any HDF5 file, never imports `h5py`, never
-   imports `tkinter`, never prints, never calls `input()`.
-7. The "no side effects on import" test from Chunk 1 still passes.
-8. New tests pass, plus `pytest` overall is green.
+1. `XRMMapH5Reader().read(path)` returns an `AxiommSignalPayload` whose
+   axes match the data shape, `signal_kind == "signal1d"`, and whose
+   `metadata` / `original_metadata` are populated from the HDF5 file.
+2. Default `XRMMapH5Config` values match spec §17 (counts path, environ
+   paths, ROI paths, beam-size key, `energy_scale = 40.96 / 4096`,
+   `roi_limit_scale = 0.01`, `fallback_field_width_um = 500.0`).
+3. `parse_micrometre_value` accepts the variants listed in spec §7.7
+   (`"1um"`, `"1 um"`, `"1 µm"`, `"1 μm"`, `"1.0um"`, `"1.0 micrometer"`,
+   `"1.0 micrometre"`) and raises `MetadataParseError` on malformed input.
+4. `decode_hdf5_string` / `decode_hdf5_string_array` handle the variants
+   listed in spec §7.6 (bytes, fixed-width byte strings, null-padded byte
+   strings, NumPy bytes arrays, already-decoded strings).
+5. Missing `/xrmmap/mcasum/counts` raises `DatasetNotFoundError` clearly.
+6. Missing ROI metadata emits a `Diagnostic` but still produces a payload
+   (spec §7.8).
+7. Missing beam-size config emits a `Diagnostic` and falls back to
+   `fallback_field_width_um` when configured (spec §7.8).
+8. Importing `axiomm.io.converters.readers.xrmmap_h5` does not pull in
+   tkinter; the side-effect tests from Chunks 1 and 2 still pass.
+9. `pytest` is green overall.
 
-**Out of scope for Chunk 2.** No regex filtering yet — substring only.
-Spec §6.4 says "the implementation should allow future regex matching",
-meaning leave the door open in the signature, not implement it now.
-No registry integration yet. No reader auto-detection.
+**Out of scope for Chunk 3.**
 
-## Verifying Chunk 1
+* No HyperSpy build (Chunk 4).
+* No writer (Chunk 5).
+* No registry registration (Chunk 5+).
+* No real-file tests — synthetic fixture only. Real-file validation lives
+  in Chunk 4 once the builder exists.
+* `lazy=True` may keep the dataset as an `h5py.Dataset` reference but
+  does not need a full lazy-graph implementation; whatever choice is made
+  must be documented in a `Diagnostic` and a docstring.
+
+**Dependency note.** Chunk 3 introduces a real runtime dependency on
+`h5py`. Either install it via `pip install -e ".[hdf5,dev]"` before
+running the reader tests, or mark them with
+`pytest.importorskip("h5py")` so a `h5py`-free environment still passes
+the rest of the suite. The latter is preferred for the existing
+side-effect tests; the former for the new reader tests.
+
+## Verifying the current state (after Chunk 2)
 
 In an environment with Python ≥ 3.10 and the dev extras installed, the
 canonical chunk-verification commands are:
@@ -131,7 +158,7 @@ python -m pip install -e ".[dev]"
 pytest -q
 ```
 
-Expected result: 5 tests pass, 0 fail.
+Expected result: **23 tests pass**, 0 fail.
 
 If the system pytest (`/usr/bin/pytest`, Python 3.11) is used without
 installing the package, the `[tool.pytest.ini_options].pythonpath = ["src"]`

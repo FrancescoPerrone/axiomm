@@ -19,6 +19,7 @@ Tk dialogs) live separately and wrap the core; they are never imported here.
 from __future__ import annotations
 
 from axiomm.io.converters import errors, models
+from axiomm.io.converters.discovery import discover_inputs
 from axiomm.io.converters.errors import (
     AxiommConverterError,
     ConversionWorkflowError,
@@ -65,4 +66,6 @@ __all__ = [
     "Reader",
     "SignalBuilder",
     "Writer",
+    # discovery
+    "discover_inputs",
 ]
