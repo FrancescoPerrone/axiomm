@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "axiomm"
 version = "0.1.0.dev0"
-description = "AXIOMM: tools for scientific microscopy and spectroscopy data conversion and analysis."
+description = "AXIOMM: a Python package for spectroscopy."
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.10"
@@ -13,13 +13,7 @@ authors = [
     { name = "Francesco Perrone" },
 ]
 keywords = [
-    "microscopy",
     "spectroscopy",
-    "xrf",
-    "xrm",
-    "hdf5",
-    "hyperspy",
-    "scientific-data",
 ]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
@@ -31,7 +25,6 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering",
-    "Topic :: Scientific/Engineering :: Physics",
 ]
 dependencies = [
     "numpy>=1.24",

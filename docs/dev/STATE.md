@@ -5,7 +5,13 @@
 > the next chunk is, and which decisions have been made.
 > See `CLAUDE.md` at the repo root for the working agreement and hard
 > constraints, and `docs/specs/converter_tool_spec.md` for the authoritative
-> specification.
+> specification of *the converter tool* (not of AXIOMM as a whole).
+
+> **About AXIOMM's scope.** AXIOMM is a Python package for spectroscopy.
+> The work in progress here is one **small utility tool** inside AXIOMM —
+> the converter — not the package's headline. Don't describe AXIOMM more
+> broadly than that in code or docs; Francesco will define the wider
+> scope when he is ready.
 
 ## How development is organised
 

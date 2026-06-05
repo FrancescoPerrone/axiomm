@@ -6,15 +6,23 @@ making any change.**
 
 ## What AXIOMM is
 
-AXIOMM is a Python package for scientific microscopy and spectroscopy data
-conversion and analysis. The author and sole owner of the package is
-**Francesco Perrone**. The package is under active development.
+**AXIOMM is a Python package for spectroscopy.** The author and sole owner
+of the package is **Francesco Perrone**.
 
-The first tool being built inside AXIOMM is a **converter** for XRM-map style
-HDF5 files into HyperSpy `.hspy` signals. The converter is intentionally
-designed as a pluggable system (format-agnostic readers, backend-agnostic
-signal builders, pluggable writers) so future formats and backends can be
-added without touching the core.
+The broader scope of AXIOMM (analyses, workflows, user-facing APIs) is
+intentionally left open at this stage and will be specified by Francesco as
+development progresses. **Do not, in code or documentation, claim that
+AXIOMM is for microscopy, data analysis, data conversion, or any other
+domain unless Francesco has explicitly authorised that framing.** Under-
+describing is better than inventing scope.
+
+The work currently in progress is a **small utility tool** inside AXIOMM:
+the *converter*, which turns instrument-specific data files (initial focus:
+XRM-map style HDF5) into analysis-ready signal objects. It is one of
+several tools AXIOMM will eventually offer — not the package's purpose.
+The converter is designed as a pluggable system (format-agnostic readers,
+backend-agnostic signal builders, pluggable writers) so future formats and
+backends plug in without touching the core.
 
 ## Authoritative documents
 
