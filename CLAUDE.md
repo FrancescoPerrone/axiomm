@@ -6,15 +6,19 @@ making any change.**
 
 ## What AXIOMM is
 
-**AXIOMM is a Python package for spectroscopy.** The author and sole owner
-of the package is **Francesco Perrone**.
+**AXIOMM stands for "Automated X-ray Intelligence for Organising Mineral
+Mapping" and is a Python package for spectroscopy.** The author and sole
+owner of the package is **Francesco Perrone**.
 
-The broader scope of AXIOMM (analyses, workflows, user-facing APIs) is
-intentionally left open at this stage and will be specified by Francesco as
-development progresses. **Do not, in code or documentation, claim that
-AXIOMM is for microscopy, data analysis, data conversion, or any other
-domain unless Francesco has explicitly authorised that framing.** Under-
-describing is better than inventing scope.
+The acronym authorises the framing: AXIOMM concerns X-ray spectroscopy,
+mineral mapping, and automated organisation of that data. The broader
+scope (which analyses, which automation, which user-facing APIs) is
+intentionally left open at this stage and will be specified by Francesco
+as development progresses. **Do not extrapolate beyond what the acronym
+licenses or what Francesco has explicitly authorised — under-describing is
+better than inventing scope.** In particular: the "M"s are *Mineral
+Mapping*, not *Microscopy*; do not slip "microscopy" into AXIOMM-facing
+text without Francesco's say-so.
 
 The work currently in progress is a **small utility tool** inside AXIOMM:
 the *converter*, which turns instrument-specific data files (initial focus:

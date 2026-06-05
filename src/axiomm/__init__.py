@@ -1,6 +1,7 @@
-"""AXIOMM — a Python package for spectroscopy.
+"""AXIOMM — Automated X-ray Intelligence for Organising Mineral Mapping.
 
-The broader scope of AXIOMM (analyses, workflows, user-facing APIs) is
+A Python package for spectroscopy, applied to mineral-mapping workflows.
+The broader scope of AXIOMM (analyses, automation, user-facing APIs) is
 defined by Francesco Perrone and is intentionally left open at this stage
 of development. The currently implemented portion of the package is one
 utility tool — the converter — exposed under :mod:`axiomm.io.converters`.

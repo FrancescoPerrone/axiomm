@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "axiomm"
 version = "0.1.0.dev0"
-description = "AXIOMM: a Python package for spectroscopy."
+description = "AXIOMM (Automated X-ray Intelligence for Organising Mineral Mapping): a Python package for spectroscopy."
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.10"
@@ -14,6 +14,9 @@ authors = [
 ]
 keywords = [
     "spectroscopy",
+    "x-ray",
+    "mineral-mapping",
+    "mineralogy",
 ]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
@@ -25,6 +28,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Physics",
 ]
 dependencies = [
     "numpy>=1.24",
