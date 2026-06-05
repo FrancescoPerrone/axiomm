@@ -47,8 +47,10 @@ dev = [
 # axiomm-convert = "axiomm.io.converters.ux.cli:main"
 
 [project.urls]
-Documentation = "https://github.com/francescoperr/axiomm"  # placeholder
-Source = "https://github.com/francescoperr/axiomm"          # placeholder
+Homepage = "https://github.com/FrancescoPerrone/axiomm"
+Source = "https://github.com/FrancescoPerrone/axiomm"
+Issues = "https://github.com/FrancescoPerrone/axiomm/issues"
+Documentation = "https://github.com/FrancescoPerrone/axiomm/wiki"
 
 [tool.setuptools.packages.find]
 where = ["src"]
