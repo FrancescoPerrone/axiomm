@@ -82,6 +82,9 @@ pytest
 
 ## Documentation
 
+- **Wiki**: <https://github.com/FrancescoPerrone/axiomm/wiki> — public
+  documentation entry point (Home, Tools, Converter, Architecture,
+  Roadmap, Development, Specification, Glossary).
 - `docs/specs/converter_tool_spec.md` — authoritative specification for the
   converter tool. (For the converter only; not a description of AXIOMM as
   a whole.)

@@ -161,8 +161,13 @@ works.
   `axiomm.io`. The broader AXIOMM analysis pipeline will live in sibling
   packages (`axiomm.signal`, `axiomm.analysis`, …) — names TBD with
   Francesco when scope expands beyond the converter.
-* **Documentation tooling.** Not yet chosen (Sphinx vs. MkDocs vs. just a
-  GitHub wiki). Decide before Chunk 7/8 when the docs surface starts to grow.
+* **Documentation tooling.** Initial choice is the **GitHub wiki**, seeded
+  with `Home`, `Tools`, `Converter`, `Converter-Architecture`, `Roadmap`,
+  `Development`, `Specification`, `Glossary` plus `_Sidebar` / `_Footer`.
+  Live at <https://github.com/FrancescoPerrone/axiomm/wiki>. Wiki pages
+  live in a separate git repo (`axiomm.wiki.git`) and must be edited there,
+  not in `docs/`. Heavier tooling (Sphinx / MkDocs with API autodoc) is
+  still on the table for later, once the public API stabilises.
 
 ## Notes for resuming work
 
