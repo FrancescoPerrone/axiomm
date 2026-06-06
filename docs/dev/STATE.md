@@ -344,8 +344,10 @@ python -m pip install -e ".[dev,all]"
 pytest -q
 ```
 
-Expected result: **108 tests pass**, 0 fail. With `h5py` only (no
-hyperspy): 82 pass, 26 skipped. With neither: 23 pass, the rest skipped.
+Expected result: **110 tests pass**, 0 fail. With `h5py` only (no
+hyperspy): 83 pass, 2 skipped (the hyperspy_builder module skips as one
+unit; `test_lazy_concrete_builder_exports` skips individually). With
+neither h5py nor hyperspy: the rest skip too.
 
 > Note: Francesco's `xrf` conda env has hyperspy 2.3.0 and h5py 2.10.0
 > but is Python 3.9, below our declared `requires-python = ">=3.10"`,
