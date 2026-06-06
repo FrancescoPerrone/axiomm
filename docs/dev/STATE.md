@@ -48,7 +48,7 @@ Never start two chunks in one session without confirmation.
 
 Tracked in spec §23. Pick up after Phase 1 lands.
 
-## Current state (as of Chunk 1)
+## Current state (as of Chunk 2)
 
 What exists in this repository:
 
@@ -61,25 +61,38 @@ What exists in this repository:
 * `readers/base.py`, `signals/base.py`, `writers/base.py` — runtime-checkable
   `Protocol`s for `Reader`, `SignalBuilder`, `Writer`. Generality is built in
   from the start: HyperSpy is one possible builder, not an assumption.
+* **`discovery.py` — `discover_inputs(...)`** implementing spec §6: file or
+  directory input, optional extension filter (case-insensitive), optional
+  sample-substring filter on file names, optional recursion, deterministic
+  ordering, `InputDiscoveryError` on missing path / non-file-non-dir input
+  / no matches with `require_non_empty=True`. Pure pathlib, no HDF5, no GUI.
 * `tests/io/converters/test_import_has_no_side_effects.py` — guards spec
   §24.1 (silent import) plus a "models stay backend-neutral" check.
+* **`tests/io/converters/test_discovery.py`** — 18 tests covering every
+  spec §6 behavioural requirement plus determinism and a "no h5py / no
+  tkinter import" check specific to `discover_inputs`.
 * `pyproject.toml` with src-layout, `requires-python = ">=3.10"`, optional
   extras for `hdf5`, `hyperspy`, `all`, `notebook`, `dev`. Pytest configured
   with `pythonpath = ["src"]` so tests run without an install.
-* `LICENSE` — PolyForm Noncommercial 1.0.0 (decision made in Chunk 1; see
-  *Open decisions* below if you want to revisit).
-* `README.md` — short package summary, dev install, licence note.
-* `CLAUDE.md` at repo root — hard constraints and working agreement.
+* `LICENSE` — PolyForm Noncommercial 1.0.0.
+* `README.md` — short package summary (with AXIOMM acronym expansion),
+  Tools section, dev install, wiki link, licence note.
+* `CLAUDE.md` at repo root — hard constraints and working agreement;
+  spells out the AXIOMM acronym and warns the M's are *Mineral Mapping*,
+  not Microscopy.
 * `docs/specs/converter_tool_spec.md` — the authoritative spec (copy of the
   original from `docs_refactoring/`).
 * `docs/specs/_legacy/converter_prototype.py` — the original converter
   prototype, reference-only. **Do not import or extend it from package code.**
 * `.gitignore` tuned for Python + scientific scratch outputs.
+* Public wiki at <https://github.com/FrancescoPerrone/axiomm/wiki>
+  (Home, Tools, Converter, Converter-Architecture, Roadmap, Development,
+  Specification, Glossary, plus `_Sidebar` / `_Footer`).
 
 What does **not** yet exist (deferred to later chunks):
 
 * Any concrete reader, builder, writer, or workflow function.
-* The `discovery.py`, `workflows.py`, and `registry.py` modules.
+* The `workflows.py` and `registry.py` modules.
 * The CLI entry point (commented out in `pyproject.toml`).
 * The `ux/` subpackage (CLI, notebook, Tk dialogs).
 * User-facing documentation under `docs/user/`.
