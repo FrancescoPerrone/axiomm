@@ -93,6 +93,22 @@ def test_lazy_concrete_reader_exports():
     assert XRMMapH5Config().counts_path == "/xrmmap/mcasum/counts"
 
 
+def test_lazy_concrete_builder_exports():
+    """HyperSpyBuilder / build_hyperspy_signal are importable lazily from the top-level package."""
+    pytest.importorskip("hyperspy")
+    from axiomm.io.converters import HyperSpyBuilder, build_hyperspy_signal  # noqa: F401
+
+    assert HyperSpyBuilder().name == "hyperspy"
+    assert callable(build_hyperspy_signal)
+
+
+def test_validate_axes_is_eagerly_importable():
+    """validate_axes is part of the package surface and does not require hyperspy."""
+    from axiomm.io.converters import validate_axes  # noqa: F401
+
+    assert callable(validate_axes)
+
+
 def test_models_are_backend_neutral():
     """Models module must not depend on hyperspy or h5py."""
     _drop_axiomm_modules()

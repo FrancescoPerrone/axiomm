@@ -68,10 +68,18 @@ __all__ = [
     "Writer",
     # discovery
     "discover_inputs",
-    # concrete readers (lazily imported — see __getattr__ below)
+    # validation
+    "validate_axes",
+    # concrete readers + builders (lazily imported — see __getattr__ below)
     "XRMMapH5Config",
     "XRMMapH5Reader",
+    "HyperSpyBuilder",
+    "build_hyperspy_signal",
 ]
+
+
+# Re-export validate_axes eagerly: it has no heavy deps.
+from axiomm.io.converters.signals.validation import validate_axes  # noqa: E402
 
 
 # Lazy attribute imports (PEP 562). Concrete readers, builders and writers
@@ -87,6 +95,14 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "XRMMapH5Config": (
         "axiomm.io.converters.readers.xrmmap_h5",
         "XRMMapH5Config",
+    ),
+    "HyperSpyBuilder": (
+        "axiomm.io.converters.signals.hyperspy_builder",
+        "HyperSpyBuilder",
+    ),
+    "build_hyperspy_signal": (
+        "axiomm.io.converters.signals.hyperspy_builder",
+        "build_hyperspy_signal",
     ),
 }
 

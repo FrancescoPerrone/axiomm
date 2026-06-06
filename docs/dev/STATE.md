@@ -33,8 +33,8 @@ Never start two chunks in one session without confirmation.
 | 1 | Skeleton + foundations (errors, models, protocols, handoff docs)     | ✅ done    |
 | 2 | `discover_inputs` (§6) + unit tests                                  | ✅ done    |
 | 3 | `XRMMapH5Reader` (§7) + synthetic HDF5 fixture (§20.1) + tests       | ✅ done    |
-| 4 | `HyperSpyBuilder` (§8) + axis-order tests                            | ⬜ next    |
-| 5 | `HSpyWriter` (§9.4) + `convert_file` (§11.2) + end-to-end test       | ⬜ pending |
+| 4 | `HyperSpyBuilder` (§8) + axis-order tests                            | ✅ done    |
+| 5 | `HSpyWriter` (§9.4) + `convert_file` (§11.2) + end-to-end test       | ⬜ next    |
 
 ### Phase 1 — usability
 
@@ -53,7 +53,7 @@ when the time comes.
 
 Tracked in spec §23. Pick up after Phase 1 lands.
 
-## Current state (as of Chunk 3)
+## Current state (as of Chunk 4)
 
 What exists in this repository:
 
@@ -99,6 +99,35 @@ What exists in this repository:
 * `axiomm.io.converters.__init__` re-exports `XRMMapH5Reader` and
   `XRMMapH5Config` lazily via PEP 562 `__getattr__`, so package import
   still does not pull in `h5py`.
+* **`signals/validation.py` — `validate_axes`**: structural-then-semantic
+  checks per spec §8.6 (axis count vs. `data.ndim`; every axis declares
+  a valid in-bounds `index_in_array`; the indices form a complete
+  permutation of `[0, ndim)`; axis sizes match the data shape;
+  signal-axis count matches the requested `SignalKind`). Eagerly
+  re-exported from the converters package — it has no heavy deps.
+* **`signals/hyperspy_builder.py` — first concrete `SignalBuilder`.**
+  `HyperSpyBuilder.build(payload)` validates the payload, resolves
+  `signal_kind="auto"` from the count of signal axes, optionally
+  transposes the data so signal axes are trailing (HyperSpy's
+  expectation), constructs the right `hs.signals.*` class, and assigns
+  axis name/units/scale/offset by matching `AxisSpec.index_in_array` to
+  HyperSpy's `axis.index_in_array` — *not* by tuple position, which is
+  how the prototype's axis-labelling bug came in (HyperSpy reverses
+  `navigation_axes` order relative to numpy). Metadata is copied into
+  `signal.metadata.AXIOMM`, including provenance and diagnostics;
+  `payload.title` becomes `signal.metadata.General.title`;
+  `payload.original_metadata` carries over verbatim.
+  `build_hyperspy_signal(payload)` is a convenience wrapper.
+  Lazily re-exported from the converters package via `__getattr__`.
+* **`tests/io/converters/test_hyperspy_builder.py`** — 26 tests covering
+  signal-kind resolution (signal1d/signal2d/base/auto), every
+  `validate_axes` failure mode, axis-name correctness (the test that
+  catches the prototype bug), non-canonical axis order (signal axis at
+  numpy index 0 → transparently transposed), every metadata-propagation
+  branch, the convenience function, an end-to-end synthetic-fixture
+  round trip, and the no-tkinter-on-import check. Module-level
+  `pytest.importorskip("hyperspy.api")` so the suite still passes
+  cleanly in environments without HyperSpy.
 * `pyproject.toml` with src-layout, `requires-python = ">=3.10"`, optional
   extras for `hdf5`, `hyperspy`, `all`, `notebook`, `dev`. Pytest configured
   with `pythonpath = ["src"]` so tests run without an install.
@@ -119,7 +148,7 @@ What exists in this repository:
 
 What does **not** yet exist (deferred to later chunks):
 
-* Any concrete signal builder, writer, or workflow function.
+* Any concrete writer, or workflow function.
 * The `workflows.py` and `registry.py` modules.
 * The CLI entry point (commented out in `pyproject.toml`).
 * The `ux/` subpackage (CLI, notebook, Tk dialogs).
@@ -147,13 +176,97 @@ The reader was smoke-tested against the smallest real XRM file at
      `XRMMapH5Config` in Phase 2 and use `limits[:, roi_variant_index, :]`.
   2. Use the generic HDF5 schema-driven reader (Phase 3, spec §23).
 
-## Next chunk: Chunk 4 — `HyperSpyBuilder` + axis-order tests
+### Chunk 4 finding (recorded for future contributors)
 
-**Goal.** Implement spec §8 in full: the first concrete `SignalBuilder`,
-which turns an `AxiommSignalPayload` into a HyperSpy signal. Resolve the
-`signal_kind` deterministically, validate axes against the data shape
-*before* building, and handle HyperSpy's reversed axis convention
-correctly (spec §8.7 explicitly warns the builder must validate this).
+HyperSpy's `axes_manager.navigation_axes` is ordered *reverse* to numpy
+order within the navigation-role group. For a numpy array of shape
+`(d0, d1, d2)` constructed as `hs.signals.Signal1D(data)`:
+
+```
+navigation_axes[0].index_in_array == 1   # numpy axis 1
+navigation_axes[1].index_in_array == 0   # numpy axis 0
+signal_axes[0].index_in_array == 2       # numpy axis 2
+```
+
+The prototype's `xrf_data.axes_manager.navigation_axes[0].name = 'x'`
+therefore labelled what is actually numpy axis 1 (ydim, in our
+convention) — silently swapping x and y. Our builder defends against
+this by **matching `AxisSpec.index_in_array` to `hs_axis.index_in_array`
+during assignment**, never relying on tuple position. The `Signal2D`
+case has the same reversal within the signal-axes group.
+
+Real-file e2e against
+`IE_30s_map__Sep16_15_20_39_A22-043_1_001.h5` (data shape `(23, 21, 4096)`)
+produces a `Signal1D` whose axes label correctly: `idx=0 → 'x' size=23`,
+`idx=1 → 'y' size=21`, `idx=2 → 'Energy' size=4096`, with
+`signal.metadata.General.title` set from the file stem and
+`signal.metadata.AXIOMM.{reader,provenance,diagnostics}` populated.
+
+## Next chunk: Chunk 5 — `HSpyWriter` + `convert_file` + end-to-end test
+
+**Goal.** Implement spec §9.4 (`HSpyWriter`) and spec §11.2
+(`convert_file`) so the converter has a working end-to-end Python API:
+`axiomm.io.converters.convert_file(...)` takes a path in, writes a
+`.hspy` file out, and returns a `ConversionResult`.
+
+**New files (expected):**
+
+* `src/axiomm/io/converters/writers/hspy.py` — `HSpyWriter` class
+  implementing the `Writer` protocol. Default extension `.hspy`. Raises
+  `OutputExistsError` when the target exists and `overwrite=False`;
+  delegates the actual write to `signal.save(...)`.
+* `src/axiomm/io/converters/workflows.py` — `convert_file(...)` per
+  spec §11.2, returning a `ConversionResult`. A small built-in
+  reader/writer name-to-class lookup is acceptable (the full
+  `registry.py` lands in Phase 3); `reader="auto"` should dispatch via
+  `Reader.can_read(path)` against the built-in mapping and fail with
+  `ReaderDetectionError` when ambiguous or unsupported.
+* `tests/io/converters/test_hspy_writer.py` — writer behaviour
+  (writes a usable file; refuses to overwrite by default; respects
+  the `overwrite` flag).
+* `tests/io/converters/test_workflows.py` — `convert_file` happy path
+  end-to-end on the synthetic fixture; `OutputExistsError` enforcement;
+  `reader="auto"` dispatch.
+
+**Acceptance criteria for Chunk 5:**
+
+1. `HSpyWriter()` advertises `name="hspy"` and
+   `supported_extensions=(".hspy",)`.
+2. `HSpyWriter().write(signal, output_path)` writes a `.hspy` file at
+   `output_path` and returns the resolved `Path`. The written file is
+   loadable back by `hyperspy.api.load(...)` with the same shape and
+   the same `AXIOMM` metadata namespace.
+3. `HSpyWriter().write(signal, output_path)` raises `OutputExistsError`
+   when the file already exists and `overwrite=False`. Passing
+   `overwrite=True` replaces the file.
+4. `convert_file(input_path, output_path=...)` returns a
+   `ConversionResult` whose `input_path`, `output_path`, `reader_name`
+   and `writer_name` fields are populated. `manifest_path` is `None`
+   (manifest is Chunk 7, not Chunk 5).
+5. Output-path resolution rules:
+   - explicit `output_path=...` wins;
+   - otherwise `output_dir + input_path.stem + ".hspy"`;
+   - otherwise `input_path.with_suffix(".hspy")`.
+6. `reader="xrmmap_h5"` resolves through a tiny built-in mapping to
+   `XRMMapH5Reader()`; `reader="auto"` iterates the built-in mapping,
+   accepts the first reader whose `can_read(path)` is `True`, and
+   raises `ReaderDetectionError` if none or multiple do.
+7. End-to-end test on the synthetic fixture: `convert_file(...)`
+   produces a `.hspy` file that loads back with shape `(4, 3, 16)` and
+   the AXIOMM metadata namespace intact.
+8. Importing `workflows.py` and `writers/hspy.py` does not pull in
+   tkinter; the side-effect tests from all earlier chunks still pass.
+9. `pytest` is green overall, both with and without HyperSpy
+   installed (HyperSpy-requiring tests use `pytest.importorskip`).
+
+**Out of scope for Chunk 5.**
+
+* Manifest writer (`<output>.axiomm.json`) — Chunk 7.
+* `convert_many` — Chunk 6.
+* CLI entry point — Chunk 6 (blocked on the UX-layout decision).
+* Real lazy execution — still future.
+* Full plugin registry (entry points) — Phase 3.
+* Provenance classification (observed vs. inferred vs. assumed) — Chunk 7.
 
 **New files (expected):**
 
@@ -220,19 +333,26 @@ risk* in this chunk — invest the time to assert axis labels and sizes
 explicitly against the constructed `axes_manager`, not just against the
 payload's `AxisSpec` tuple.
 
-## Verifying the current state (after Chunk 3)
+## Verifying the current state (after Chunk 4)
 
 In an environment with Python ≥ 3.10 and the dev extras installed, the
 canonical chunk-verification commands are:
 
 ```bash
 cd /home/francesco/Desktop/research/axiomm
-python -m pip install -e ".[dev,hdf5]"
+python -m pip install -e ".[dev,all]"
 pytest -q
 ```
 
-Expected result: **82 tests pass**, 0 fail. (If `h5py` is not installed
-the 59 XRM reader tests are skipped, but the remaining 23 still pass.)
+Expected result: **108 tests pass**, 0 fail. With `h5py` only (no
+hyperspy): 82 pass, 26 skipped. With neither: 23 pass, the rest skipped.
+
+> Note: Francesco's `xrf` conda env has hyperspy 2.3.0 and h5py 2.10.0
+> but is Python 3.9, below our declared `requires-python = ">=3.10"`,
+> and lacks pytest. For dev/test runs use a Python 3.11+ environment
+> with the `[dev,all]` extras installed. The author's ephemeral venv
+> for this work is at `/tmp/axiomm-venv` — Python 3.11, hyperspy 2.4.0,
+> h5py 3.16.0, pytest 9.0.3.
 
 If the system pytest (`/usr/bin/pytest`, Python 3.11) is used without
 installing the package, the `[tool.pytest.ini_options].pythonpath = ["src"]`

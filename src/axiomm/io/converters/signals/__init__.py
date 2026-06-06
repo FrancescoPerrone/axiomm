@@ -12,5 +12,6 @@ is usable in environments where only a subset of backends is installed.
 from __future__ import annotations
 
 from axiomm.io.converters.signals.base import SignalBuilder
+from axiomm.io.converters.signals.validation import validate_axes
 
-__all__ = ["SignalBuilder"]
+__all__ = ["SignalBuilder", "validate_axes"]
