@@ -12,6 +12,8 @@ import builtins
 import io
 import sys
 
+import pytest
+
 
 def _drop_axiomm_modules() -> None:
     """Remove any cached ``axiomm.*`` modules so the next import is fresh."""
@@ -78,7 +80,17 @@ def test_public_symbols_exposed():
         SignalBuilder,
         SourceProvenance,
         Writer,
+        discover_inputs,
     )
+
+
+def test_lazy_concrete_reader_exports():
+    """XRMMapH5Reader / XRMMapH5Config are importable lazily from the top-level package."""
+    pytest.importorskip("h5py")
+    from axiomm.io.converters import XRMMapH5Config, XRMMapH5Reader  # noqa: F401
+
+    assert XRMMapH5Reader().name == "xrmmap_h5"
+    assert XRMMapH5Config().counts_path == "/xrmmap/mcasum/counts"
 
 
 def test_models_are_backend_neutral():

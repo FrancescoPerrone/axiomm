@@ -32,8 +32,8 @@ Never start two chunks in one session without confirmation.
 |---|----------------------------------------------------------------------|------------|
 | 1 | Skeleton + foundations (errors, models, protocols, handoff docs)     | ✅ done    |
 | 2 | `discover_inputs` (§6) + unit tests                                  | ✅ done    |
-| 3 | `XRMMapH5Reader` (§7) + synthetic HDF5 fixture (§20.1) + tests       | ⬜ next    |
-| 4 | `HyperSpyBuilder` (§8) + axis-order tests                            | ⬜ pending |
+| 3 | `XRMMapH5Reader` (§7) + synthetic HDF5 fixture (§20.1) + tests       | ✅ done    |
+| 4 | `HyperSpyBuilder` (§8) + axis-order tests                            | ⬜ next    |
 | 5 | `HSpyWriter` (§9.4) + `convert_file` (§11.2) + end-to-end test       | ⬜ pending |
 
 ### Phase 1 — usability
@@ -48,7 +48,7 @@ Never start two chunks in one session without confirmation.
 
 Tracked in spec §23. Pick up after Phase 1 lands.
 
-## Current state (as of Chunk 2)
+## Current state (as of Chunk 3)
 
 What exists in this repository:
 
@@ -71,6 +71,29 @@ What exists in this repository:
 * **`tests/io/converters/test_discovery.py`** — 18 tests covering every
   spec §6 behavioural requirement plus determinism and a "no h5py / no
   tkinter import" check specific to `discover_inputs`.
+* **`readers/xrmmap_h5.py` — first concrete reader.** `XRMMapH5Reader`
+  implements the `Reader` protocol; every HDF5 path is a field of the
+  frozen `XRMMapH5Config` (spec §7.5) so XRM-style files with different
+  paths can be read by passing a configured reader. Missing optional
+  metadata becomes structured `Diagnostic`s on the payload; only a
+  missing primary counts dataset raises (`DatasetNotFoundError`, with an
+  actionable message naming the path and the config field to override).
+  Includes spec §7.6 string-decoding helpers (`decode_hdf5_string`,
+  `decode_hdf5_string_array`) and the spec §7.7 beam-size parser
+  (`parse_micrometre_value`). MVP reads eagerly; `lazy=True` is accepted
+  and produces a `lazy_downgraded_to_eager` diagnostic.
+* **`tests/io/converters/conftest.py`** — `synthetic_xrmmap_h5` factory
+  fixture (spec §20.1): builds minimal valid XRM-map HDF5 files in
+  `tmp_path` with switches to omit each dataset group so the reader's
+  missing-metadata branches can be exercised.
+* **`tests/io/converters/test_xrmmap_h5_reader.py`** — 59 tests covering
+  `XRMMapH5Config` defaults (spec §17), the protocol attributes,
+  `can_read` (extension + signature peek), happy-path `read`, every
+  missing-metadata branch, the `lazy` flag, the config-override
+  "different paths" use case, and an `import` hygiene check.
+* `axiomm.io.converters.__init__` re-exports `XRMMapH5Reader` and
+  `XRMMapH5Config` lazily via PEP 562 `__getattr__`, so package import
+  still does not pull in `h5py`.
 * `pyproject.toml` with src-layout, `requires-python = ">=3.10"`, optional
   extras for `hdf5`, `hyperspy`, `all`, `notebook`, `dev`. Pytest configured
   with `pythonpath = ["src"]` so tests run without an install.
@@ -91,87 +114,120 @@ What exists in this repository:
 
 What does **not** yet exist (deferred to later chunks):
 
-* Any concrete reader, builder, writer, or workflow function.
+* Any concrete signal builder, writer, or workflow function.
 * The `workflows.py` and `registry.py` modules.
 * The CLI entry point (commented out in `pyproject.toml`).
 * The `ux/` subpackage (CLI, notebook, Tk dialogs).
 * User-facing documentation under `docs/user/`.
 * `CITATION.cff` and `ACKNOWLEDGEMENTS.md`.
 
-## Next chunk: Chunk 3 — `XRMMapH5Reader` + synthetic HDF5 fixture
+### Real-file findings from Chunk 3 (recorded for later chunks)
 
-**Goal.** Implement spec §7 in full: the first concrete reader, plus the
-synthetic-HDF5 test fixture from spec §20.1. The reader opens XRM-map style
-HDF5 files and returns a populated `AxiommSignalPayload`, with all
-scientific defaults parameterised through a frozen `XRMMapH5Config`
-dataclass and missing optional metadata surfaced as `Diagnostic`s.
+The reader was smoke-tested against the smallest real XRM file at
+`/home/francesco/Desktop/research/melts/data/Maps-HDF5/IE_30s_map__Sep16_15_20_39_A22-043_1_001.h5`
+(not in the repo). Findings:
+
+- **Counts shape** `(23, 21, 4096)` — `(xdim, ydim, n_channels)`. Reads
+  cleanly; `energy_scale = 40.96 / 4096 = 0.01` keV/channel gives a
+  reasonable 40.96 keV span.
+- **Beam size** `"2um"` was parsed correctly → navigation scale 2.0 µm.
+- **65 environ entries** were extracted without issue.
+- **ROI limits shape** is `(35, 7, 2)`, *not* `(n_rois, 2)`. The real
+  file stores multiple ROI variants per element (likely per-detector
+  or per-fit-pass). The reader currently emits the
+  `roi_limits_unexpected_shape` diagnostic and skips ROI extraction — a
+  safe MVP behaviour but a real schema-conformance issue. To recover
+  ROI metadata from real files, one of:
+  1. Add a `roi_variant_index: int = 0` (or similar) to
+     `XRMMapH5Config` in Phase 2 and use `limits[:, roi_variant_index, :]`.
+  2. Use the generic HDF5 schema-driven reader (Phase 3, spec §23).
+
+## Next chunk: Chunk 4 — `HyperSpyBuilder` + axis-order tests
+
+**Goal.** Implement spec §8 in full: the first concrete `SignalBuilder`,
+which turns an `AxiommSignalPayload` into a HyperSpy signal. Resolve the
+`signal_kind` deterministically, validate axes against the data shape
+*before* building, and handle HyperSpy's reversed axis convention
+correctly (spec §8.7 explicitly warns the builder must validate this).
 
 **New files (expected):**
 
-* `src/axiomm/io/converters/readers/xrmmap_h5.py` — `XRMMapH5Reader` class
-  (implementing the `Reader` protocol), `XRMMapH5Config` dataclass with
-  spec §17 defaults, and helpers `decode_hdf5_string`,
-  `decode_hdf5_string_array`, `parse_micrometre_value`.
-* `tests/io/converters/fixtures.py` — synthetic-HDF5 builder helper that
-  produces a minimal valid XRM-map file with shape `(4, 3, 16)`:
-  `/xrmmap/mcasum/counts`, `/xrmmap/config/environ/{name,value}`,
-  `/xrmmap/config/rois/{name,limits}`.
-* `tests/io/converters/test_xrmmap_h5_reader.py` — the reader tests named
-  in spec §20.2 plus the helper tests.
+* `src/axiomm/io/converters/signals/hyperspy_builder.py` —
+  `HyperSpyBuilder` class implementing `SignalBuilder`, plus the
+  convenience function `build_hyperspy_signal(payload)`.
+* `src/axiomm/io/converters/signals/validation.py` — `validate_axes(...)`
+  helper used by the builder (spec §8.6).
+* `tests/io/converters/test_hyperspy_builder.py` — tests covering:
+  - signal-kind resolution (`signal1d`, `signal2d`, `auto`, `base`);
+  - axis count vs. `data.ndim`;
+  - axis sizes vs. data shape;
+  - axis name/units/scale/offset propagation;
+  - **HyperSpy axis-order correctness** — given a payload with
+    `AxisSpec.index_in_array=(0=x, 1=y, 2=Energy)`, the resulting
+    HyperSpy `axes_manager` must label the axes correctly *despite*
+    HyperSpy reversing navigation-axis order relative to numpy;
+  - metadata namespacing under `signal.metadata.AXIOMM`;
+  - real-file round-trip with `XRMMapH5Reader → HyperSpyBuilder` on
+    the smallest local XRM file
+    (`IE_30s_map__Sep16_15_20_39_A22-043_1_001.h5`).
 
-**Acceptance criteria for Chunk 3:**
+**Acceptance criteria for Chunk 4:**
 
-1. `XRMMapH5Reader().read(path)` returns an `AxiommSignalPayload` whose
-   axes match the data shape, `signal_kind == "signal1d"`, and whose
-   `metadata` / `original_metadata` are populated from the HDF5 file.
-2. Default `XRMMapH5Config` values match spec §17 (counts path, environ
-   paths, ROI paths, beam-size key, `energy_scale = 40.96 / 4096`,
-   `roi_limit_scale = 0.01`, `fallback_field_width_um = 500.0`).
-3. `parse_micrometre_value` accepts the variants listed in spec §7.7
-   (`"1um"`, `"1 um"`, `"1 µm"`, `"1 μm"`, `"1.0um"`, `"1.0 micrometer"`,
-   `"1.0 micrometre"`) and raises `MetadataParseError` on malformed input.
-4. `decode_hdf5_string` / `decode_hdf5_string_array` handle the variants
-   listed in spec §7.6 (bytes, fixed-width byte strings, null-padded byte
-   strings, NumPy bytes arrays, already-decoded strings).
-5. Missing `/xrmmap/mcasum/counts` raises `DatasetNotFoundError` clearly.
-6. Missing ROI metadata emits a `Diagnostic` but still produces a payload
-   (spec §7.8).
-7. Missing beam-size config emits a `Diagnostic` and falls back to
-   `fallback_field_width_um` when configured (spec §7.8).
-8. Importing `axiomm.io.converters.readers.xrmmap_h5` does not pull in
-   tkinter; the side-effect tests from Chunks 1 and 2 still pass.
-9. `pytest` is green overall.
+1. `HyperSpyBuilder().build(payload)` returns a `hs.signals.Signal1D`
+   for `signal_kind="signal1d"`, `Signal2D` for `"signal2d"`,
+   `BaseSignal` for `"base"`, and auto-infers from the count of signal
+   axes when `signal_kind="auto"`.
+2. Axis validation raises `SignalValidationError` when:
+   - the number of `AxisSpec` entries does not match `data.ndim`;
+   - any axis size does not match the corresponding data dimension;
+   - the number of signal axes is wrong for the chosen signal kind.
+3. Axis names, units, scales, and offsets propagate correctly into
+   the HyperSpy `axes_manager`, with the navigation/signal split
+   determined by `AxisSpec.role` and the array-order mapping driven by
+   `AxisSpec.index_in_array` (not by tuple position).
+4. `payload.metadata`, `payload.original_metadata`, `payload.title`,
+   `payload.provenance`, and `payload.diagnostics` are all preserved on
+   the resulting signal under a stable `signal.metadata.AXIOMM`
+   namespace.
+5. End-to-end test against the local real XRM file produces a
+   `Signal1D` whose `axes_manager` has the expected x / y / Energy
+   axes in the correct positions (this is the test that catches the
+   prototype's axis-labelling bug).
+6. Importing `axiomm.io.converters.signals.hyperspy_builder` does not
+   pull in tkinter; all earlier side-effect tests still pass.
+7. Tests are skipped cleanly with `pytest.importorskip("hyperspy")` when
+   HyperSpy is not installed.
+8. `pytest` is green overall.
 
-**Out of scope for Chunk 3.**
+**Out of scope for Chunk 4.**
 
-* No HyperSpy build (Chunk 4).
 * No writer (Chunk 5).
-* No registry registration (Chunk 5+).
-* No real-file tests — synthetic fixture only. Real-file validation lives
-  in Chunk 4 once the builder exists.
-* `lazy=True` may keep the dataset as an `h5py.Dataset` reference but
-  does not need a full lazy-graph implementation; whatever choice is made
-  must be documented in a `Diagnostic` and a docstring.
+* No workflow orchestration (Chunk 5).
+* No registry (Phase 1+).
+* No alternative builder backends (xarray, RosettaSciIO, etc.) — the
+  `SignalBuilder` protocol is already in place; new builders ship as
+  separate chunks when needed.
 
-**Dependency note.** Chunk 3 introduces a real runtime dependency on
-`h5py`. Either install it via `pip install -e ".[hdf5,dev]"` before
-running the reader tests, or mark them with
-`pytest.importorskip("h5py")` so a `h5py`-free environment still passes
-the rest of the suite. The latter is preferred for the existing
-side-effect tests; the former for the new reader tests.
+**Dependency note.** Chunk 4 introduces `hyperspy` as a real runtime
+dependency. Install with `pip install -e ".[dev,hyperspy]"` (or `[all]`).
+HyperSpy's reversed axis convention vs. numpy is the *single biggest
+risk* in this chunk — invest the time to assert axis labels and sizes
+explicitly against the constructed `axes_manager`, not just against the
+payload's `AxisSpec` tuple.
 
-## Verifying the current state (after Chunk 2)
+## Verifying the current state (after Chunk 3)
 
 In an environment with Python ≥ 3.10 and the dev extras installed, the
 canonical chunk-verification commands are:
 
 ```bash
 cd /home/francesco/Desktop/research/axiomm
-python -m pip install -e ".[dev]"
+python -m pip install -e ".[dev,hdf5]"
 pytest -q
 ```
 
-Expected result: **23 tests pass**, 0 fail.
+Expected result: **82 tests pass**, 0 fail. (If `h5py` is not installed
+the 59 XRM reader tests are skipped, but the remaining 23 still pass.)
 
 If the system pytest (`/usr/bin/pytest`, Python 3.11) is used without
 installing the package, the `[tool.pytest.ini_options].pythonpath = ["src"]`

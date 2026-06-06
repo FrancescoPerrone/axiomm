@@ -68,4 +68,37 @@ __all__ = [
     "Writer",
     # discovery
     "discover_inputs",
+    # concrete readers (lazily imported — see __getattr__ below)
+    "XRMMapH5Config",
+    "XRMMapH5Reader",
 ]
+
+
+# Lazy attribute imports (PEP 562). Concrete readers, builders and writers
+# may carry optional runtime dependencies (h5py, hyperspy, …). Importing
+# the converters package must stay light, so we only pull these in when
+# user code actually touches the name.
+
+_LAZY_EXPORTS: dict[str, tuple[str, str]] = {
+    "XRMMapH5Reader": (
+        "axiomm.io.converters.readers.xrmmap_h5",
+        "XRMMapH5Reader",
+    ),
+    "XRMMapH5Config": (
+        "axiomm.io.converters.readers.xrmmap_h5",
+        "XRMMapH5Config",
+    ),
+}
+
+
+def __getattr__(name: str):
+    if name in _LAZY_EXPORTS:
+        import importlib
+
+        module_name, attr = _LAZY_EXPORTS[name]
+        return getattr(importlib.import_module(module_name), attr)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    return sorted(set(__all__))
