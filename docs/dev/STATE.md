@@ -40,9 +40,14 @@ Never start two chunks in one session without confirmation.
 
 | # | Chunk                                                                | Status     |
 |---|----------------------------------------------------------------------|------------|
-| 6 | CLI `axiomm-convert` (§10.4) + `convert_many` + CLI tests            | ⬜ pending |
+| 6 | CLI `axiomm-convert` (§10.4) + `convert_many` + CLI tests            | ⛔ blocked* |
 | 7 | Manifest writer (§9.5) + logging (§14) + provenance metadata (§15)   | ⬜ pending |
-| 8 | Optional Tk dialogs (§10.5) + notebook helpers (§10.6)               | ⬜ pending |
+| 8 | Optional Tk dialogs (§10.5) + notebook helpers (§10.6)               | ⛔ blocked* |
+
+\* Chunks 6 and 8 are blocked on the **UX-layout decision** — see
+"Open decisions" below. Chunk 7 (manifest + logging + provenance) does
+not touch UX and can proceed without it; reorder Phase 1 accordingly
+when the time comes.
 
 ### Phase 2 / 3 — configurability and extensibility
 
@@ -257,6 +262,18 @@ works.
   `axiomm.io`. The broader AXIOMM analysis pipeline will live in sibling
   packages (`axiomm.signal`, `axiomm.analysis`, …) — names TBD with
   Francesco when scope expands beyond the converter.
+* **UX layout (deferred by Francesco).** Spec §10 places all UX under
+  `axiomm.io.converters.ux.*`. That made sense when AXIOMM ≈ the
+  converter; it is less clearly right now that AXIOMM is a broader
+  spectroscopy package with future tools. The three candidates are:
+  (a) *Hybrid* — generic Tk and notebook helpers under `axiomm.ux.*`,
+  converter-specific CLI under `axiomm.io.converters.ux.*`;
+  (b) *Spec-literal* — everything under `axiomm.io.converters.ux.*`
+  as written; (c) *Defer* — pick once the second AXIOMM tool's UX
+  needs are visible. Francesco chose **(c) Defer**. **Do not start
+  Chunks 6 or 8** until either Francesco specifies the layout or a
+  second tool's needs make the right answer obvious. Chunk 7 (manifest
+  + logging + provenance) is independent of UX and can proceed.
 * **Documentation tooling.** Initial choice is the **GitHub wiki**, seeded
   with `Home`, `Tools`, `Converter`, `Converter-Architecture`, `Roadmap`,
   `Development`, `Specification`, `Glossary` plus `_Sidebar` / `_Footer`.
