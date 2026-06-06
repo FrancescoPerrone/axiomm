@@ -73,3 +73,7 @@ scratch/
 
 # Logs
 *.log
+
+# Sphinx build outputs
+docs/_build/
+docs/autoapi/

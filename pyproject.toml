@@ -44,6 +44,13 @@ dev = [
     "pytest-cov",
     "ruff",
 ]
+docs = [
+    "sphinx>=7",
+    "furo>=2024",
+    "myst-parser>=2",
+    "sphinx-autoapi>=3",
+    "sphinx-copybutton",
+]
 
 # The CLI entry point will be wired up in a later chunk, once
 # axiomm.io.converters.ux.cli exists.

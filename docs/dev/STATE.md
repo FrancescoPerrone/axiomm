@@ -188,8 +188,26 @@ What exists in this repository:
   prototype, reference-only. **Do not import or extend it from package code.**
 * `.gitignore` tuned for Python + scientific scratch outputs.
 * Public wiki at <https://github.com/FrancescoPerrone/axiomm/wiki>
-  (Home, Tools, Converter, Converter-Architecture, Roadmap, Development,
-  Specification, Glossary, plus `_Sidebar` / `_Footer`).
+  (Home, Tools, Converter, Converter-Architecture, Known-Issues,
+  Roadmap, Development, Specification, Glossary, plus `_Sidebar` /
+  `_Footer`).
+* `docs/` is now a Sphinx project (post-Phase-0 doc infrastructure):
+  - `docs/conf.py` — Sphinx config (furo theme, myst-parser for
+    Markdown source, sphinx-autoapi for auto-generated API reference
+    from `src/axiomm`, intersphinx to Python/NumPy/h5py/HyperSpy,
+    mathjax for formulae, sphinx-copybutton).
+  - `docs/index.md` — landing page.
+  - `docs/user/converter.md` — comprehensive user guide for the
+    converter (canonical, repo-shipped version; the wiki Converter
+    page is the GitHub-side landing).
+  - `docs/user/known_issues.md` — comprehensive known-issues page.
+  - `docs/Makefile` — `make html` builds to `docs/_build/html`.
+  - `pyproject.toml` `[docs]` extra installs sphinx + ecosystem.
+  - `.gitignore` excludes `docs/_build/` and `docs/autoapi/`.
+  Build verified: `cd docs && /tmp/axiomm-venv/bin/sphinx-build -b html
+  . _build/html` succeeds with 2 cosmetic warnings (docutils inline-
+  literal interpretation of nested-paren strings in autoapi-rendered
+  docstrings — purely visual, fixable when needed).
 
 What does **not** yet exist (deferred to later chunks):
 
@@ -512,13 +530,15 @@ works.
   Chunks 6 or 8** until either Francesco specifies the layout or a
   second tool's needs make the right answer obvious. Chunk 7 (manifest
   + logging + provenance) is independent of UX and can proceed.
-* **Documentation tooling.** Initial choice is the **GitHub wiki**, seeded
-  with `Home`, `Tools`, `Converter`, `Converter-Architecture`, `Roadmap`,
-  `Development`, `Specification`, `Glossary` plus `_Sidebar` / `_Footer`.
-  Live at <https://github.com/FrancescoPerrone/axiomm/wiki>. Wiki pages
-  live in a separate git repo (`axiomm.wiki.git`) and must be edited there,
-  not in `docs/`. Heavier tooling (Sphinx / MkDocs with API autodoc) is
-  still on the table for later, once the public API stabilises.
+* **Documentation tooling (decided, post-Phase 0).** Two surfaces:
+  (a) the **GitHub wiki** for landing pages, navigation, and quick
+  orientation; (b) **Sphinx + sphinx-autoapi + furo theme + myst-parser**
+  in `docs/` for the canonical user guide and the auto-generated Python
+  API reference. Both are maintained for now; once the API stabilises
+  (Phase 2+) and the Sphinx HTML is published (GitHub Pages or RTD),
+  the wiki pages can shrink and point at the published docs. Build
+  locally with `cd docs && make html`. Install the build toolchain via
+  `pip install -e ".[docs]"`.
 
 ## Notes for resuming work
 
