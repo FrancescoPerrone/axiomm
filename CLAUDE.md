@@ -101,6 +101,42 @@ These must be honoured by every contributor, human or AI:
   it is *not* the public implementation and its licence header (MIT + special
   clause) is part of the blocker described in spec §18.
 
+## Known gotchas across AXIOMM
+
+### HyperSpy reverses `axes_manager` order vs numpy
+
+For a numpy array of shape `(d0, d1, d2)` constructed as
+`hs.signals.Signal1D(data)`:
+
+```
+axes_manager.navigation_axes[0].index_in_array == 1   # numpy axis 1, NOT 0
+axes_manager.navigation_axes[1].index_in_array == 0   # numpy axis 0, NOT 1
+axes_manager.signal_axes[0].index_in_array == 2
+```
+
+The same reversal applies inside `signal_axes` for `Signal2D`.
+
+**Consequence — prototype bug.** The legacy converter assigned
+`navigation_axes[0].name = 'x'` thinking it was numpy axis 0; in fact
+this labelled numpy axis 1 (ydim in our convention). Existing `.hspy`
+files produced by the prototype have **silently swapped x and y axis
+labels** (data values are unaffected; only the labels and any per-axis
+scale differ). Anything downstream that trusts the labels is operating
+on swapped coordinates.
+
+**Rule for any AXIOMM code constructing HyperSpy signals from numpy.**
+Map axes by `axis.index_in_array`, never by tuple position in
+`navigation_axes` / `signal_axes`. The neutral `AxiommSignalPayload`
+carries `AxisSpec.index_in_array` so that builders can do this
+mapping correctly — see
+`src/axiomm/io/converters/signals/hyperspy_builder.py` for the
+reference implementation.
+
+Treat patterns like
+`signal.axes_manager.navigation_axes[i].name = "..."` in any AXIOMM
+code (existing or new) as a likely instance of this bug. Flag before
+merging.
+
 ## When in doubt
 
 - Ask Francesco before changing scope. The chunk boundaries in
