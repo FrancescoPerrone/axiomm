@@ -11,3 +11,7 @@ from __future__ import annotations
 from axiomm.io.converters.writers.base import Writer
 
 __all__ = ["Writer"]
+
+
+# HSpyWriter is lazily importable via the converters package __getattr__
+# so the writers package itself doesn't need to import it eagerly.

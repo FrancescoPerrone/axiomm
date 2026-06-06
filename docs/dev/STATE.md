@@ -34,7 +34,14 @@ Never start two chunks in one session without confirmation.
 | 2 | `discover_inputs` (§6) + unit tests                                  | ✅ done    |
 | 3 | `XRMMapH5Reader` (§7) + synthetic HDF5 fixture (§20.1) + tests       | ✅ done    |
 | 4 | `HyperSpyBuilder` (§8) + axis-order tests                            | ✅ done    |
-| 5 | `HSpyWriter` (§9.4) + `convert_file` (§11.2) + end-to-end test       | ⬜ next    |
+| 5 | `HSpyWriter` (§9.4) + `convert_file` (§11.2) + end-to-end test       | ✅ done    |
+
+**Phase 0 complete.** The converter has a working Python end-to-end API:
+`from axiomm.io.converters import convert_file` accepts an XRM-style
+`.h5` and produces an `.hspy` with correctly-labelled axes, AXIOMM
+metadata namespace, and structured diagnostics. Verified against the
+synthetic fixture and against the real
+`IE_30s_map__Sep16_15_20_39_A22-043_1_001.h5` test file.
 
 ### Phase 1 — usability
 
@@ -53,7 +60,7 @@ when the time comes.
 
 Tracked in spec §23. Pick up after Phase 1 lands.
 
-## Current state (as of Chunk 4)
+## Current state (as of Chunk 5 — Phase 0 complete)
 
 What exists in this repository:
 
@@ -128,6 +135,44 @@ What exists in this repository:
   round trip, and the no-tkinter-on-import check. Module-level
   `pytest.importorskip("hyperspy.api")` so the suite still passes
   cleanly in environments without HyperSpy.
+* **`writers/hspy.py` — first concrete writer.** `HSpyWriter` writes a
+  HyperSpy signal to disk via `signal.save(...)`. Enforces the AXIOMM
+  safety rule: by default an existing target raises
+  `OutputExistsError` (the error message names the path and the flag to
+  pass for replacement); `overwrite=True` replaces. Creates parent
+  directories automatically.
+* **`workflows.py` — `convert_file`.** End-to-end orchestrator: resolves
+  a reader (instance, registered name, or `"auto"` via `can_read`
+  dispatch), reads, builds the HyperSpy signal, writes the output, and
+  returns a `ConversionResult`. Output-path resolution per spec §11.2:
+  explicit `output_path` wins → otherwise `output_dir/<stem>.<ext>` →
+  otherwise `input_path.with_suffix(default_ext)`. `skip_existing=True`
+  short-circuits before reading and emits a diagnostic; `manifest=True`
+  is accepted for forward compatibility but emits a
+  `manifest_not_yet_implemented` diagnostic until Chunk 7 lands. A tiny
+  built-in `_BUILTIN_READERS` / `_BUILTIN_WRITERS` mapping handles
+  string-name dispatch without depending on the full registry (Phase 3).
+* `axiomm.io.converters.__init__` now eagerly re-exports `convert_file`
+  alongside `validate_axes`, and lazily exposes `HSpyWriter` via the
+  PEP 562 `__getattr__`. Package import still does not pull in `h5py`,
+  `hyperspy`, or `tkinter`.
+* **`tests/io/converters/test_hspy_writer.py`** — 10 tests covering
+  protocol attributes, write happy path, parent-directory creation,
+  round-trip metadata preservation, the overwrite policy (refuses by
+  default, replaces with `overwrite=True`), the actionable error
+  message, and import hygiene.
+* **`tests/io/converters/test_workflows.py`** — 22 tests covering the
+  happy path end-to-end (synthetic-fixture round trip producing a
+  loadable `.hspy`), the axis-labels-end-to-end guard against the
+  prototype's x/y swap, every output-path resolution rule, reader
+  dispatch (named, `auto`, instance, unknown, multiple, none),
+  writer dispatch (named, instance, unknown), the overwrite policy at
+  workflow level, `skip_existing` behaviour, the manifest diagnostic,
+  top-level import path, and import hygiene.
+* The `test_import_has_no_side_effects.py` "no side effects" tests now
+  run in **subprocesses** for true isolation, because earlier in-process
+  module-drop patterns broke class identity for `OutputExistsError` and
+  friends once enough downstream code held references to them.
 * `pyproject.toml` with src-layout, `requires-python = ">=3.10"`, optional
   extras for `hdf5`, `hyperspy`, `all`, `notebook`, `dev`. Pytest configured
   with `pythonpath = ["src"]` so tests run without an install.
@@ -148,10 +193,15 @@ What exists in this repository:
 
 What does **not** yet exist (deferred to later chunks):
 
-* Any concrete writer, or workflow function.
-* The `workflows.py` and `registry.py` modules.
-* The CLI entry point (commented out in `pyproject.toml`).
-* The `ux/` subpackage (CLI, notebook, Tk dialogs).
+* Manifest writer (spec §9.5) and the `.axiomm.json` sidecar — Chunk 7.
+* Provenance classification (observed / inferred / assumed, spec §15) —
+  Chunk 7.
+* Logging cleanup (spec §14) — Chunk 7.
+* `convert_many` — Chunk 6.
+* The CLI entry point — Chunk 6 (blocked on the UX-layout decision).
+* The `ux/` subpackage (CLI, notebook helpers, Tk dialogs) — Chunks 6/8
+  (Tk + notebook blocked on UX-layout decision).
+* The full reader/writer registry with plugin entry points — Phase 3.
 * User-facing documentation under `docs/user/`.
 * `CITATION.cff` and `ACKNOWLEDGEMENTS.md`.
 
@@ -175,6 +225,23 @@ The reader was smoke-tested against the smallest real XRM file at
   1. Add a `roi_variant_index: int = 0` (or similar) to
      `XRMMapH5Config` in Phase 2 and use `limits[:, roi_variant_index, :]`.
   2. Use the generic HDF5 schema-driven reader (Phase 3, spec §23).
+
+### Chunk 5 finding (recorded for future contributors)
+
+The "no side effects" tests in `test_import_has_no_side_effects.py`
+originally dropped cached `axiomm.*` modules from `sys.modules` and
+re-imported them to observe import behaviour. Once enough downstream
+code had been written (Chunks 3–5), those drops created **fresh class
+objects** for the exception types (e.g. `OutputExistsError`) on
+re-import, while older code paths (the writer, the builder) still held
+references to the *original* classes. `pytest.raises(OutputExistsError)`
+in test code then failed to match instances raised by the writer because
+`isinstance(exc, OutputExistsError_new) == False`. The fix was to move
+those tests into **subprocesses** via `_run_in_subprocess(...)` so the
+import semantics are observed in true isolation, with no spillover into
+the parent test session. The `_drop_axiomm_modules` helper was removed.
+This is the canonical pattern for any future "test something at import
+time" check in AXIOMM — don't mutate the parent process's `sys.modules`.
 
 ### Chunk 4 finding (recorded for future contributors)
 
@@ -202,12 +269,61 @@ produces a `Signal1D` whose axes label correctly: `idx=0 → 'x' size=23`,
 `signal.metadata.General.title` set from the file stem and
 `signal.metadata.AXIOMM.{reader,provenance,diagnostics}` populated.
 
-## Next chunk: Chunk 5 — `HSpyWriter` + `convert_file` + end-to-end test
+## Next chunk: Chunk 7 — manifest + logging + provenance
 
-**Goal.** Implement spec §9.4 (`HSpyWriter`) and spec §11.2
-(`convert_file`) so the converter has a working end-to-end Python API:
-`axiomm.io.converters.convert_file(...)` takes a path in, writes a
-`.hspy` file out, and returns a `ConversionResult`.
+Chunks 6 and 8 remain blocked on the deferred UX-layout decision. Chunk
+7 (manifest writer + logging + provenance classification) is independent
+of UX and is therefore the natural next step. Per the doc-quality
+commitment, a **post-Phase-0 wiki sweep** should also happen before (or
+as part of) the next chunk — re-read every wiki page end-to-end for
+voice, currency, examples, and trap-section completeness.
+
+**Goal (Chunk 7).** Implement the spec §9.5 manifest writer, the spec
+§14 logging cleanup, and the spec §15 provenance classification
+(observed / inferred / assumed metadata). Together these make every
+conversion *reproducible* in the scientific sense: the `.axiomm.json`
+sidecar records what went in, what came out, which scientific
+assumptions applied, and which warnings were raised.
+
+**New files (expected):**
+
+* `src/axiomm/io/converters/writers/manifest.py` — `ManifestWriter`
+  that builds and writes a `<output>.axiomm.json` sidecar.
+* Updates to `workflows.py` — wire `manifest=True` to actually produce
+  the sidecar; populate `ConversionResult.manifest_path`.
+* Updates to `readers/xrmmap_h5.py` and `signals/hyperspy_builder.py` —
+  classify metadata entries as observed / inferred / assumed per
+  spec §15, attaching the classification to the `AXIOMM` namespace.
+* `tests/io/converters/test_manifest_writer.py` — manifest schema and
+  round-trip.
+* Updates to `tests/io/converters/test_workflows.py` — assert
+  `manifest_path` is set when `manifest=True`, schema-validate the
+  sidecar.
+
+**Acceptance criteria for Chunk 7:**
+
+1. `convert_file(..., manifest=True)` writes
+   `<output>.axiomm.json` next to the `.hspy` output and sets
+   `ConversionResult.manifest_path` to that path.
+2. `convert_file(..., manifest=False)` does *not* write a manifest and
+   leaves `manifest_path = None`.
+3. The manifest is a JSON document containing at least: `input_path`,
+   `output_path`, `reader_name`, `writer_name`, `axiomm_version`,
+   `created_at` (ISO 8601 UTC), `source_shape`, `axes_summary`,
+   `diagnostics`, `config_used`, and `provenance_classification`.
+4. `print(...)` calls in the converter package are replaced with
+   `logging.getLogger(__name__)` (spec §14); core components are
+   quiet at default log level.
+5. The metadata classification distinguishes observed (read from the
+   file) vs. inferred (derived from shape or other observed values)
+   vs. assumed (fallback defaults like
+   `fallback_field_width_um=500.0`) per spec §15. The classification
+   is recorded both on the payload and in the manifest.
+6. `manifest_not_yet_implemented` diagnostic is removed.
+7. Existing tests still pass; full suite green.
+
+**Out of scope for Chunk 7.** No CLI (Chunk 6, blocked). No notebook /
+Tk helpers (Chunk 8, blocked). No registry plugin discovery (Phase 3).
 
 **New files (expected):**
 
@@ -333,7 +449,7 @@ risk* in this chunk — invest the time to assert axis labels and sizes
 explicitly against the constructed `axes_manager`, not just against the
 payload's `AxisSpec` tuple.
 
-## Verifying the current state (after Chunk 4)
+## Verifying the current state (after Chunk 5)
 
 In an environment with Python ≥ 3.10 and the dev extras installed, the
 canonical chunk-verification commands are:
@@ -344,10 +460,10 @@ python -m pip install -e ".[dev,all]"
 pytest -q
 ```
 
-Expected result: **110 tests pass**, 0 fail. With `h5py` only (no
-hyperspy): 83 pass, 2 skipped (the hyperspy_builder module skips as one
-unit; `test_lazy_concrete_builder_exports` skips individually). With
-neither h5py nor hyperspy: the rest skip too.
+Expected result: **142 tests pass**, 0 fail. With only h5py installed
+(no hyperspy): 83 pass, 4 skipped (the hspy_writer, hyperspy_builder
+and workflows modules skip as one unit each; `test_lazy_concrete_builder_exports`
+skips individually).
 
 > Note: Francesco's `xrf` conda env has hyperspy 2.3.0 and h5py 2.10.0
 > but is Python 3.9, below our declared `requires-python = ">=3.10"`,

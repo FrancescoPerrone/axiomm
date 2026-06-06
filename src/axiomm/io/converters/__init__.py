@@ -70,16 +70,21 @@ __all__ = [
     "discover_inputs",
     # validation
     "validate_axes",
-    # concrete readers + builders (lazily imported — see __getattr__ below)
+    # workflow orchestrator (eagerly importable: no heavy deps at module load)
+    "convert_file",
+    # concrete readers + builders + writers (lazily imported — see __getattr__ below)
     "XRMMapH5Config",
     "XRMMapH5Reader",
     "HyperSpyBuilder",
     "build_hyperspy_signal",
+    "HSpyWriter",
 ]
 
 
-# Re-export validate_axes eagerly: it has no heavy deps.
+# Re-export validate_axes and convert_file eagerly: neither pulls heavy deps
+# at module load time (h5py / hyperspy are imported inside call sites).
 from axiomm.io.converters.signals.validation import validate_axes  # noqa: E402
+from axiomm.io.converters.workflows import convert_file  # noqa: E402
 
 
 # Lazy attribute imports (PEP 562). Concrete readers, builders and writers
@@ -103,6 +108,10 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "build_hyperspy_signal": (
         "axiomm.io.converters.signals.hyperspy_builder",
         "build_hyperspy_signal",
+    ),
+    "HSpyWriter": (
+        "axiomm.io.converters.writers.hspy",
+        "HSpyWriter",
     ),
 }
 

@@ -186,22 +186,31 @@ def test_discover_inputs_does_not_call_input(monkeypatch, tmp_path: Path) -> Non
 
 
 def test_discover_inputs_does_not_import_h5py_or_tkinter(tmp_path: Path) -> None:
-    """discover_inputs is filesystem-only — no HDF5 reading, no GUI."""
-    # Drop any cached imports so we get a clean measurement.
+    """discover_inputs is filesystem-only — no HDF5 reading, no GUI.
+
+    Uses the snapshot pattern: capture ``sys.modules`` before re-importing
+    discovery, then check that the *delta* contains no h5py / tkinter
+    modules. We do NOT delete h5py from ``sys.modules`` — h5py's C
+    extension cannot be re-initialised in the same process, and deleting
+    it would break unrelated tests later in the run.
+    """
+    # Force discovery to re-import so we observe its imports fresh.
     for mod_name in list(sys.modules):
-        if (
-            mod_name.startswith(("h5py", "tkinter"))
-            or mod_name == "_tkinter"
-            or mod_name == "axiomm.io.converters.discovery"
-        ):
+        if mod_name == "axiomm.io.converters.discovery":
             del sys.modules[mod_name]
 
+    before = set(sys.modules)
     from axiomm.io.converters.discovery import discover_inputs as fresh_discover
 
     f = _touch(tmp_path, "a.h5")
     fresh_discover(f)
 
+    new_modules = set(sys.modules) - before
     leaked = sorted(
-        m for m in sys.modules if m.startswith(("h5py", "tkinter")) or m == "_tkinter"
+        m
+        for m in new_modules
+        if m.startswith(("h5py", "tkinter")) or m == "_tkinter"
     )
-    assert not leaked, f"discovery leaked imports: {leaked!r}"
+    assert not leaked, (
+        f"discover_inputs triggered forbidden imports: {leaked!r}"
+    )
