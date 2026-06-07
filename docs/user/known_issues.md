@@ -76,42 +76,47 @@ carries `AxisSpec.index_in_array` precisely for this purpose; see
 `axiomm.io.converters.signals.hyperspy_builder` for the reference
 implementation.
 
-## ROI metadata is dropped on real XRM files
+## Choosing the right ROI variant on real XRM files
 
 **Scope.** Real instrument XRM files where ROI limits have shape
 `(n_rois, n_variants, 2)` (multiple ROI variants per element — likely
 per-detector or per-fit-pass), not the `(n_rois, 2)` the prototype
 expected.
 
-**Symptom.** After conversion the signal's `original_metadata` has no
-`rois` entry, and the `ConversionResult.diagnostics` contains a
-`roi_limits_unexpected_shape` warning:
+**Default behaviour as of Chunk 9.** The reader detects the 3-D shape
+and extracts `limits[:, XRMMapH5Config.roi_variant_index, :]`. The
+default `roi_variant_index = 0` works for the typical "first variant
+is the canonical one" convention. ROIs are extracted normally with
+no warning. Verified end-to-end on the real
+`IE_30s_map__Sep16_15_20_39_A22-043_1_001.h5` file: 35 ROIs
+extracted, e.g. `Si Ka` at 1.64–1.84 keV (Si Kα ≈ 1.74 keV).
 
-```
-[warning] roi_limits_unexpected_shape:
-  ROI limits array has unexpected shape (35, 7, 2); expected (n_rois, 2).
-```
-
-**Cause.** The current `XRMMapH5Reader` assumes a 2-D limits dataset.
-Real files break that assumption. The reader detects the mismatch and
-*degrades gracefully* — it emits a diagnostic and continues without ROI
-metadata, rather than crash or silently produce wrong values.
-
-**Fix path.** Recovery (selecting a specific variant column) is a
-Phase 2 deliverable: `XRMMapH5Config` will gain a `roi_variant_index`
-field so you can choose which slice of the `(n, k, 2)` cube to read.
-Until then, post-process the file yourself:
+**When you need a different variant.**
 
 ```python
-import h5py, numpy as np
-with h5py.File("input.h5") as f:
-    names = f["/xrmmap/config/rois/name"][:]
-    limits = f["/xrmmap/config/rois/limits"][:]      # shape (n, k, 2)
+from axiomm.io.converters import XRMMapH5Config, XRMMapH5Reader, convert_file
 
-variant = 0  # pick whichever detector/fit-pass you trust
-rois_2d = limits[:, variant, :]                       # shape (n, 2)
-# attach to your loaded signal manually if needed
+reader = XRMMapH5Reader(config=XRMMapH5Config(roi_variant_index=3))
+convert_file("input.h5", output_path="out.hspy", reader=reader)
 ```
+
+**Out-of-bounds index.** If you set `roi_variant_index` beyond the
+file's variant axis length, the reader emits a
+`roi_variant_out_of_bounds` diagnostic naming the available range and
+skips ROI extraction — same fail-soft policy as for missing metadata.
+
+**Files with the original 2-D `(n_rois, 2)` shape** (e.g. the
+synthetic test fixture, or older files) continue to work without any
+config tweak.
+
+## Truly unexpected ROI limits shapes
+
+If a file's ROI limits dataset is neither 2-D nor 3-D-with-last-dim-2
+(e.g. a 4-D layout or a last dimension that isn't 2), the reader
+emits the `roi_limits_unexpected_shape` diagnostic and skips ROI
+extraction. The message names the actual shape. Recovery requires
+either post-processing the file yourself or filing an issue with the
+shape so we can extend the reader.
 
 ## `lazy=True` currently downgrades to eager
 

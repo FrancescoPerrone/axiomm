@@ -116,6 +116,22 @@ convert_file(
 )
 ```
 
+### Picking a ROI variant on real files
+
+Real instrument files store ROI limits as `(n_rois, n_variants, 2)`,
+not `(n_rois, 2)`. The reader handles both shapes; on the 3-D shape
+it extracts `limits[:, roi_variant_index, :]`. The default
+`roi_variant_index = 0` works for the "first variant is canonical"
+convention; set it to a different value if your acquisition stores
+the trusted variant elsewhere:
+
+```python
+reader = XRMMapH5Reader(config=XRMMapH5Config(roi_variant_index=3))
+```
+
+An out-of-bounds index emits the `roi_variant_out_of_bounds`
+diagnostic with a message naming the available range.
+
 If the configured `counts_path` is missing from the file, the reader
 raises `DatasetNotFoundError` with a message that names both the path
 it looked at *and* the config field to override — so you don't have to
@@ -246,7 +262,8 @@ the converter made on your behalf:
 | `beam_size_missing`               | warning  | The configured beam-size key wasn't in the environ table; fell back.                           |
 | `beam_size_unparseable`           | warning  | The beam-size string couldn't be parsed; fell back.                                            |
 | `roi_missing`                     | warning  | ROI metadata datasets weren't present; ROIs not extracted.                                     |
-| `roi_limits_unexpected_shape`     | warning  | ROI limits had an unexpected shape (e.g. `(n, k, 2)` on real files); ROIs not extracted.       |
+| `roi_limits_unexpected_shape`     | warning  | ROI limits had a shape we don't know how to slice (not `(n, 2)` and not `(n, k, 2)`); ROIs not extracted. |
+| `roi_variant_out_of_bounds`       | warning  | The file has `(n_rois, n_variants, 2)` ROI limits but the configured `roi_variant_index` is out of range. |
 | `roi_unreadable`                  | warning  | ROI metadata datasets couldn't be decoded; ROIs not extracted.                                 |
 | `environ_unreadable`              | warning  | Environ datasets couldn't be decoded.                                                          |
 | `environ_length_mismatch`         | warning  | The environ `name` and `value` arrays had different lengths; truncated to the shorter.         |
