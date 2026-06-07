@@ -33,6 +33,7 @@ def _build_xrmmap_h5(
     shape: tuple[int, int, int] = DEFAULT_SHAPE,
     environ: dict[str, str] | None = None,
     rois: list[tuple[str, int, int]] | None = None,
+    roi_limits_override: np.ndarray | None = None,
     include_counts: bool = True,
     include_environ: bool = True,
     include_rois: bool = True,
@@ -41,8 +42,13 @@ def _build_xrmmap_h5(
     """Write a synthetic XRM-map HDF5 file at ``path`` and return the path.
 
     Defaults match the spec §20.1 shape ``(4, 3, 16)``. Use the include
-    flags to omit each dataset group and drive missing-metadata branches in
-    the reader.
+    flags to omit each dataset group and drive missing-metadata branches
+    in the reader.
+
+    Use ``roi_limits_override`` to write a custom ROI limits array (any
+    shape) — useful for testing the real-file `(n_rois, n_variants, 2)`
+    case the prototype didn't handle. When given, the integer values in
+    ``rois`` are ignored; only the names matter.
     """
     import h5py  # imported here so the conftest itself does not require h5py at collection
 
@@ -61,9 +67,12 @@ def _build_xrmmap_h5(
             f.create_dataset("/xrmmap/config/environ/value", data=values)
         if include_rois:
             roi_names = np.array([r[0] for r in rois_data], dtype="S64")
-            roi_limits = np.array(
-                [[r[1], r[2]] for r in rois_data], dtype=np.int32
-            )
+            if roi_limits_override is not None:
+                roi_limits = np.asarray(roi_limits_override)
+            else:
+                roi_limits = np.array(
+                    [[r[1], r[2]] for r in rois_data], dtype=np.int32
+                )
             f.create_dataset("/xrmmap/config/rois/name", data=roi_names)
             f.create_dataset("/xrmmap/config/rois/limits", data=roi_limits)
 

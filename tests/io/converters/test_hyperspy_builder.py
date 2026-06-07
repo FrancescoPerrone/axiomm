@@ -218,6 +218,90 @@ def test_validate_axes_raises_when_signal1d_has_zero_signal_axes():
         validate_axes(payload)
 
 
+def test_validate_axes_raises_on_empty_axis_name():
+    data = np.zeros((4, 3, 16), dtype=np.float32)
+    bad_axes = (
+        AxisSpec("", "navigation", 4, index_in_array=0),  # empty name
+        AxisSpec("y", "navigation", 3, index_in_array=1),
+        AxisSpec("Energy", "signal", 16, index_in_array=2),
+    )
+    payload = AxiommSignalPayload(
+        data=data, axes=bad_axes, signal_kind="signal1d",
+    )
+    with pytest.raises(SignalValidationError, match="empty"):
+        validate_axes(payload)
+
+
+def test_validate_axes_raises_on_non_positive_size():
+    data = np.zeros((4, 3, 16), dtype=np.float32)
+    bad_axes = (
+        AxisSpec("x", "navigation", 4, index_in_array=0),
+        AxisSpec("y", "navigation", 0, index_in_array=1),  # size 0
+        AxisSpec("Energy", "signal", 16, index_in_array=2),
+    )
+    payload = AxiommSignalPayload(
+        data=data, axes=bad_axes, signal_kind="signal1d",
+    )
+    with pytest.raises(SignalValidationError, match="non-positive"):
+        validate_axes(payload)
+
+
+def test_validate_axes_raises_on_nan_scale():
+    data = np.zeros((4, 3, 16), dtype=np.float32)
+    bad_axes = (
+        AxisSpec("x", "navigation", 4, scale=float("nan"), index_in_array=0),
+        AxisSpec("y", "navigation", 3, scale=1.0, index_in_array=1),
+        AxisSpec("Energy", "signal", 16, scale=0.01, index_in_array=2),
+    )
+    payload = AxiommSignalPayload(
+        data=data, axes=bad_axes, signal_kind="signal1d",
+    )
+    with pytest.raises(SignalValidationError, match="non-finite scale"):
+        validate_axes(payload)
+
+
+def test_validate_axes_raises_on_inf_offset():
+    data = np.zeros((4, 3, 16), dtype=np.float32)
+    bad_axes = (
+        AxisSpec("x", "navigation", 4, offset=float("inf"), index_in_array=0),
+        AxisSpec("y", "navigation", 3, index_in_array=1),
+        AxisSpec("Energy", "signal", 16, index_in_array=2),
+    )
+    payload = AxiommSignalPayload(
+        data=data, axes=bad_axes, signal_kind="signal1d",
+    )
+    with pytest.raises(SignalValidationError, match="non-finite offset"):
+        validate_axes(payload)
+
+
+def test_validate_axes_raises_on_duplicate_navigation_names():
+    data = np.zeros((4, 3, 16), dtype=np.float32)
+    bad_axes = (
+        AxisSpec("xy", "navigation", 4, index_in_array=0),  # duplicate name
+        AxisSpec("xy", "navigation", 3, index_in_array=1),  # duplicate name
+        AxisSpec("Energy", "signal", 16, index_in_array=2),
+    )
+    payload = AxiommSignalPayload(
+        data=data, axes=bad_axes, signal_kind="signal1d",
+    )
+    with pytest.raises(SignalValidationError, match="Navigation axes have duplicate"):
+        validate_axes(payload)
+
+
+def test_validate_axes_raises_on_duplicate_signal_names():
+    data = np.zeros((4, 32, 16), dtype=np.float32)
+    bad_axes = (
+        AxisSpec("z", "navigation", 4, index_in_array=0),
+        AxisSpec("E", "signal", 32, index_in_array=1),
+        AxisSpec("E", "signal", 16, index_in_array=2),  # duplicate signal name
+    )
+    payload = AxiommSignalPayload(
+        data=data, axes=bad_axes, signal_kind="signal2d",
+    )
+    with pytest.raises(SignalValidationError, match="Signal axes have duplicate"):
+        validate_axes(payload)
+
+
 def test_validate_axes_raises_when_signal2d_has_one_signal_axis():
     data = np.zeros((4, 3, 16), dtype=np.float32)
     bad_axes = (

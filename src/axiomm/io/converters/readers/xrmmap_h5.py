@@ -91,6 +91,14 @@ class XRMMapH5Config:
     # with a "navigation_scale_unknown" diagnostic.
     fallback_field_width_um: float | None = 500.0
 
+    # ROI variant selection. Real XRM files store ROI limits as
+    # ``(n_rois, n_variants, 2)`` — multiple ROI variants per element
+    # (e.g. per detector or per fit pass) — not the 2-D
+    # ``(n_rois, 2)`` the prototype assumed. This index picks which
+    # variant to read from a 3-D limits dataset. Ignored when the
+    # limits dataset is 2-D.
+    roi_variant_index: int = 0
+
     # Axis defaults
     navigation_x_name: str = "x"
     navigation_y_name: str = "y"
@@ -512,18 +520,43 @@ class XRMMapH5Reader:
                 )
             )
             return [], diagnostics
-        if limits.ndim != 2 or limits.shape[1] < 2:
+
+        # Real XRM files store ROI limits as (n_rois, n_variants, 2);
+        # the original prototype assumed (n_rois, 2). Handle both.
+        if limits.ndim == 3 and limits.shape[2] == 2:
+            n_variants = limits.shape[1]
+            variant = self.config.roi_variant_index
+            if not 0 <= variant < n_variants:
+                diagnostics.append(
+                    Diagnostic(
+                        severity="warning",
+                        code="roi_variant_out_of_bounds",
+                        message=(
+                            f"ROI limits dataset has shape {limits.shape!r} "
+                            f"({n_variants} variants per ROI); configured "
+                            f"roi_variant_index={variant} is out of bounds "
+                            f"[0, {n_variants}). Skipping ROI extraction. "
+                            f"Set XRMMapH5Config(roi_variant_index=<n>) "
+                            f"with 0 <= n < {n_variants} to extract."
+                        ),
+                    )
+                )
+                return [], diagnostics
+            limits = limits[:, variant, :]
+        elif limits.ndim != 2 or limits.shape[1] < 2:
             diagnostics.append(
                 Diagnostic(
                     severity="warning",
                     code="roi_limits_unexpected_shape",
                     message=(
                         f"ROI limits array has unexpected shape "
-                        f"{limits.shape!r}; expected (n_rois, 2)."
+                        f"{limits.shape!r}; expected (n_rois, 2) or "
+                        f"(n_rois, n_variants, 2). Skipping ROI extraction."
                     ),
                 )
             )
             return [], diagnostics
+
         n = min(len(names), len(limits))
         scale = self.config.roi_limit_scale
         return [

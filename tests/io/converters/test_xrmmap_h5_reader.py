@@ -330,6 +330,104 @@ def test_navigation_scale_from_fallback_is_assumed(synthetic_xrmmap_h5):
     assert "fallback_field_width_um" in joined
 
 
+# -- ROI variant extraction (Chunk 9) ---------------------------------------
+
+def test_xrmmap_config_default_roi_variant_index_is_zero():
+    assert XRMMapH5Config().roi_variant_index == 0
+
+
+def test_reader_handles_3d_roi_limits_via_default_variant_index(
+    synthetic_xrmmap_h5,
+):
+    """Real files store ROI limits as (n_rois, n_variants, 2)."""
+    n_rois, n_variants = 2, 7
+    limits = np.zeros((n_rois, n_variants, 2), dtype=np.int32)
+    # Variant 0 (the default we'll read) holds the canonical values.
+    limits[0, 0, :] = [640, 670]
+    limits[1, 0, :] = [800, 830]
+    # Other variants hold sentinel values to make sure we don't pick them.
+    for v in range(1, n_variants):
+        limits[0, v, :] = [9999, 9999]
+        limits[1, v, :] = [9999, 9999]
+
+    p = synthetic_xrmmap_h5(
+        "multi_variant.h5",
+        rois=[("Fe Ka", 0, 0), ("Cu Ka", 0, 0)],
+        roi_limits_override=limits,
+    )
+    payload = XRMMapH5Reader().read(p)  # default roi_variant_index=0
+
+    rois = payload.original_metadata.get("rois", [])
+    assert len(rois) == 2
+    assert rois[0]["name"] == "Fe Ka"
+    assert rois[0]["start"] == pytest.approx(6.40)
+    assert rois[0]["end"] == pytest.approx(6.70)
+    assert rois[1]["name"] == "Cu Ka"
+    assert rois[1]["start"] == pytest.approx(8.00)
+
+    # And no "unexpected shape" warning was emitted — variant indexing
+    # handled the 3-D case cleanly.
+    codes = {d.code for d in payload.diagnostics}
+    assert "roi_limits_unexpected_shape" not in codes
+
+
+def test_reader_with_nondefault_roi_variant_index_extracts_that_slice(
+    synthetic_xrmmap_h5,
+):
+    n_rois, n_variants = 2, 5
+    limits = np.zeros((n_rois, n_variants, 2), dtype=np.int32)
+    # Variant 3 carries the values we want.
+    limits[0, 3, :] = [640, 670]
+    limits[1, 3, :] = [800, 830]
+
+    p = synthetic_xrmmap_h5(
+        "pick_variant.h5",
+        rois=[("Fe Ka", 0, 0), ("Cu Ka", 0, 0)],
+        roi_limits_override=limits,
+    )
+    config = XRMMapH5Config(roi_variant_index=3)
+    payload = XRMMapH5Reader(config=config).read(p)
+
+    rois = payload.original_metadata["rois"]
+    assert rois[0]["start"] == pytest.approx(6.40)
+    assert rois[1]["end"] == pytest.approx(8.30)
+
+
+def test_reader_emits_diagnostic_when_roi_variant_index_out_of_bounds(
+    synthetic_xrmmap_h5,
+):
+    n_rois, n_variants = 2, 3
+    limits = np.zeros((n_rois, n_variants, 2), dtype=np.int32)
+    limits[0, 0, :] = [640, 670]
+
+    p = synthetic_xrmmap_h5(
+        "oob.h5",
+        rois=[("Fe Ka", 0, 0), ("Cu Ka", 0, 0)],
+        roi_limits_override=limits,
+    )
+    config = XRMMapH5Config(roi_variant_index=99)  # out of bounds
+    payload = XRMMapH5Reader(config=config).read(p)
+
+    codes = {d.code for d in payload.diagnostics}
+    assert "roi_variant_out_of_bounds" in codes
+    assert "rois" not in payload.original_metadata
+
+
+def test_reader_still_handles_2d_roi_limits(synthetic_xrmmap_h5):
+    """Regression: the 2-D (n_rois, 2) path stays working."""
+    p = synthetic_xrmmap_h5(
+        "two_d.h5",
+        rois=[("Fe Ka", 640, 670), ("Cu Ka", 800, 830)],
+    )
+    payload = XRMMapH5Reader().read(p)
+    rois = payload.original_metadata["rois"]
+    assert len(rois) == 2
+    assert rois[0]["start"] == pytest.approx(6.40)
+    codes = {d.code for d in payload.diagnostics}
+    assert "roi_limits_unexpected_shape" not in codes
+    assert "roi_variant_out_of_bounds" not in codes
+
+
 # -- read: missing-metadata branches (spec §7.8) -----------------------------
 
 def test_missing_counts_dataset_raises(synthetic_xrmmap_h5):

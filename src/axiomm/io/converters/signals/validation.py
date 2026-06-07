@@ -1,13 +1,18 @@
 """Axis validation for AXIOMM signal builders (spec §8.6).
 
 The validator runs before a builder constructs a backend signal. It catches
-the four common mistakes that lead to silently wrong outputs:
+the mistakes that lead to silently wrong or numerically unstable outputs:
 
 1. The number of :class:`AxisSpec` entries does not match ``data.ndim``.
-2. An axis size does not match the corresponding data dimension.
+2. Any per-axis leaf-level integrity violation: empty name, non-positive
+   size, non-finite scale, non-finite offset.
 3. The :attr:`AxisSpec.index_in_array` values do not form a complete
    permutation of ``[0, ndim)`` (missing, duplicated, or out-of-bounds).
-4. The number of signal-role axes is wrong for the requested
+4. Duplicate axis names within the navigation or signal role group
+   (HyperSpy's axes_manager uses names for lookup; collisions are
+   silently lossy).
+5. An axis size does not match the corresponding data dimension.
+6. The number of signal-role axes is wrong for the requested
    :class:`SignalKind`.
 
 Validation is run in two places:
@@ -17,6 +22,8 @@ Validation is run in two places:
 """
 
 from __future__ import annotations
+
+import math
 
 from axiomm.io.converters.errors import SignalValidationError
 from axiomm.io.converters.models import AxiommSignalPayload, SignalKind
@@ -52,10 +59,36 @@ def validate_axes(
             f"data.ndim ({data_ndim})."
         )
 
-    # Structural checks first: every axis must have a valid index_in_array,
-    # and together they must form a complete permutation of [0, n_axes).
+    # Per-axis checks: leaf-level integrity first (cheap, fail fast on
+    # garbage values), then structural index_in_array bookkeeping.
     indices: list[int] = []
     for axis in axes:
+        # Leaf-level integrity — empty name, bad size, NaN/inf scale/offset
+        # cause silently wrong behaviour downstream (e.g. HyperSpy plotting,
+        # coordinate arithmetic). Treat them as hard errors here.
+        if not isinstance(axis.name, str) or not axis.name.strip():
+            raise SignalValidationError(
+                f"AxisSpec has empty or non-string name: {axis.name!r}."
+            )
+        if not isinstance(axis.size, int) or axis.size <= 0:
+            raise SignalValidationError(
+                f"AxisSpec name={axis.name!r} has non-positive or "
+                f"non-integer size {axis.size!r}."
+            )
+        if axis.scale is not None and not math.isfinite(axis.scale):
+            raise SignalValidationError(
+                f"AxisSpec name={axis.name!r} has non-finite scale "
+                f"{axis.scale!r}."
+            )
+        if not math.isfinite(axis.offset):
+            raise SignalValidationError(
+                f"AxisSpec name={axis.name!r} has non-finite offset "
+                f"{axis.offset!r}."
+            )
+
+        # Structural — every axis must declare its position in the underlying
+        # array, and together they must form a complete permutation of
+        # [0, n_axes).
         if axis.index_in_array is None:
             raise SignalValidationError(
                 f"AxisSpec name={axis.name!r} has no index_in_array set; "
@@ -73,6 +106,18 @@ def validate_axes(
             f"AxisSpec.index_in_array values do not form a complete "
             f"permutation of [0, {n_axes}); got {sorted(indices)!r}."
         )
+
+    # Within each role group, axis names must be unique. HyperSpy's
+    # axes_manager lets you look axes up by name; duplicate names silently
+    # mask all but one of them.
+    for role in ("navigation", "signal"):
+        names = [a.name for a in axes if a.role == role]
+        if len(names) != len(set(names)):
+            duplicates = sorted({n for n in names if names.count(n) > 1})
+            raise SignalValidationError(
+                f"{role.capitalize()} axes have duplicate names: "
+                f"{duplicates!r}. Axis names must be unique within each role."
+            )
 
     # Semantic check: axis sizes must agree with the data shape (only
     # meaningful once we know each axis has a unique, in-bounds index).

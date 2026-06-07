@@ -56,11 +56,21 @@ synthetic fixture and against the real
 not touch UX and can proceed without it; reorder Phase 1 accordingly
 when the time comes.
 
-### Phase 2 / 3 — configurability and extensibility
+### Phase 2 — configurability and validation (spec §23)
 
-Tracked in spec §23. Pick up after Phase 1 lands.
+| # | Chunk                                                                | Status     |
+|---|----------------------------------------------------------------------|------------|
+| 9 | Stricter axis validation + `roi_variant_index` for real XRM files    | ✅ done    |
+| 10 | Restructure `payload.metadata["AXIOMM"]` per spec §15 nested layout | ⬜ pending |
+| 11 | Real-file e2e regression fixture + scientific-constant justification | ⬜ pending |
 
-## Current state (as of Chunk 7 — manifest + logging + provenance)
+### Phase 3 — extensibility
+
+Tracked in spec §23. Reader/writer registry with plugin discovery,
+generic HDF5 schema-driven reader, additional output formats. Pick up
+after Phase 2.
+
+## Current state (as of Chunk 9 — Phase 2.1: validation + ROI variants)
 
 What exists in this repository:
 
@@ -231,6 +241,34 @@ What exists in this repository:
     counts + environ, inferred includes axis sizes, assumed includes
     Energy scale + units, the beam-size vs. fallback path for nav
     scale classification.
+* **`signals/validation.py` — stricter `validate_axes` checks (Chunk 9).**
+  Per-axis leaf-level integrity: every `AxisSpec.name` must be a
+  non-empty string, `size` must be a positive int, `scale` (if not
+  `None`) must be finite, `offset` must be finite. Cross-axis: names
+  within each role group (navigation / signal) must be unique
+  (HyperSpy's `axes_manager` looks axes up by name; duplicates are
+  silently lossy). Existing checks unchanged.
+* **`readers/xrmmap_h5.py` — ROI variant extraction (Chunk 9).**
+  `XRMMapH5Config` gained `roi_variant_index: int = 0`. The reader
+  now detects 3-D ROI limits arrays of shape
+  `(n_rois, n_variants, 2)` (the real-file shape) and slices
+  `limits[:, roi_variant_index, :]` — turning the previous
+  `roi_limits_unexpected_shape` warning into a configurable extraction.
+  Out-of-bounds `roi_variant_index` emits a new
+  `roi_variant_out_of_bounds` warning and skips extraction with a
+  message naming the available range. The 2-D `(n_rois, 2)` path
+  stays working as a regression.
+* **`tests/io/converters/conftest.py`** — synthetic fixture gained a
+  `roi_limits_override: np.ndarray | None` parameter so tests can
+  write any-shape ROI limits arrays.
+* **`tests/io/converters/test_hyperspy_builder.py`** — 6 new tests
+  on the stricter validation: empty name, non-positive size, NaN
+  scale, inf offset, duplicate navigation names, duplicate signal
+  names.
+* **`tests/io/converters/test_xrmmap_h5_reader.py`** — 5 new tests
+  on ROI variant handling: default `roi_variant_index=0` on a
+  `(2, 7, 2)` fixture; non-default variant index extracting that
+  slice; out-of-bounds index emitting the diagnostic; 2-D regression.
 * `pyproject.toml` with src-layout, `requires-python = ">=3.10"`, optional
   extras for `hdf5`, `hyperspy`, `all`, `notebook`, `dev`. Pytest configured
   with `pythonpath = ["src"]` so tests run without an install.
@@ -347,30 +385,44 @@ produces a `Signal1D` whose axes label correctly: `idx=0 → 'x' size=23`,
 `signal.metadata.General.title` set from the file stem and
 `signal.metadata.AXIOMM.{reader,provenance,diagnostics}` populated.
 
-## Next chunk: decision needed
+## Next chunk: Chunk 10 — metadata restructure to spec §15 nested layout
 
-With Chunk 7 complete, **every chunk numbered 1–7 in the Phase 0 + Phase
-1 plan is finished except Chunks 6 and 8, both of which remain blocked
-on the deferred UX-layout decision** ([[feedback-axiomm-scope]] and the
-Open decisions section below).
+Phase 2 opened at Francesco's direction; Chunk 9 (stricter validation +
+ROI variant extraction) is done. The next two Phase 2 chunks are
+independent and can be tackled in either order:
 
-Two paths forward, depending on Francesco's intent:
+**Chunk 10 (recommended next).** Restructure
+`payload.metadata["AXIOMM"]` from the current flat
+`{reader, reader_version, config, provenance, diagnostics,
+provenance_classification}` into the nested
+`{converter: {reader, ...}, axes: {...}, source: {...}}` layout that
+spec §15's example shows. **This is a breaking change** for any user
+reading `signal.metadata.AXIOMM.reader` directly — they would have to
+move to `signal.metadata.AXIOMM.converter.reader`. The manifest schema
+also changes (bump `manifest_schema_version` to `"2"`). Document the
+migration clearly in the user guide and Known-Issues.
 
-1. **Unblock Phase 1.** Pick the UX layout (Hybrid, spec-literal, or a
-   third option) and start Chunk 6 (CLI + `convert_many`) followed by
-   Chunk 8 (Tk + notebook helpers). Closes Phase 1.
-2. **Open Phase 2.** Per spec §23, Phase 2 is *configurability and
-   validation*: stricter axis validation (already partially in place),
-   structuring `payload.metadata["AXIOMM"]` per spec §15's nested
-   suggestion, parameterising any remaining hidden scientific
-   constants, and adding end-to-end tests against a real (small)
-   committed fixture file. None of these touch UX.
+**Chunk 11.** Commit a tiny real fixture file under
+`tests/io/converters/fixtures/` (or generate one out-of-band that's
+indistinguishable from a real file at the scales we need) and wire it
+into the test suite as a real-file regression. Also add an explicit
+"scientific justification" section to the converter user guide and to
+`XRMMapH5Config`'s docstring for the three magic constants the spec
+§17 open question flagged: `energy_scale = 40.96/4096`,
+`roi_limit_scale = 0.01`, `fallback_field_width_um = 500.0`. These need
+domain narrative from Francesco — not justification we can invent.
 
-A natural Chunk 7.5 in between, if Francesco wants more polish before
-moving on, would be a **second post-progress wiki sweep** (the first
-was after Chunk 5). Per the doc-quality commitment, every 2–3 chunks
-the wiki should be re-read end-to-end for staleness, broken links, and
-trap-section completeness.
+**Naming policy (per new feedback memory).** From Chunk 9 onwards, all
+new identifiers are checked against the policy in
+`feedback_naming_policy`. Chunk 9 added two new public names —
+`XRMMapH5Config.roi_variant_index` and the
+`roi_variant_out_of_bounds` diagnostic code — both deliberately long-
+but-clear; both follow the predictable pattern of neighbouring
+fields/codes. Not retroactive: existing names stay.
+
+UX-blocked chunks (6, 8) remain on hold until Francesco picks a UX
+layout or a second AXIOMM tool's UX needs make the right answer
+obvious.
 
 **Goal (Chunk 7).** Implement the spec §9.5 manifest writer, the spec
 §14 logging cleanup, and the spec §15 provenance classification
@@ -554,8 +606,8 @@ python -m pip install -e ".[dev,all]"
 pytest -q
 ```
 
-Expected result: **174 tests pass**, 0 fail. With only h5py installed
-(no hyperspy): 112 pass, 4 skipped (the hspy_writer, hyperspy_builder
+Expected result: **185 tests pass**, 0 fail. With only h5py installed
+(no hyperspy): 117 pass, 4 skipped (the hspy_writer, hyperspy_builder
 and workflows modules skip as one unit each; the lazy-export
 `test_lazy_concrete_builder_exports` skips individually).
 
