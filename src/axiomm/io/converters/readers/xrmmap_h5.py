@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -32,6 +32,10 @@ from axiomm import __version__ as _axiomm_version
 from axiomm.io.converters.errors import (
     DatasetNotFoundError,
     MetadataParseError,
+)
+from axiomm.io.converters.metadata import (
+    nest_classification,
+    nest_converter_section,
 )
 from axiomm.io.converters.models import (
     AxiommSignalPayload,
@@ -398,19 +402,20 @@ class XRMMapH5Reader:
             ),
         )
 
+        # The reader populates the parts of the AXIOMM namespace it owns:
+        # the "converter" subsection (reader name/version + full config)
+        # and the provenance classification. The builder will compose the
+        # full nested namespace (adding axes, source, diagnostics) when it
+        # attaches metadata to the backend signal — see
+        # axiomm.io.converters.metadata.build_axiomm_namespace.
         metadata: dict[str, Any] = {
             "AXIOMM": {
-                "reader": self.name,
-                "reader_version": _axiomm_version,
-                "config": {
-                    "counts_path": self.config.counts_path,
-                    "energy_scale": self.config.energy_scale,
-                    "roi_limit_scale": self.config.roi_limit_scale,
-                    "fallback_field_width_um": (
-                        self.config.fallback_field_width_um
-                    ),
-                },
-                "provenance_classification": classification,
+                "converter": nest_converter_section(
+                    reader_name=self.name,
+                    reader_version=_axiomm_version,
+                    config=asdict(self.config),
+                ),
+                "provenance_classification": nest_classification(classification),
             },
         }
 

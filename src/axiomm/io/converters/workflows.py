@@ -250,17 +250,18 @@ def convert_file(
         from axiomm.io.converters.writers.manifest import (
             ManifestWriter,
             build_manifest_dict,
-            extract_reader_config,
             manifest_path_for,
         )
 
+        # No need to pass config_used: the reader puts its full
+        # configuration into payload.metadata["AXIOMM"]["converter"]["config"],
+        # and build_manifest_dict reads it from there.
         manifest_dict = build_manifest_dict(
             input_path=src,
             output_path=written_path,
             reader_name=resolved_reader.name,
             writer_name=resolved_writer.name,
             payload=payload,
-            config_used=extract_reader_config(resolved_reader),
             extra_diagnostics=extra_diagnostics,
         )
         manifest_path = ManifestWriter().write(

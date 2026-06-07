@@ -408,16 +408,21 @@ def test_non_canonical_axis_order_is_reordered_transparently():
 # ---------------------------------------------------------------------------
 
 def test_axiomm_metadata_namespace_is_preserved():
+    """The builder reads the reader's converter section and propagates it."""
     metadata = {
         "AXIOMM": {
-            "reader": "xrmmap_h5",
-            "config": {"counts_path": "/some/path"},
+            "converter": {
+                "reader": "xrmmap_h5",
+                "reader_version": "0.0.0-test",
+                "config": {"counts_path": "/some/path"},
+            },
         },
     }
     payload = _make_xrm_payload(metadata=metadata)
     signal = HyperSpyBuilder().build(payload)
-    assert signal.metadata.AXIOMM.reader == "xrmmap_h5"
-    assert signal.metadata.AXIOMM.config.counts_path == "/some/path"
+    assert signal.metadata.AXIOMM.converter.reader == "xrmmap_h5"
+    assert signal.metadata.AXIOMM.converter.reader_version == "0.0.0-test"
+    assert signal.metadata.AXIOMM.converter.config.counts_path == "/some/path"
 
 
 def test_title_becomes_general_title():
@@ -426,7 +431,8 @@ def test_title_becomes_general_title():
     assert signal.metadata.General.title == "A21_054_map"
 
 
-def test_provenance_recorded_under_axiomm_namespace():
+def test_source_recorded_under_axiomm_namespace():
+    """Spec §15 names this section 'source'; was 'provenance' under v1 flat schema."""
     provenance = SourceProvenance(
         path=Path("/tmp/example.h5"),
         reader="xrmmap_h5",
@@ -435,10 +441,10 @@ def test_provenance_recorded_under_axiomm_namespace():
     )
     payload = _make_xrm_payload(provenance=provenance)
     signal = HyperSpyBuilder().build(payload)
-    prov = signal.metadata.AXIOMM.provenance
-    assert prov.reader == "xrmmap_h5"
-    assert prov.path == "/tmp/example.h5"
-    assert prov.input_hash == "cafebabe"
+    source = signal.metadata.AXIOMM.source
+    assert source.reader == "xrmmap_h5"
+    assert source.path == "/tmp/example.h5"
+    assert source.input_hash == "cafebabe"
 
 
 def test_diagnostics_recorded_under_axiomm_namespace():
@@ -468,11 +474,14 @@ def test_original_metadata_is_preserved():
 
 def test_non_axiomm_metadata_keys_are_preserved():
     payload = _make_xrm_payload(
-        metadata={"Foo": {"bar": "baz"}, "AXIOMM": {"reader": "x"}},
+        metadata={
+            "Foo": {"bar": "baz"},
+            "AXIOMM": {"converter": {"reader": "x", "reader_version": "v", "config": {}}},
+        },
     )
     signal = HyperSpyBuilder().build(payload)
     assert signal.metadata.Foo.bar == "baz"
-    assert signal.metadata.AXIOMM.reader == "x"
+    assert signal.metadata.AXIOMM.converter.reader == "x"
 
 
 # ---------------------------------------------------------------------------
@@ -502,7 +511,7 @@ def test_end_to_end_synthetic_reader_then_builder(synthetic_xrmmap_h5):
     assert by_index[0].name == "x" and by_index[0].size == 4
     assert by_index[1].name == "y" and by_index[1].size == 3
     assert by_index[2].name == "Energy" and by_index[2].size == 16
-    assert signal.metadata.AXIOMM.reader == "xrmmap_h5"
+    assert signal.metadata.AXIOMM.converter.reader == "xrmmap_h5"
     assert signal.metadata.General.title == "e2e"
 
 

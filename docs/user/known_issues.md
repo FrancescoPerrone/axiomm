@@ -140,6 +140,68 @@ want the diagnostic noise:
 convert_file(..., lazy=False)
 ```
 
+## Migrating from the flat AXIOMM metadata / manifest v1
+
+**Scope.** Any code written against AXIOMM pre-Chunk-10 that reads
+``signal.metadata.AXIOMM.reader``, ``signal.metadata.AXIOMM.provenance.*``,
+or top-level manifest fields like ``manifest["axes_summary"]`` /
+``manifest["config_used"]`` / ``manifest["diagnostics"]`` /
+``manifest["provenance_classification"]``.
+
+**Cause.** Chunk 10 restructured ``signal.metadata.AXIOMM`` into the
+nested layout suggested by spec §15 (``converter`` / ``axes`` /
+``source`` / ``provenance_classification`` / ``diagnostics`` subkeys)
+and bumped the manifest schema to ``"2"`` so the manifest mirrors that
+layout under ``axiomm_metadata``. Both moves are deliberate; the flat
+v1 layout is gone.
+
+**Mapping table.**
+
+```{list-table}
+:header-rows: 1
+:widths: 50 50
+
+* - v1 (flat, pre-Chunk-10)
+  - v2 (nested)
+* - ``signal.metadata.AXIOMM.reader``
+  - ``signal.metadata.AXIOMM.converter.reader``
+* - ``signal.metadata.AXIOMM.reader_version``
+  - ``signal.metadata.AXIOMM.converter.reader_version``
+* - ``signal.metadata.AXIOMM.config``
+  - ``signal.metadata.AXIOMM.converter.config``
+* - ``signal.metadata.AXIOMM.provenance.path``
+  - ``signal.metadata.AXIOMM.source.path``
+* - ``signal.metadata.AXIOMM.provenance.reader``
+  - ``signal.metadata.AXIOMM.source.reader``
+* - ``signal.metadata.AXIOMM.diagnostics``
+  - ``signal.metadata.AXIOMM.diagnostics`` *(unchanged)*
+* - ``signal.metadata.AXIOMM.provenance_classification``
+  - ``signal.metadata.AXIOMM.provenance_classification`` *(unchanged)*
+* - ``manifest["axes_summary"]``
+  - ``manifest["axiomm_metadata"]["axes"]``
+* - ``manifest["config_used"]``
+  - ``manifest["axiomm_metadata"]["converter"]["config"]``
+* - ``manifest["diagnostics"]``
+  - ``manifest["axiomm_metadata"]["diagnostics"]``
+* - ``manifest["provenance_classification"]``
+  - ``manifest["axiomm_metadata"]["provenance_classification"]``
+* - ``manifest["reader_name"]``
+  - ``manifest["reader_name"]`` *(unchanged at top level)*
+* - ``manifest["source_shape"]``
+  - ``manifest["source_shape"]`` *(unchanged at top level)*
+```
+
+**Fix path.**
+
+- For code reading signals: update attribute paths as per the table.
+- For code reading manifests: check ``manifest["manifest_schema_version"]``
+  and branch on ``"1"`` vs ``"2"``. AXIOMM is pre-alpha and we
+  intentionally don't ship a v1-to-v2 migrator at runtime; old
+  `.hspy` and manifest files produced before this change have the old
+  layout baked in.
+- To regenerate v2 manifests for old conversions, re-run the
+  converter on the original `.h5` input.
+
 ## `convert_file` refuses to overwrite by default
 
 **Scope.** Any call to `convert_file` whose output path already exists,

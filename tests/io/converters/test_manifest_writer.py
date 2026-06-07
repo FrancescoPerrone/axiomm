@@ -31,14 +31,23 @@ from axiomm.io.converters.writers.manifest import (
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_payload(*, with_classification: bool = True) -> AxiommSignalPayload:
+def _make_payload(
+    *,
+    with_classification: bool = True,
+    config: dict | None = None,
+) -> AxiommSignalPayload:
     data = np.zeros((4, 3, 16), dtype=np.float32)
     axes = (
         AxisSpec("x", "navigation", 4, units="µm", scale=1.0, index_in_array=0),
         AxisSpec("y", "navigation", 3, units="µm", scale=1.0, index_in_array=1),
         AxisSpec("Energy", "signal", 16, units="keV", scale=0.01, index_in_array=2),
     )
-    metadata: dict = {"AXIOMM": {"reader": "xrmmap_h5"}}
+    converter_section: dict = {
+        "reader": "xrmmap_h5",
+        "reader_version": "0.0.0-test",
+        "config": dict(config or {"counts_path": "/x/y", "energy_scale": 0.01}),
+    }
+    metadata: dict = {"AXIOMM": {"converter": converter_section}}
     if with_classification:
         metadata["AXIOMM"]["provenance_classification"] = {
             "observed": ["data"],
@@ -88,7 +97,7 @@ def test_manifest_path_for_accepts_string():
 # build_manifest_dict
 # ---------------------------------------------------------------------------
 
-def test_build_manifest_dict_has_required_fields():
+def test_build_manifest_dict_has_required_top_level_fields():
     payload = _make_payload()
     m = build_manifest_dict(
         input_path=Path("/tmp/in.h5"),
@@ -97,7 +106,7 @@ def test_build_manifest_dict_has_required_fields():
         writer_name="hspy",
         payload=payload,
     )
-    required = {
+    required_top = {
         "manifest_schema_version",
         "axiomm_version",
         "created_at",
@@ -106,12 +115,28 @@ def test_build_manifest_dict_has_required_fields():
         "reader_name",
         "writer_name",
         "source_shape",
-        "axes_summary",
-        "diagnostics",
-        "config_used",
-        "provenance_classification",
+        "axiomm_metadata",
     }
-    assert required.issubset(m.keys())
+    assert required_top.issubset(m.keys())
+
+
+def test_build_manifest_dict_axiomm_metadata_section_has_required_subkeys():
+    payload = _make_payload()
+    m = build_manifest_dict(
+        input_path=Path("/tmp/in.h5"),
+        output_path=Path("/tmp/out.hspy"),
+        reader_name="xrmmap_h5",
+        writer_name="hspy",
+        payload=payload,
+    )
+    axiomm = m["axiomm_metadata"]
+    assert set(axiomm).issuperset({
+        "converter",
+        "axes",
+        "source",
+        "provenance_classification",
+        "diagnostics",
+    })
 
 
 def test_build_manifest_dict_records_iso_8601_timestamp():
@@ -140,7 +165,7 @@ def test_build_manifest_dict_source_shape_matches_data():
     assert m["source_shape"] == [4, 3, 16]
 
 
-def test_build_manifest_dict_axes_summary_lists_each_axis():
+def test_build_manifest_dict_axes_section_lists_each_axis():
     payload = _make_payload()
     m = build_manifest_dict(
         input_path=Path("/in.h5"),
@@ -149,11 +174,11 @@ def test_build_manifest_dict_axes_summary_lists_each_axis():
         writer_name="hspy",
         payload=payload,
     )
-    summary = m["axes_summary"]
-    assert len(summary) == 3
-    names = [a["name"] for a in summary]
+    axes = m["axiomm_metadata"]["axes"]
+    assert len(axes) == 3
+    names = [a["name"] for a in axes]
     assert names == ["x", "y", "Energy"]
-    energy = next(a for a in summary if a["name"] == "Energy")
+    energy = next(a for a in axes if a["name"] == "Energy")
     assert energy["units"] == "keV"
     assert energy["scale"] == pytest.approx(0.01)
     assert energy["role"] == "signal"
@@ -168,7 +193,7 @@ def test_build_manifest_dict_classification_is_three_bucket_dict():
         writer_name="hspy",
         payload=payload,
     )
-    c = m["provenance_classification"]
+    c = m["axiomm_metadata"]["provenance_classification"]
     assert set(c.keys()) == {"observed", "inferred", "assumed"}
     assert c["observed"] == ["data"]
     assert c["inferred"] == ["axes.x.size"]
@@ -184,7 +209,7 @@ def test_build_manifest_dict_classification_defaults_when_payload_has_none():
         writer_name="hspy",
         payload=payload,
     )
-    c = m["provenance_classification"]
+    c = m["axiomm_metadata"]["provenance_classification"]
     # Schema stable even for readers that don't classify.
     assert c == {"observed": [], "inferred": [], "assumed": []}
 
@@ -200,23 +225,26 @@ def test_build_manifest_dict_diagnostics_include_extras():
         payload=payload,
         extra_diagnostics=extras,
     )
-    codes = {d["code"] for d in m["diagnostics"]}
+    codes = {d["code"] for d in m["axiomm_metadata"]["diagnostics"]}
     # Reader's diagnostics plus the workflow's extras.
     assert codes == {"test_info", "test_warn", "workflow_extra"}
 
 
-def test_build_manifest_dict_passes_through_config_used():
-    payload = _make_payload()
-    cfg = {"counts_path": "/x/y", "energy_scale": 0.01}
+def test_build_manifest_dict_reads_config_from_payload_converter_section():
+    """Schema v2: reader's config flows in via payload, not a workflow parameter."""
+    payload = _make_payload(
+        config={"counts_path": "/special/path", "roi_variant_index": 5},
+    )
     m = build_manifest_dict(
         input_path=Path("/in.h5"),
         output_path=Path("/out.hspy"),
         reader_name="xrmmap_h5",
         writer_name="hspy",
         payload=payload,
-        config_used=cfg,
     )
-    assert m["config_used"] == cfg
+    cfg = m["axiomm_metadata"]["converter"]["config"]
+    assert cfg["counts_path"] == "/special/path"
+    assert cfg["roi_variant_index"] == 5
 
 
 def test_build_manifest_dict_is_json_serialisable():

@@ -12,6 +12,10 @@ fallbacks were applied.
 The format intentionally uses a small, evolvable JSON schema. Each
 manifest carries a ``manifest_schema_version`` so future readers can
 gate behaviour on the schema they see.
+
+Schema v2 (Chunk 10) groups AXIOMM-specific fields under
+``"axiomm_metadata"`` so they mirror the ``signal.metadata.AXIOMM``
+namespace exactly. v1 had them flat at the manifest root.
 """
 
 from __future__ import annotations
@@ -25,9 +29,9 @@ from typing import Any
 
 from axiomm import __version__ as _axiomm_version
 from axiomm.io.converters.errors import OutputExistsError
+from axiomm.io.converters.metadata import build_axiomm_namespace
 from axiomm.io.converters.models import (
     AxiommSignalPayload,
-    AxisSpec,
     Diagnostic,
 )
 
@@ -39,7 +43,7 @@ logger = logging.getLogger(__name__)
 MANIFEST_SUFFIX = ".axiomm.json"
 
 #: Schema version. Bump when the structure changes in a non-additive way.
-MANIFEST_SCHEMA_VERSION = "1"
+MANIFEST_SCHEMA_VERSION = "2"
 
 
 def manifest_path_for(output_path: str | Path) -> Path:
@@ -60,17 +64,56 @@ def build_manifest_dict(
     reader_name: str,
     writer_name: str,
     payload: AxiommSignalPayload,
-    config_used: dict[str, Any] | None = None,
     extra_diagnostics: tuple[Diagnostic, ...] | list[Diagnostic] | None = None,
 ) -> dict[str, Any]:
     """Build the JSON-serialisable manifest dictionary (spec §9.5 + §15).
 
-    The result is plain JSON-friendly types (str, int, float, None,
-    list, dict) — no numpy or pathlib leakage — so it survives
-    ``json.dumps`` without a custom encoder.
+    Schema v2 layout::
+
+        {
+          "manifest_schema_version": "2",
+          "axiomm_version":  "...",
+          "created_at":      "<ISO 8601 UTC>",
+          "input_path":      "...",
+          "output_path":     "...",
+          "reader_name":     "...",
+          "writer_name":     "...",
+          "source_shape":    [d0, d1, ...],
+          "axiomm_metadata": {
+              "converter": {reader, reader_version, config},
+              "axes":      [...],
+              "source":    {...},
+              "provenance_classification": {observed, inferred, assumed},
+              "diagnostics": [...]
+          }
+        }
+
+    The top-level fields are the "manifest about the manifest" plus
+    at-a-glance pointers (input/output paths, reader/writer names,
+    shape). The ``axiomm_metadata`` subkey mirrors
+    ``signal.metadata.AXIOMM`` exactly — both are built by
+    :func:`~axiomm.io.converters.metadata.build_axiomm_namespace` so
+    they cannot drift.
     """
+    payload_axiomm = (
+        payload.metadata.get("AXIOMM", {}) if payload.metadata else {}
+    )
+    converter_section = payload_axiomm.get("converter", {})
+    classification = payload_axiomm.get("provenance_classification")
+
     extras = tuple(extra_diagnostics or ())
     all_diagnostics: tuple[Diagnostic, ...] = tuple(payload.diagnostics) + extras
+
+    axiomm_metadata = build_axiomm_namespace(
+        reader_name=converter_section.get("reader", reader_name),
+        reader_version=converter_section.get("reader_version"),
+        config=converter_section.get("config", {}),
+        axes=payload.axes,
+        provenance=payload.provenance,
+        classification=classification,
+        diagnostics=all_diagnostics,
+    )
+
     return {
         "manifest_schema_version": MANIFEST_SCHEMA_VERSION,
         "axiomm_version": _axiomm_version,
@@ -80,10 +123,7 @@ def build_manifest_dict(
         "reader_name": reader_name,
         "writer_name": writer_name,
         "source_shape": _shape_of(payload.data),
-        "axes_summary": _axes_summary(payload.axes),
-        "config_used": dict(config_used or {}),
-        "provenance_classification": _provenance_classification(payload),
-        "diagnostics": [_diagnostic_dict(d) for d in all_diagnostics],
+        "axiomm_metadata": axiomm_metadata,
     }
 
 
@@ -109,49 +149,6 @@ def _shape_of(data: Any) -> list[int] | None:
     if shape is None:
         return None
     return [int(x) for x in shape]
-
-
-def _axes_summary(axes: tuple[AxisSpec, ...]) -> list[dict[str, Any]]:
-    return [
-        {
-            "name": ax.name,
-            "role": ax.role,
-            "size": ax.size,
-            "units": ax.units,
-            "scale": ax.scale,
-            "offset": ax.offset,
-            "index_in_array": ax.index_in_array,
-        }
-        for ax in axes
-    ]
-
-
-def _diagnostic_dict(d: Diagnostic) -> dict[str, Any]:
-    return {
-        "severity": d.severity,
-        "code": d.code,
-        "message": d.message,
-        "context": dict(d.context),
-    }
-
-
-def _provenance_classification(payload: AxiommSignalPayload) -> dict[str, list[str]]:
-    """Pull the classification dict from the payload's AXIOMM namespace.
-
-    Falls back to an empty three-bucket structure if no classification
-    was recorded — keeps the manifest schema stable across readers.
-    """
-    axiomm_meta = payload.metadata.get("AXIOMM", {}) if payload.metadata else {}
-    classification = axiomm_meta.get(
-        "provenance_classification",
-        {"observed": [], "inferred": [], "assumed": []},
-    )
-    # Defensive: always present all three buckets.
-    return {
-        "observed": list(classification.get("observed", [])),
-        "inferred": list(classification.get("inferred", [])),
-        "assumed": list(classification.get("assumed", [])),
-    }
 
 
 # ---------------------------------------------------------------------------

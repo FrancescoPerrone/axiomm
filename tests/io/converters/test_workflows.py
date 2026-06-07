@@ -52,8 +52,8 @@ def test_convert_file_preserves_axiomm_metadata(synthetic_xrmmap_h5, tmp_path):
     out = tmp_path / "out.hspy"
     convert_file(src, output_path=out, reader="xrmmap_h5")
     loaded = hs.load(str(out))
-    assert loaded.metadata.AXIOMM.reader == "xrmmap_h5"
-    assert loaded.metadata.AXIOMM.provenance.reader == "xrmmap_h5"
+    assert loaded.metadata.AXIOMM.converter.reader == "xrmmap_h5"
+    assert loaded.metadata.AXIOMM.source.reader == "xrmmap_h5"
 
 
 def test_convert_file_axis_labels_are_correct_end_to_end(
@@ -125,7 +125,7 @@ def test_manifest_content_includes_required_fields(synthetic_xrmmap_h5, tmp_path
     with result.manifest_path.open() as f:
         manifest = json.load(f)
 
-    # Spec §9.5 — required fields
+    # Top-level: manifest about the manifest + at-a-glance pointers.
     assert manifest["manifest_schema_version"] == MANIFEST_SCHEMA_VERSION
     assert "axiomm_version" in manifest
     assert "created_at" in manifest
@@ -134,18 +134,21 @@ def test_manifest_content_includes_required_fields(synthetic_xrmmap_h5, tmp_path
     assert manifest["reader_name"] == "xrmmap_h5"
     assert manifest["writer_name"] == "hspy"
     assert manifest["source_shape"] == [4, 3, 16]
-    assert isinstance(manifest["axes_summary"], list)
-    assert len(manifest["axes_summary"]) == 3
-    assert isinstance(manifest["diagnostics"], list)
 
-    # Spec §15 — three-bucket provenance classification
-    classification = manifest["provenance_classification"]
+    # Nested: the AXIOMM namespace, mirroring signal.metadata.AXIOMM.
+    axiomm = manifest["axiomm_metadata"]
+    assert axiomm["converter"]["reader"] == "xrmmap_h5"
+    assert axiomm["converter"]["config"]["counts_path"] == "/xrmmap/mcasum/counts"
+    assert axiomm["converter"]["config"]["roi_variant_index"] == 0
+    assert isinstance(axiomm["axes"], list)
+    assert len(axiomm["axes"]) == 3
+    assert isinstance(axiomm["diagnostics"], list)
+    # Source comes from payload.provenance (set by the reader).
+    assert axiomm["source"]["reader"] == "xrmmap_h5"
+    # Spec §15 — three-bucket provenance classification.
+    classification = axiomm["provenance_classification"]
     assert set(classification.keys()) == {"observed", "inferred", "assumed"}
     assert all(isinstance(classification[k], list) for k in classification)
-
-    # The reader's config went into config_used.
-    cfg = manifest["config_used"]
-    assert cfg["counts_path"] == "/xrmmap/mcasum/counts"
 
 
 def test_manifest_path_uses_full_output_filename_as_stem(
@@ -169,7 +172,7 @@ def test_manifest_records_diagnostics_from_reader(synthetic_xrmmap_h5, tmp_path)
     result = convert_file(src, output_path=out, reader="xrmmap_h5")
     with result.manifest_path.open() as f:
         manifest = json.load(f)
-    codes = {d["code"] for d in manifest["diagnostics"]}
+    codes = {d["code"] for d in manifest["axiomm_metadata"]["diagnostics"]}
     assert "lazy_downgraded_to_eager" in codes
 
 

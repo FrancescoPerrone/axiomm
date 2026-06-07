@@ -61,8 +61,8 @@ when the time comes.
 | # | Chunk                                                                | Status     |
 |---|----------------------------------------------------------------------|------------|
 | 9 | Stricter axis validation + `roi_variant_index` for real XRM files    | ✅ done    |
-| 10 | Restructure `payload.metadata["AXIOMM"]` per spec §15 nested layout | ⬜ pending |
-| 11 | Real-file e2e regression fixture + scientific-constant justification | ⬜ pending |
+| 10 | Restructure `payload.metadata["AXIOMM"]` per spec §15 nested layout | ✅ done    |
+| 11 | Real-file e2e regression fixture + scientific-constant justification | ⬜ next    |
 
 ### Phase 3 — extensibility
 
@@ -70,7 +70,7 @@ Tracked in spec §23. Reader/writer registry with plugin discovery,
 generic HDF5 schema-driven reader, additional output formats. Pick up
 after Phase 2.
 
-## Current state (as of Chunk 9 — Phase 2.1: validation + ROI variants)
+## Current state (as of Chunk 10 — Phase 2.2: nested AXIOMM metadata + manifest v2)
 
 What exists in this repository:
 

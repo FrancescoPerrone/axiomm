@@ -43,11 +43,16 @@ The output file is a standard HyperSpy `.hspy`:
 import hyperspy.api as hs
 
 signal = hs.load("A21_054_map.hspy")
-print(signal)                                 # <Signal1D, …>
-print(signal.metadata.AXIOMM.reader)          # 'xrmmap_h5'
-print(signal.metadata.General.title)          # 'A21_054_map'
-print(signal.axes_manager)                    # x, y in µm; Energy in keV
+print(signal)                                          # <Signal1D, …>
+print(signal.metadata.AXIOMM.converter.reader)         # 'xrmmap_h5'
+print(signal.metadata.AXIOMM.source.path)              # original .h5 path
+print(signal.metadata.General.title)                   # 'A21_054_map'
+print(signal.axes_manager)                             # x, y in µm; Energy in keV
 ```
+
+The `AXIOMM` namespace is nested per spec §15 — see the
+[AXIOMM metadata layout](#axiomm-metadata-layout) section below for
+the full structure.
 
 ## How AXIOMM decides what to read and where to write
 
@@ -142,13 +147,44 @@ beam-size key) is non-fatal: the reader attaches a structured
 `Diagnostic` to the payload and continues. This is by design (spec
 §7.8): scientific-data safety, but graceful degradation.
 
+## AXIOMM metadata layout
+
+Both `signal.metadata.AXIOMM` (in-memory after build) and the
+``axiomm_metadata`` subkey of the manifest sidecar share the same
+nested structure, defined by spec §15:
+
+```text
+AXIOMM
+├── converter
+│   ├── reader            "xrmmap_h5"
+│   ├── reader_version    "0.1.0.dev0"
+│   └── config            { full XRMMapH5Config dataclass dump }
+├── axes
+│   └── [ {name, role, size, units, scale, offset, index_in_array}, ... ]
+├── source
+│   ├── path              "/path/to/input.h5"
+│   ├── reader            "xrmmap_h5"
+│   ├── reader_version    "0.1.0.dev0"
+│   └── input_hash        null
+├── provenance_classification
+│   ├── observed          [ ... ]
+│   ├── inferred          [ ... ]
+│   └── assumed           [ ... ]
+└── diagnostics
+    └── [ {severity, code, message, context}, ... ]
+```
+
+Every section is built by a composable transformer in
+`axiomm.io.converters.metadata`; the same transformers are used by
+the HyperSpy builder and the manifest writer so the two cannot drift.
+
 ## Reproducibility: the manifest sidecar
 
 Every successful `convert_file` call writes a JSON manifest at
 `<output>.axiomm.json` next to the `.hspy` file. The manifest captures
 everything needed to reproduce or audit the conversion.
 
-### Schema (v1)
+### Schema (v2)
 
 ```{list-table}
 :header-rows: 1
@@ -157,7 +193,7 @@ everything needed to reproduce or audit the conversion.
 * - Field
   - Description
 * - `manifest_schema_version`
-  - Schema version string. Currently `"1"`. Future non-additive
+  - Schema version string. Currently `"2"`. Future non-additive
     changes bump this so consumers can gate on the version they see.
 * - `axiomm_version`
   - The AXIOMM package version that produced the conversion.
@@ -171,18 +207,21 @@ everything needed to reproduce or audit the conversion.
 * - `source_shape`
   - The input dataset's shape as a list of ints, or `null` if the
     reader's data exposes no `.shape`.
-* - `axes_summary`
-  - List of axis descriptors — `name`, `role`, `size`, `units`,
-    `scale`, `offset`, `index_in_array`.
-* - `config_used`
-  - The reader's dataclass configuration serialised as a dict
-    (e.g. for `XRMMapH5Reader`, every field of `XRMMapH5Config`).
-* - `diagnostics`
-  - Structured list of every info / warning / error attached to the
-    conversion (reader diagnostics first, then workflow extras).
-* - `provenance_classification`
-  - Three-bucket dict mapping `"observed"`, `"inferred"`,
-    `"assumed"` to lists of human-readable descriptors. See below.
+* - `axiomm_metadata`
+  - Nested AXIOMM namespace with `converter`, `axes`, `source`,
+    `provenance_classification`, `diagnostics` subkeys — mirrors
+    ``signal.metadata.AXIOMM`` exactly. See
+    [AXIOMM metadata layout](#axiomm-metadata-layout) above for the
+    full structure.
+```
+
+```{note}
+Schema v2 (Chunk 10) groups the AXIOMM-specific fields under
+``axiomm_metadata`` so they mirror ``signal.metadata.AXIOMM``. In v1
+they sat flat at the manifest root (``axes_summary``,
+``config_used``, ``diagnostics``, ``provenance_classification``).
+v2 manifests are not backwards-compatible with v1 consumers; check
+``manifest_schema_version`` if your code reads both.
 ```
 
 ### Provenance classification (spec §15)
@@ -217,7 +256,9 @@ with result.manifest_path.open() as f:
 print(manifest["axiomm_version"])
 print(manifest["reader_name"], "→", manifest["writer_name"])
 
-for bucket, entries in manifest["provenance_classification"].items():
+# AXIOMM-specific content lives under "axiomm_metadata" in v2.
+classification = manifest["axiomm_metadata"]["provenance_classification"]
+for bucket, entries in classification.items():
     print(f"[{bucket}] ({len(entries)})")
     for e in entries:
         print(f"  - {e}")

@@ -33,6 +33,7 @@ from typing import Any
 import numpy as np
 
 from axiomm.io.converters.errors import SignalValidationError
+from axiomm.io.converters.metadata import build_axiomm_namespace
 from axiomm.io.converters.models import (
     AxiommSignalPayload,
     SignalKind,
@@ -168,29 +169,28 @@ class HyperSpyBuilder:
     def _assign_metadata(
         self, signal: Any, payload: AxiommSignalPayload
     ) -> None:
-        # Build the AXIOMM namespace from payload.metadata["AXIOMM"]
-        # plus structured provenance and diagnostics.
-        existing = (
-            dict(payload.metadata.get("AXIOMM", {})) if payload.metadata else {}
+        # Compose the canonical nested AXIOMM namespace (spec §15 layout)
+        # via the shared composer. The reader's contribution lives in
+        # payload.metadata["AXIOMM"]; we read out the "converter" and the
+        # "provenance_classification" subsections it populated, then add
+        # the axes / source / diagnostics sections from the payload's own
+        # fields. Same composer is used by ManifestWriter, so signal
+        # metadata and manifest content stay in lock-step.
+        payload_axiomm = (
+            payload.metadata.get("AXIOMM", {}) if payload.metadata else {}
         )
-        axiomm_meta: dict[str, Any] = existing
-        if payload.provenance is not None:
-            axiomm_meta["provenance"] = {
-                "path": str(payload.provenance.path),
-                "reader": payload.provenance.reader,
-                "reader_version": payload.provenance.reader_version,
-                "input_hash": payload.provenance.input_hash,
-            }
-        if payload.diagnostics:
-            axiomm_meta["diagnostics"] = [
-                {
-                    "severity": d.severity,
-                    "code": d.code,
-                    "message": d.message,
-                    "context": dict(d.context),
-                }
-                for d in payload.diagnostics
-            ]
+        converter_section = payload_axiomm.get("converter", {})
+        classification = payload_axiomm.get("provenance_classification")
+
+        axiomm_meta = build_axiomm_namespace(
+            reader_name=converter_section.get("reader", "unknown"),
+            reader_version=converter_section.get("reader_version"),
+            config=converter_section.get("config", {}),
+            axes=payload.axes,
+            provenance=payload.provenance,
+            classification=classification,
+            diagnostics=payload.diagnostics,
+        )
 
         general: dict[str, Any] = {}
         if payload.title is not None:
@@ -206,8 +206,7 @@ class HyperSpyBuilder:
             signal.metadata.add_dictionary({"General": general})
         if non_axiomm:
             signal.metadata.add_dictionary(non_axiomm)
-        if axiomm_meta:
-            signal.metadata.add_dictionary({"AXIOMM": axiomm_meta})
+        signal.metadata.add_dictionary({"AXIOMM": axiomm_meta})
 
         if payload.original_metadata:
             signal.original_metadata.add_dictionary(payload.original_metadata)

@@ -266,8 +266,12 @@ def test_read_title_defaults_to_file_stem(synthetic_xrmmap_h5):
 def test_read_records_axiomm_namespace_metadata(synthetic_xrmmap_h5):
     payload = XRMMapH5Reader().read(synthetic_xrmmap_h5("ok.h5"))
     axiomm_meta = payload.metadata["AXIOMM"]
-    assert axiomm_meta["reader"] == "xrmmap_h5"
-    assert axiomm_meta["config"]["counts_path"] == "/xrmmap/mcasum/counts"
+    converter = axiomm_meta["converter"]
+    assert converter["reader"] == "xrmmap_h5"
+    assert converter["reader_version"] is not None
+    # Reader now emits the full dataclass dump as config.
+    assert converter["config"]["counts_path"] == "/xrmmap/mcasum/counts"
+    assert converter["config"]["roi_variant_index"] == 0
 
 
 # -- Provenance classification (spec §15) -----------------------------------
