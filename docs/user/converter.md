@@ -126,6 +126,94 @@ beam-size key) is non-fatal: the reader attaches a structured
 `Diagnostic` to the payload and continues. This is by design (spec
 §7.8): scientific-data safety, but graceful degradation.
 
+## Reproducibility: the manifest sidecar
+
+Every successful `convert_file` call writes a JSON manifest at
+`<output>.axiomm.json` next to the `.hspy` file. The manifest captures
+everything needed to reproduce or audit the conversion.
+
+### Schema (v1)
+
+```{list-table}
+:header-rows: 1
+:widths: 28 72
+
+* - Field
+  - Description
+* - `manifest_schema_version`
+  - Schema version string. Currently `"1"`. Future non-additive
+    changes bump this so consumers can gate on the version they see.
+* - `axiomm_version`
+  - The AXIOMM package version that produced the conversion.
+* - `created_at`
+  - ISO 8601 timestamp in UTC, timezone-aware.
+* - `input_path`, `output_path`
+  - The resolved source and target paths.
+* - `reader_name`, `writer_name`
+  - Identifiers of the components actually used (e.g. `"xrmmap_h5"`,
+    `"hspy"`).
+* - `source_shape`
+  - The input dataset's shape as a list of ints, or `null` if the
+    reader's data exposes no `.shape`.
+* - `axes_summary`
+  - List of axis descriptors — `name`, `role`, `size`, `units`,
+    `scale`, `offset`, `index_in_array`.
+* - `config_used`
+  - The reader's dataclass configuration serialised as a dict
+    (e.g. for `XRMMapH5Reader`, every field of `XRMMapH5Config`).
+* - `diagnostics`
+  - Structured list of every info / warning / error attached to the
+    conversion (reader diagnostics first, then workflow extras).
+* - `provenance_classification`
+  - Three-bucket dict mapping `"observed"`, `"inferred"`,
+    `"assumed"` to lists of human-readable descriptors. See below.
+```
+
+### Provenance classification (spec §15)
+
+The classification distinguishes:
+
+- **observed** — metadata read directly from the source file (counts
+  dataset, environ keys, ROI entries when present, navigation scale
+  when computed from a beam-size value found in the environ table).
+- **inferred** — values derived from observed values (e.g. axis sizes
+  from `data.shape`).
+- **assumed** — fallback or config-default values with *no source* in
+  the input file (the Energy axis scale `40.96 / 4096`, the navigation
+  axis units, the navigation scale when it falls back to
+  `fallback_field_width_um / xdim`, the ROI limit rescaling).
+
+This separation is what makes an AXIOMM conversion auditable: a
+downstream consumer can tell what came from the instrument vs. what
+came from the converter's defaults.
+
+### Reading a manifest
+
+```python
+import json
+from axiomm.io.converters import convert_file
+
+result = convert_file("A21_054_map.h5", output_path="A21_054_map.hspy")
+
+with result.manifest_path.open() as f:
+    manifest = json.load(f)
+
+print(manifest["axiomm_version"])
+print(manifest["reader_name"], "→", manifest["writer_name"])
+
+for bucket, entries in manifest["provenance_classification"].items():
+    print(f"[{bucket}] ({len(entries)})")
+    for e in entries:
+        print(f"  - {e}")
+```
+
+### Opting out
+
+Pass `manifest=False` to `convert_file` if you don't want a sidecar.
+`ConversionResult.manifest_path` will be `None` and no JSON file is
+written. The sidecar is also skipped when `skip_existing=True`
+short-circuits — skip means no work, no manifest update.
+
 ## Lower-level: reader + builder without the writer
 
 If you want the HyperSpy signal in memory without writing to disk:
@@ -153,7 +241,6 @@ the converter made on your behalf:
 | Code                              | Severity | What it means                                                                                  |
 |-----------------------------------|----------|------------------------------------------------------------------------------------------------|
 | `lazy_downgraded_to_eager`        | info     | You passed `lazy=True` (the default); the MVP reader materialised the dataset eagerly.         |
-| `manifest_not_yet_implemented`    | info     | You passed `manifest=True` (the default); the sidecar isn't written yet (Chunk 7 deliverable). |
 | `output_skipped_existing`         | info     | `skip_existing=True` matched; no read/build/write was performed.                                |
 | `environ_missing`                 | warning  | The XRM environ config table wasn't found; fell back to `fallback_field_width_um`.             |
 | `beam_size_missing`               | warning  | The configured beam-size key wasn't in the environ table; fell back.                           |

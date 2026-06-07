@@ -135,23 +135,6 @@ want the diagnostic noise:
 convert_file(..., lazy=False)
 ```
 
-## `manifest=True` writes no sidecar yet
-
-**Scope.** Any call to `convert_file(..., manifest=True)`. `True` is
-the documented default.
-
-**Symptom.** `ConversionResult.manifest_path` is `None`. A
-`manifest_not_yet_implemented` diagnostic appears in the result.
-
-**Cause.** The manifest writer (`<output>.axiomm.json` sidecar with
-input/output paths, axes summary, AXIOMM version, scientific
-assumptions, and diagnostics — spec §9.5) is a Chunk 7 deliverable.
-The `manifest` parameter is accepted now so callers' signatures stay
-stable when manifests land.
-
-**Fix path.** Wait for Chunk 7; or pass `manifest=False` to silence the
-diagnostic in the meantime.
-
 ## `convert_file` refuses to overwrite by default
 
 **Scope.** Any call to `convert_file` whose output path already exists,
