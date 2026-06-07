@@ -20,6 +20,7 @@ See spec §7, §17, §20.1.
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -46,6 +47,9 @@ except ImportError:  # pragma: no cover - exercised in environments without h5py
 
 if TYPE_CHECKING:
     import h5py as _h5py_typing  # noqa: F401
+
+
+logger = logging.getLogger(__name__)
 
 
 _H5PY_INSTALL_HINT = (
@@ -235,6 +239,17 @@ class XRMMapH5Reader:
         source_path = Path(path)
         diagnostics: list[Diagnostic] = []
         original_metadata: dict[str, Any] = {}
+        # Spec §15: classify every recorded scientific-metadata field as
+        # observed (read directly from the file), inferred (computed from
+        # observed values, e.g. axis sizes from the data shape), or
+        # assumed (config defaults / fallbacks with no source in the file).
+        classification: dict[str, list[str]] = {
+            "observed": [],
+            "inferred": [],
+            "assumed": [],
+        }
+
+        logger.info("XRMMapH5Reader.read(%s, lazy=%s)", source_path, lazy)
 
         if lazy:
             diagnostics.append(
@@ -268,23 +283,81 @@ class XRMMapH5Reader:
                 )
             xdim, ydim, n_channels = data.shape
 
+            # Counts come directly from the file.
+            classification["observed"].append(
+                f"data (HDF5 dataset {self.config.counts_path!r})"
+            )
+            # Axis sizes are inferred from the data shape.
+            classification["inferred"].extend([
+                f"axes.{self.config.navigation_x_name}.size (= data.shape[0])",
+                f"axes.{self.config.navigation_y_name}.size (= data.shape[1])",
+                f"axes.{self.config.energy_axis_name}.size (= data.shape[2])",
+            ])
+
             # --- environ / configuration table (optional) -----------------
             environ, environ_diag = self._read_environ_table(f)
             diagnostics.extend(environ_diag)
             if environ:
                 original_metadata["environ"] = dict(environ)
+                classification["observed"].append(
+                    f"metadata.environ ({len(environ)} keys from HDF5)"
+                )
 
             # --- ROI table (optional) -------------------------------------
             rois, roi_diag = self._read_roi_table(f)
             diagnostics.extend(roi_diag)
             if rois:
                 original_metadata["rois"] = rois
+                classification["observed"].append(
+                    f"metadata.rois ({len(rois)} entries from HDF5; "
+                    f"limits scaled by configured roi_limit_scale)"
+                )
+                classification["assumed"].append(
+                    f"metadata.rois.*.start/end (roi_limit_scale="
+                    f"{self.config.roi_limit_scale} applied to raw integer limits)"
+                )
 
         # --- navigation scale ---------------------------------------------
-        nav_scale_um, scale_diag = self._resolve_navigation_scale(
+        nav_scale_um, scale_diag, scale_source = self._resolve_navigation_scale(
             environ, xdim=xdim
         )
         diagnostics.extend(scale_diag)
+        nav_scale_bucket = {
+            "beam_size": "observed",
+            "fallback": "assumed",
+            "unit": "assumed",
+        }[scale_source]
+        nav_scale_descriptor = {
+            "beam_size": (
+                f"axes.{self.config.navigation_x_name}.scale, "
+                f"axes.{self.config.navigation_y_name}.scale "
+                f"(parsed from environ {self.config.beam_size_key!r})"
+            ),
+            "fallback": (
+                f"axes.{self.config.navigation_x_name}.scale, "
+                f"axes.{self.config.navigation_y_name}.scale "
+                f"(fallback: fallback_field_width_um={self.config.fallback_field_width_um} "
+                f"/ xdim={xdim})"
+            ),
+            "unit": (
+                f"axes.{self.config.navigation_x_name}.scale, "
+                f"axes.{self.config.navigation_y_name}.scale "
+                f"(no beam size, no fallback: defaulted to 1.0)"
+            ),
+        }[scale_source]
+        classification[nav_scale_bucket].append(nav_scale_descriptor)
+
+        # The energy axis scale / units are always config-driven (no source
+        # in current XRM files) — declare them as assumed.
+        classification["assumed"].extend([
+            f"axes.{self.config.energy_axis_name}.scale "
+            f"(= {self.config.energy_scale}, config default)",
+            f"axes.{self.config.energy_axis_name}.units "
+            f"({self.config.energy_axis_units!r}, config default)",
+            f"axes.{self.config.navigation_x_name}.units, "
+            f"axes.{self.config.navigation_y_name}.units "
+            f"({self.config.navigation_units!r}, config default)",
+        ])
 
         # --- axes ----------------------------------------------------------
         axes: tuple[AxisSpec, ...] = (
@@ -329,6 +402,7 @@ class XRMMapH5Reader:
                         self.config.fallback_field_width_um
                     ),
                 },
+                "provenance_classification": classification,
             },
         }
 
@@ -466,12 +540,19 @@ class XRMMapH5Reader:
         environ: dict[str, str],
         *,
         xdim: int,
-    ) -> tuple[float, list[Diagnostic]]:
+    ) -> tuple[float, list[Diagnostic], str]:
+        """Return (scale, diagnostics, source_tag).
+
+        ``source_tag`` is one of ``"beam_size"``, ``"fallback"``, or
+        ``"unit"``, so callers can classify the resulting axis scale
+        per spec §15 (beam_size → observed, fallback → assumed,
+        unit → assumed).
+        """
         diagnostics: list[Diagnostic] = []
         beam_size_str = environ.get(self.config.beam_size_key)
         if beam_size_str is not None:
             try:
-                return parse_micrometre_value(beam_size_str), diagnostics
+                return parse_micrometre_value(beam_size_str), diagnostics, "beam_size"
             except MetadataParseError as exc:
                 diagnostics.append(
                     Diagnostic(
@@ -508,8 +589,12 @@ class XRMMapH5Reader:
                     ),
                 )
             )
-            return 1.0, diagnostics
-        return float(self.config.fallback_field_width_um) / xdim, diagnostics
+            return 1.0, diagnostics, "unit"
+        return (
+            float(self.config.fallback_field_width_um) / xdim,
+            diagnostics,
+            "fallback",
+        )
 
 
 __all__ = [

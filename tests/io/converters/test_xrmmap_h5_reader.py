@@ -270,6 +270,66 @@ def test_read_records_axiomm_namespace_metadata(synthetic_xrmmap_h5):
     assert axiomm_meta["config"]["counts_path"] == "/xrmmap/mcasum/counts"
 
 
+# -- Provenance classification (spec §15) -----------------------------------
+
+def test_payload_records_provenance_classification_three_buckets(synthetic_xrmmap_h5):
+    payload = XRMMapH5Reader().read(synthetic_xrmmap_h5("ok.h5"))
+    classification = payload.metadata["AXIOMM"]["provenance_classification"]
+    assert set(classification.keys()) == {"observed", "inferred", "assumed"}
+
+
+def test_observed_includes_counts_and_environ_when_present(synthetic_xrmmap_h5):
+    payload = XRMMapH5Reader().read(synthetic_xrmmap_h5("ok.h5"))
+    observed = payload.metadata["AXIOMM"]["provenance_classification"]["observed"]
+    joined = "; ".join(observed)
+    assert "data" in joined
+    assert "environ" in joined
+
+
+def test_inferred_includes_axis_sizes(synthetic_xrmmap_h5):
+    payload = XRMMapH5Reader().read(synthetic_xrmmap_h5("ok.h5"))
+    inferred = payload.metadata["AXIOMM"]["provenance_classification"]["inferred"]
+    joined = "; ".join(inferred)
+    assert "x.size" in joined
+    assert "y.size" in joined
+    assert "Energy.size" in joined
+
+
+def test_assumed_includes_energy_scale_and_units(synthetic_xrmmap_h5):
+    payload = XRMMapH5Reader().read(synthetic_xrmmap_h5("ok.h5"))
+    assumed = payload.metadata["AXIOMM"]["provenance_classification"]["assumed"]
+    joined = "; ".join(assumed)
+    assert "Energy.scale" in joined
+    assert "Energy.units" in joined
+
+
+def test_navigation_scale_from_beam_size_is_observed(synthetic_xrmmap_h5):
+    """When the beam size is in the environ table, the nav scale is observed."""
+    payload = XRMMapH5Reader().read(
+        synthetic_xrmmap_h5(
+            "with_beam.h5",
+            environ={"Experiment.Beam_Size__Nominal": "2.5 um"},
+        )
+    )
+    classification = payload.metadata["AXIOMM"]["provenance_classification"]
+    joined = "; ".join(classification["observed"])
+    assert "beam size" in joined.lower() or "Beam_Size" in joined
+    # And the fallback descriptor is NOT in assumed.
+    assert not any(
+        "fallback_field_width_um" in s for s in classification["assumed"]
+    )
+
+
+def test_navigation_scale_from_fallback_is_assumed(synthetic_xrmmap_h5):
+    """When the beam size is missing, the nav scale comes from the assumed fallback."""
+    payload = XRMMapH5Reader().read(
+        synthetic_xrmmap_h5("no_beam.h5", environ={"Other.Key": "v"})
+    )
+    classification = payload.metadata["AXIOMM"]["provenance_classification"]
+    joined = "; ".join(classification["assumed"])
+    assert "fallback_field_width_um" in joined
+
+
 # -- read: missing-metadata branches (spec §7.8) -----------------------------
 
 def test_missing_counts_dataset_raises(synthetic_xrmmap_h5):

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -17,6 +18,10 @@ from axiomm.io.converters.errors import (
 )
 from axiomm.io.converters.models import ConversionResult
 from axiomm.io.converters.workflows import convert_file
+from axiomm.io.converters.writers.manifest import (
+    MANIFEST_SCHEMA_VERSION,
+    MANIFEST_SUFFIX,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -87,28 +92,85 @@ def test_convert_file_carries_reader_diagnostics_into_result(
     assert "lazy_downgraded_to_eager" in codes
 
 
-def test_manifest_default_emits_diagnostic_until_chunk_7(
-    synthetic_xrmmap_h5, tmp_path
-):
+def test_manifest_default_writes_sidecar(synthetic_xrmmap_h5, tmp_path):
     src = synthetic_xrmmap_h5("input.h5")
     out = tmp_path / "out.hspy"
     result = convert_file(src, output_path=out, reader="xrmmap_h5")
+
+    expected_manifest = out.with_name(out.name + MANIFEST_SUFFIX)
+    assert result.manifest_path == expected_manifest
+    assert expected_manifest.exists()
+
+    # The legacy "manifest_not_yet_implemented" diagnostic must no longer fire.
     codes = {d.code for d in result.diagnostics}
-    assert "manifest_not_yet_implemented" in codes
-    assert result.manifest_path is None
+    assert "manifest_not_yet_implemented" not in codes
 
 
-def test_manifest_false_does_not_emit_the_diagnostic(
-    synthetic_xrmmap_h5, tmp_path
-):
+def test_manifest_false_writes_no_sidecar(synthetic_xrmmap_h5, tmp_path):
     src = synthetic_xrmmap_h5("input.h5")
     out = tmp_path / "out.hspy"
     result = convert_file(
         src, output_path=out, reader="xrmmap_h5", manifest=False
     )
-    codes = {d.code for d in result.diagnostics}
-    assert "manifest_not_yet_implemented" not in codes
     assert result.manifest_path is None
+    expected_manifest = out.with_name(out.name + MANIFEST_SUFFIX)
+    assert not expected_manifest.exists()
+
+
+def test_manifest_content_includes_required_fields(synthetic_xrmmap_h5, tmp_path):
+    src = synthetic_xrmmap_h5("input.h5", shape=(4, 3, 16))
+    out = tmp_path / "out.hspy"
+    result = convert_file(src, output_path=out, reader="xrmmap_h5")
+
+    with result.manifest_path.open() as f:
+        manifest = json.load(f)
+
+    # Spec §9.5 — required fields
+    assert manifest["manifest_schema_version"] == MANIFEST_SCHEMA_VERSION
+    assert "axiomm_version" in manifest
+    assert "created_at" in manifest
+    assert manifest["input_path"].endswith("input.h5")
+    assert manifest["output_path"].endswith("out.hspy")
+    assert manifest["reader_name"] == "xrmmap_h5"
+    assert manifest["writer_name"] == "hspy"
+    assert manifest["source_shape"] == [4, 3, 16]
+    assert isinstance(manifest["axes_summary"], list)
+    assert len(manifest["axes_summary"]) == 3
+    assert isinstance(manifest["diagnostics"], list)
+
+    # Spec §15 — three-bucket provenance classification
+    classification = manifest["provenance_classification"]
+    assert set(classification.keys()) == {"observed", "inferred", "assumed"}
+    assert all(isinstance(classification[k], list) for k in classification)
+
+    # The reader's config went into config_used.
+    cfg = manifest["config_used"]
+    assert cfg["counts_path"] == "/xrmmap/mcasum/counts"
+
+
+def test_manifest_path_uses_full_output_filename_as_stem(
+    synthetic_xrmmap_h5, tmp_path
+):
+    """The manifest sits beside the output and preserves its full name.
+
+    For ``A21_054.hspy`` the manifest must be
+    ``A21_054.hspy.axiomm.json`` (not ``A21_054.axiomm.json``), so the
+    link between artefact and sidecar is unambiguous.
+    """
+    src = synthetic_xrmmap_h5("A21_054.h5")
+    out = tmp_path / "A21_054.hspy"
+    result = convert_file(src, output_path=out, reader="xrmmap_h5")
+    assert result.manifest_path.name == "A21_054.hspy.axiomm.json"
+
+
+def test_manifest_records_diagnostics_from_reader(synthetic_xrmmap_h5, tmp_path):
+    src = synthetic_xrmmap_h5("input.h5")
+    out = tmp_path / "out.hspy"
+    result = convert_file(src, output_path=out, reader="xrmmap_h5")
+    with result.manifest_path.open() as f:
+        manifest = json.load(f)
+    codes = {d["code"] for d in manifest["diagnostics"]}
+    assert "lazy_downgraded_to_eager" in codes
 
 
 # ---------------------------------------------------------------------------

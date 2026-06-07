@@ -48,7 +48,7 @@ synthetic fixture and against the real
 | # | Chunk                                                                | Status     |
 |---|----------------------------------------------------------------------|------------|
 | 6 | CLI `axiomm-convert` (§10.4) + `convert_many` + CLI tests            | ⛔ blocked* |
-| 7 | Manifest writer (§9.5) + logging (§14) + provenance metadata (§15)   | ⬜ pending |
+| 7 | Manifest writer (§9.5) + logging (§14) + provenance metadata (§15)   | ✅ done     |
 | 8 | Optional Tk dialogs (§10.5) + notebook helpers (§10.6)               | ⛔ blocked* |
 
 \* Chunks 6 and 8 are blocked on the **UX-layout decision** — see
@@ -60,7 +60,7 @@ when the time comes.
 
 Tracked in spec §23. Pick up after Phase 1 lands.
 
-## Current state (as of Chunk 5 — Phase 0 complete)
+## Current state (as of Chunk 7 — manifest + logging + provenance)
 
 What exists in this repository:
 
@@ -173,6 +173,64 @@ What exists in this repository:
   run in **subprocesses** for true isolation, because earlier in-process
   module-drop patterns broke class identity for `OutputExistsError` and
   friends once enough downstream code held references to them.
+* **`writers/manifest.py` — manifest writer + builder** (spec §9.5).
+  `ManifestWriter` serialises a manifest dict to a JSON sidecar at
+  `<output>.axiomm.json`. `build_manifest_dict(...)` composes the
+  manifest from a payload; `extract_reader_config(reader)` pulls a
+  reader's dataclass config into a JSON-friendly dict (generic over
+  any reader with a dataclass `.config`). The manifest schema carries
+  a `manifest_schema_version` (`"1"` today), `axiomm_version`,
+  `created_at` (ISO 8601 UTC), `input_path`, `output_path`,
+  `reader_name`, `writer_name`, `source_shape`, `axes_summary`,
+  `diagnostics`, `config_used`, and the three-bucket
+  `provenance_classification`.
+* **`readers/xrmmap_h5.py` — provenance classification** (spec §15).
+  The reader now populates `payload.metadata["AXIOMM"]["provenance_classification"]`
+  with three buckets:
+  - **observed**: counts dataset, environ table, ROI table when
+    present; navigation scale when it came from the beam-size key.
+  - **inferred**: all three axis sizes (derived from `data.shape`).
+  - **assumed**: Energy axis scale + units (config defaults with no
+    file source), navigation axis units, navigation scale when it
+    came from `fallback_field_width_um / xdim`, ROI start/end values
+    (since `roi_limit_scale` is applied).
+  The classification flows through the existing `HyperSpyBuilder`
+  metadata copy without modification (it sits inside the AXIOMM
+  namespace dict that the builder already preserves).
+* **`workflows.py` — `convert_file` now writes the manifest.** When
+  `manifest=True` (the default), the workflow assembles a manifest
+  via `build_manifest_dict(...)` and writes it to
+  `manifest_path_for(written_path)`. `ConversionResult.manifest_path`
+  is set accordingly; `manifest=False` keeps it `None`. The old
+  `manifest_not_yet_implemented` diagnostic is removed.
+* **Logging (spec §14).** Each module now has
+  `logger = logging.getLogger(__name__)` and emits a single `INFO`
+  message at the entry point (`discover_inputs`, `XRMMapH5Reader.read`,
+  `HyperSpyBuilder.build`, `HSpyWriter.write`, `ManifestWriter.write`,
+  `convert_file`). No `print(...)` calls anywhere in the converter
+  package; Python's default `WARNING` level keeps the package quiet by
+  default but lets users opt into AXIOMM logs with one
+  `logging.basicConfig(level=logging.INFO)` call.
+* **Tests added:**
+  - `tests/io/converters/test_manifest_writer.py` — 21 tests covering
+    `MANIFEST_SUFFIX` / schema version constants, `manifest_path_for`,
+    every field `build_manifest_dict` must populate, the three-bucket
+    `provenance_classification` defaulting when a reader doesn't
+    classify, the `extract_reader_config` dataclass-aware helper,
+    `ManifestWriter` happy-path / overwrite-policy / sorted-keys
+    diff-friendliness, and the import-hygiene check.
+  - `tests/io/converters/test_workflows.py` — flipped the two former
+    "manifest_not_yet_implemented" tests to verify the new
+    write-sidecar behaviour; added tests asserting the manifest
+    contains every required field, that the manifest's path follows
+    the `<output>.axiomm.json` convention with the full output name
+    preserved, and that reader diagnostics carry through into the
+    manifest.
+  - `tests/io/converters/test_xrmmap_h5_reader.py` — 6 new tests on
+    the three-bucket classification: structure, observed includes
+    counts + environ, inferred includes axis sizes, assumed includes
+    Energy scale + units, the beam-size vs. fallback path for nav
+    scale classification.
 * `pyproject.toml` with src-layout, `requires-python = ">=3.10"`, optional
   extras for `hdf5`, `hyperspy`, `all`, `notebook`, `dev`. Pytest configured
   with `pythonpath = ["src"]` so tests run without an install.
@@ -211,16 +269,18 @@ What exists in this repository:
 
 What does **not** yet exist (deferred to later chunks):
 
-* Manifest writer (spec §9.5) and the `.axiomm.json` sidecar — Chunk 7.
-* Provenance classification (observed / inferred / assumed, spec §15) —
-  Chunk 7.
-* Logging cleanup (spec §14) — Chunk 7.
-* `convert_many` — Chunk 6.
-* The CLI entry point — Chunk 6 (blocked on the UX-layout decision).
+* `convert_many` — Chunk 6 (blocked on UX-layout decision).
+* The CLI entry point — Chunk 6 (blocked on UX-layout decision).
 * The `ux/` subpackage (CLI, notebook helpers, Tk dialogs) — Chunks 6/8
-  (Tk + notebook blocked on UX-layout decision).
+  (both blocked on UX-layout decision).
+* True lazy execution beyond an accepted-but-downgraded `lazy=True` flag.
+* The fully nested `payload.metadata["AXIOMM"]` structure suggested by
+  spec §15's example (`converter` / `axes` / `source` nesting). The
+  current flat `{reader, reader_version, config, provenance_classification,
+  provenance, diagnostics}` layout is functionally equivalent and avoids
+  a breaking change; a Phase-2 restructure can fold it into the spec's
+  nested form when the public API is being broken anyway.
 * The full reader/writer registry with plugin entry points — Phase 3.
-* User-facing documentation under `docs/user/`.
 * `CITATION.cff` and `ACKNOWLEDGEMENTS.md`.
 
 ### Real-file findings from Chunk 3 (recorded for later chunks)
@@ -287,14 +347,30 @@ produces a `Signal1D` whose axes label correctly: `idx=0 → 'x' size=23`,
 `signal.metadata.General.title` set from the file stem and
 `signal.metadata.AXIOMM.{reader,provenance,diagnostics}` populated.
 
-## Next chunk: Chunk 7 — manifest + logging + provenance
+## Next chunk: decision needed
 
-Chunks 6 and 8 remain blocked on the deferred UX-layout decision. Chunk
-7 (manifest writer + logging + provenance classification) is independent
-of UX and is therefore the natural next step. Per the doc-quality
-commitment, a **post-Phase-0 wiki sweep** should also happen before (or
-as part of) the next chunk — re-read every wiki page end-to-end for
-voice, currency, examples, and trap-section completeness.
+With Chunk 7 complete, **every chunk numbered 1–7 in the Phase 0 + Phase
+1 plan is finished except Chunks 6 and 8, both of which remain blocked
+on the deferred UX-layout decision** ([[feedback-axiomm-scope]] and the
+Open decisions section below).
+
+Two paths forward, depending on Francesco's intent:
+
+1. **Unblock Phase 1.** Pick the UX layout (Hybrid, spec-literal, or a
+   third option) and start Chunk 6 (CLI + `convert_many`) followed by
+   Chunk 8 (Tk + notebook helpers). Closes Phase 1.
+2. **Open Phase 2.** Per spec §23, Phase 2 is *configurability and
+   validation*: stricter axis validation (already partially in place),
+   structuring `payload.metadata["AXIOMM"]` per spec §15's nested
+   suggestion, parameterising any remaining hidden scientific
+   constants, and adding end-to-end tests against a real (small)
+   committed fixture file. None of these touch UX.
+
+A natural Chunk 7.5 in between, if Francesco wants more polish before
+moving on, would be a **second post-progress wiki sweep** (the first
+was after Chunk 5). Per the doc-quality commitment, every 2–3 chunks
+the wiki should be re-read end-to-end for staleness, broken links, and
+trap-section completeness.
 
 **Goal (Chunk 7).** Implement the spec §9.5 manifest writer, the spec
 §14 logging cleanup, and the spec §15 provenance classification
@@ -467,7 +543,7 @@ risk* in this chunk — invest the time to assert axis labels and sizes
 explicitly against the constructed `axes_manager`, not just against the
 payload's `AxisSpec` tuple.
 
-## Verifying the current state (after Chunk 5)
+## Verifying the current state (after Chunk 7)
 
 In an environment with Python ≥ 3.10 and the dev extras installed, the
 canonical chunk-verification commands are:
@@ -478,10 +554,10 @@ python -m pip install -e ".[dev,all]"
 pytest -q
 ```
 
-Expected result: **142 tests pass**, 0 fail. With only h5py installed
-(no hyperspy): 83 pass, 4 skipped (the hspy_writer, hyperspy_builder
-and workflows modules skip as one unit each; `test_lazy_concrete_builder_exports`
-skips individually).
+Expected result: **174 tests pass**, 0 fail. With only h5py installed
+(no hyperspy): 112 pass, 4 skipped (the hspy_writer, hyperspy_builder
+and workflows modules skip as one unit each; the lazy-export
+`test_lazy_concrete_builder_exports` skips individually).
 
 > Note: Francesco's `xrf` conda env has hyperspy 2.3.0 and h5py 2.10.0
 > but is Python 3.9, below our declared `requires-python = ">=3.10"`,

@@ -26,6 +26,7 @@ private to the builder.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import replace
 from typing import Any
 
@@ -42,6 +43,9 @@ try:
     import hyperspy.api as _hs
 except ImportError:  # pragma: no cover - exercised when hyperspy is absent
     _hs = None  # type: ignore[assignment]
+
+
+logger = logging.getLogger(__name__)
 
 
 _HYPERSPY_INSTALL_HINT = (
@@ -126,6 +130,9 @@ class HyperSpyBuilder:
         signal = self._construct_signal(kind, data)
         self._assign_axes(signal, axes)
         self._assign_metadata(signal, payload)
+        logger.info(
+            "HyperSpyBuilder: built %s of shape %s", kind, tuple(data.shape)
+        )
         return signal
 
     # -- helpers ------------------------------------------------------------

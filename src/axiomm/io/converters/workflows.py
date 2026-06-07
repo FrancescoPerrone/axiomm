@@ -15,6 +15,7 @@ the real registry later.
 from __future__ import annotations
 
 import importlib
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +29,9 @@ from axiomm.io.converters.models import (
 )
 from axiomm.io.converters.readers.base import Reader
 from axiomm.io.converters.writers.base import Writer
+
+
+logger = logging.getLogger(__name__)
 
 
 # Name → "module:ClassName" pointer. Resolved lazily so the workflow
@@ -165,11 +169,15 @@ def convert_file(
         is checked *before* ``overwrite``, so if both are true the file
         is skipped.
     manifest
-        Reserved for the manifest writer (spec §9.5, Chunk 7). Accepted
-        for forward compatibility; until Chunk 7 lands, no manifest is
-        written and ``ConversionResult.manifest_path`` is always
-        ``None``. When ``manifest=True``, a ``manifest_not_yet_implemented``
-        diagnostic is added to the result so the gap is visible.
+        If ``True`` (the default), write a JSON sidecar manifest at
+        ``<output_path>.axiomm.json`` (spec §9.5) and populate
+        ``ConversionResult.manifest_path`` with its path. The manifest
+        records input/output paths, reader/writer used, the reader's
+        configuration, the axes summary, the structured diagnostics,
+        and the observed / inferred / assumed metadata classification
+        (spec §15) — everything needed to reproduce or audit the
+        conversion. If ``False``, no sidecar is written and
+        ``manifest_path`` is ``None``.
     lazy
         Forwarded to the reader's ``read(..., lazy=...)``. Each reader
         documents its own lazy behaviour; the current
@@ -202,18 +210,10 @@ def convert_file(
     out = _resolve_output_path(src, output_path, output_dir, resolved_writer)
 
     extra_diagnostics: list[Diagnostic] = []
-    if manifest:
-        extra_diagnostics.append(
-            Diagnostic(
-                severity="info",
-                code="manifest_not_yet_implemented",
-                message=(
-                    "manifest=True was requested but the manifest writer "
-                    "is a Chunk 7 deliverable; "
-                    "ConversionResult.manifest_path is None."
-                ),
-            )
-        )
+    logger.info(
+        "convert_file(%s) -> %s (reader=%s, writer=%s)",
+        src, out, resolved_reader.name, resolved_writer.name,
+    )
 
     if skip_existing and out.exists():
         extra_diagnostics.append(
@@ -223,6 +223,7 @@ def convert_file(
                 message=f"Existing output left untouched: {out}",
             )
         )
+        logger.info("Skipping existing output: %s", out)
         return ConversionResult(
             input_path=src,
             output_path=out,
@@ -244,10 +245,34 @@ def convert_file(
     signal = build_hyperspy_signal(payload)
     written_path = resolved_writer.write(signal, out, overwrite=overwrite)
 
+    manifest_path: Path | None = None
+    if manifest:
+        from axiomm.io.converters.writers.manifest import (
+            ManifestWriter,
+            build_manifest_dict,
+            extract_reader_config,
+            manifest_path_for,
+        )
+
+        manifest_dict = build_manifest_dict(
+            input_path=src,
+            output_path=written_path,
+            reader_name=resolved_reader.name,
+            writer_name=resolved_writer.name,
+            payload=payload,
+            config_used=extract_reader_config(resolved_reader),
+            extra_diagnostics=extra_diagnostics,
+        )
+        manifest_path = ManifestWriter().write(
+            manifest_dict,
+            manifest_path_for(written_path),
+            overwrite=overwrite,
+        )
+
     return ConversionResult(
         input_path=src,
         output_path=written_path,
-        manifest_path=None,
+        manifest_path=manifest_path,
         reader_name=resolved_reader.name,
         writer_name=resolved_writer.name,
         diagnostics=tuple(payload.diagnostics) + tuple(extra_diagnostics),

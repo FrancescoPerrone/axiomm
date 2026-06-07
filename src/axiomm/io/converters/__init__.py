@@ -78,6 +78,7 @@ __all__ = [
     "HyperSpyBuilder",
     "build_hyperspy_signal",
     "HSpyWriter",
+    "ManifestWriter",
 ]
 
 
@@ -112,6 +113,10 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "HSpyWriter": (
         "axiomm.io.converters.writers.hspy",
         "HSpyWriter",
+    ),
+    "ManifestWriter": (
+        "axiomm.io.converters.writers.manifest",
+        "ManifestWriter",
     ),
 }
 

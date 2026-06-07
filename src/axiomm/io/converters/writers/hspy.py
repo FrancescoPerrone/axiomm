@@ -14,10 +14,14 @@ produced by :class:`~axiomm.io.converters.signals.hyperspy_builder.HyperSpyBuild
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
 from axiomm.io.converters.errors import OutputExistsError
+
+
+logger = logging.getLogger(__name__)
 
 
 class HSpyWriter:
@@ -53,6 +57,7 @@ class HSpyWriter:
         # HyperSpy so it does not re-prompt for an existing target after we
         # have decided it is safe to replace.
         signal.save(str(path), overwrite=True)
+        logger.info("Wrote HyperSpy signal to %s", path)
         return path
 
 

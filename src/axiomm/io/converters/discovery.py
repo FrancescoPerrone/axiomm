@@ -9,11 +9,15 @@ See spec §6.
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import Iterable
 from pathlib import Path
 
 from axiomm.io.converters.errors import InputDiscoveryError
+
+
+logger = logging.getLogger(__name__)
 
 
 def discover_inputs(
@@ -91,6 +95,10 @@ def discover_inputs(
     if not matched and require_non_empty:
         raise InputDiscoveryError(_describe_no_match(path, extensions, sample, recursive))
 
+    logger.debug(
+        "discover_inputs(%s) -> %d files (extensions=%r, sample=%r, recursive=%s)",
+        path, len(matched), extensions, sample, recursive,
+    )
     return matched
 
 
