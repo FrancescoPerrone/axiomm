@@ -1,0 +1,32 @@
+# Read the Docs configuration for AXIOMM.
+#
+# This is an *alternative* documentation host to GitHub Pages. Either
+# one — or both — can serve the same `docs/` Sphinx project. To enable
+# Read the Docs:
+#   1. Sign in at https://readthedocs.org with your GitHub account.
+#   2. Import the FrancescoPerrone/axiomm repository.
+#   3. RTD picks up this file automatically; no further config needed.
+#
+# Private-repo builds on RTD require an RTD subscription (or an academic
+# sponsorship); for public repos it's free.
+
+version: 2
+
+build:
+  os: ubuntu-22.04
+  tools:
+    python: "3.12"
+
+python:
+  install:
+    - method: pip
+      path: .
+      extra_requirements:
+        - docs
+
+sphinx:
+  configuration: docs/conf.py
+  fail_on_warning: false  # autoapi emits cosmetic docutils warnings; not fatal.
+
+formats:
+  - htmlzip

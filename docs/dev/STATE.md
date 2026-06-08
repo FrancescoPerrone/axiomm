@@ -399,6 +399,28 @@ produces a `Signal1D` whose axes label correctly: `idx=0 → 'x' size=23`,
 > see the Chunk-10 entry in *Current state* and the migration guide
 > in [`docs/user/known_issues.md`](../user/known_issues.md).
 
+## Documentation publishing
+
+The `docs/` Sphinx project is configured to publish via two
+independent hosts. Pick whichever (or both):
+
+* **GitHub Pages** — `.github/workflows/docs.yml`. Triggers on every
+  push to `main` (and PRs, for verification only). The deploy job
+  runs after a successful build and ships the HTML to GitHub Pages.
+  **One manual action needed before the first deploy:**
+  Settings → Pages → Source = "GitHub Actions". For private repos,
+  GitHub Pages requires a Pro / Team / Enterprise plan.
+* **Read the Docs** — `.readthedocs.yaml`. Sign in at
+  readthedocs.org with the GitHub account and import the repo;
+  RTD reads the config automatically. Public repos are free;
+  private repos need an RTD subscription.
+
+The CI build deliberately does not pass `-W` (warnings as errors)
+because sphinx-autoapi's rendering of two XRMMapH5 docstrings trips
+cosmetic docutils warnings; the HTML output is unaffected. Local
+builds still surface them so the underlying docstring formatting
+can be cleaned up when convenient.
+
 ## Next chunk: decision needed
 
 Phase 2 is closed. From the spec's standpoint the remaining work
