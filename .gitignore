@@ -77,3 +77,15 @@ scratch/
 # Sphinx build outputs
 docs/_build/
 docs/autoapi/
+
+# Local task / handoff notes that don't belong in version control
+CLAUDE.md
+checks.txt
+
+# Design identity working folder: only the axiomm_wave assets and the
+# Identity Kit are tracked; the .jsx sources, .thumbnail / state files,
+# and the various Marks / Logo HTML drafts stay local.
+identy/AXIOMM_Design/*
+!identy/AXIOMM_Design/axiomm_wave_*.png
+!identy/AXIOMM_Design/axiomm_wave_*.svg
+!identy/AXIOMM_Design/AXIOMM Identity Kit.html

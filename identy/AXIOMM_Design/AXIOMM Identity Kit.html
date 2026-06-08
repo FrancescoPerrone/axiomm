@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AXIOMM — Identity Kit</title>
+<style>
+  :root{
+    --mg:#C8326A; --coral:#F07850; --plum:#3C1428;
+    --rose:#E5628E; --peach:#F5B088; --cream:#FDF2EC;
+    --ink:#3C1428; --mid:#7A5858; --line:#F0E0D8;
+    --card:#fff;
+  }
+  *{box-sizing:border-box;margin:0;}
+  html{background:var(--cream);}
+  body{
+    font-family:"Helvetica Neue",Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    color:var(--ink);
+    padding:0 0 100px;
+  }
+
+  /* ── header ── */
+  header{
+    background:var(--plum);
+    padding:52px 64px 48px;
+    display:flex;align-items:flex-end;justify-content:space-between;gap:32px;
+    flex-wrap:wrap;
+  }
+  .version{font-size:11px;letter-spacing:.22em;text-transform:uppercase;
+           color:#F5C0D0;opacity:.7;margin-bottom:12px;}
+  .subtitle{font-size:14px;color:#F5C0D0;opacity:.6;margin-top:10px;
+            letter-spacing:.02em;line-height:1.5;max-width:44ch;}
+  .header-right{display:flex;flex-direction:column;align-items:flex-end;gap:10px;}
+  .pill{
+    font-size:10px;letter-spacing:.18em;text-transform:uppercase;
+    padding:5px 12px;border-radius:999px;
+    background:rgba(255,255,255,.1);color:#F5C0D0;
+    border:1px solid rgba(245,192,208,.25);
+  }
+
+  /* ── layout ── */
+  .page{max-width:1080px;margin:0 auto;padding:0 48px;}
+  section{margin-top:64px;}
+  h2{font-size:11px;letter-spacing:.26em;text-transform:uppercase;
+     color:var(--mg);font-weight:600;margin-bottom:22px;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;}
+
+  /* ── lockup previews ── */
+  .lockup-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  .lp{padding:48px 36px;display:flex;align-items:center;justify-content:center;}
+  .lp.dark{background:var(--plum);}
+  .lp svg{width:100%;max-width:480px;height:auto;}
+
+  /* ── icon sizes ── */
+  .icon-row{display:flex;gap:0;align-items:stretch;}
+  .icon-cell{
+    flex:1;display:flex;flex-direction:column;align-items:center;
+    justify-content:center;gap:14px;padding:36px 16px;
+    border-right:1px solid var(--line);
+  }
+  .icon-cell:last-child{border-right:none;}
+  .sz{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:#B89898;}
+
+  /* ── palette ── */
+  .pal-row{display:flex;gap:12px;}
+  .swatch{flex:1;border-radius:10px;overflow:hidden;border:1px solid var(--line);}
+  .swatch .chip{height:72px;}
+  .swatch .sm{padding:10px 12px;}
+  .swatch .nm{font-size:11px;font-weight:600;color:var(--ink);}
+  .swatch .hx{font-size:10px;font-family:ui-monospace,Menlo,monospace;
+              color:var(--mid);margin-top:3px;letter-spacing:.05em;}
+
+  /* ── usage table ── */
+  .use-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  .use-card{padding:24px 26px;}
+  .use-title{font-size:13px;font-weight:600;color:var(--ink);margin-bottom:6px;}
+  .use-sub{font-size:12px;color:var(--mid);line-height:1.55;margin-bottom:14px;}
+  .code{
+    background:var(--cream);border:1px solid var(--line);border-radius:8px;
+    padding:12px 14px;font-family:ui-monospace,Menlo,monospace;
+    font-size:11px;line-height:1.65;color:#5A3040;
+    white-space:pre-wrap;word-break:break-all;
+    position:relative;
+  }
+  .copy-btn{
+    position:absolute;top:8px;right:8px;
+    font-size:9px;letter-spacing:.14em;text-transform:uppercase;
+    padding:3px 8px;border-radius:5px;border:1px solid var(--line);
+    background:#fff;color:var(--mid);cursor:pointer;
+    transition:background .15s;
+  }
+  .copy-btn:hover{background:var(--mg);color:#fff;border-color:var(--mg);}
+
+  /* ── file list ── */
+  .file-list{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .file-item{
+    display:flex;align-items:center;gap:14px;
+    padding:14px 18px;border:1px solid var(--line);border-radius:10px;
+    background:#fff;
+  }
+  .file-icon{
+    width:36px;height:36px;border-radius:8px;
+    display:flex;align-items:center;justify-content:center;
+    font-size:14px;flex-shrink:0;
+  }
+  .file-name{font-size:12px;font-weight:600;color:var(--ink);font-family:ui-monospace,Menlo,monospace;}
+  .file-desc{font-size:11px;color:var(--mid);margin-top:2px;}
+
+  /* ── do/don't ── */
+  .rules{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  .rule-card{padding:20px 22px;}
+  .rule-label{font-size:10px;letter-spacing:.2em;text-transform:uppercase;
+              font-weight:600;margin-bottom:14px;}
+  .do .rule-label{color:#5B9E6A;}
+  .dont .rule-label{color:#C8326A;}
+  .rule-item{font-size:12px;color:var(--mid);line-height:1.6;
+             padding:4px 0;border-bottom:1px solid var(--line);}
+  .rule-item:last-child{border-bottom:none;}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header>
+  <div>
+    <div class="version">Identity Kit · v1 · June 2026</div>
+    <svg width="440" height="110" viewBox="0 0 800 200" aria-label="AXIOMM">
+      <defs>
+        <linearGradient id="hg" x1="28%" y1="0%" x2="72%" y2="100%">
+          <stop offset="0%" stop-color="#D66791"/>
+          <stop offset="100%" stop-color="#F49B7D"/>
+        </linearGradient>
+      </defs>
+      <path fill="url(#hg)" fill-rule="evenodd"
+        d="M 93,40 Q 100,26 107,40 L 174,178 L 26,178 Z M 100,70 L 58,178 L 142,178 Z"/>
+      <g transform="translate(228,50)" fill="none" stroke="#F5C0D0"
+         stroke-width="8.5" stroke-linecap="butt" stroke-linejoin="miter">
+        <path d="M0,94 L35,10 L70,94"/>
+        <path d="M98,10 L160,94 M160,10 L98,94"/>
+        <path d="M194,10 L194,94"/>
+        <circle cx="272" cy="52" r="42"/>
+        <path d="M344,94 L344,10 L383,58 L422,10 L422,94"/>
+        <path d="M448,94 L448,10 L487,58 L526,10 L526,94"/>
+      </g>
+    </svg>
+    <div class="subtitle">Automated X-ray Intelligence for Organising Mineral Mapping</div>
+  </div>
+  <div class="header-right">
+    <span class="pill">Python package</span>
+    <span class="pill">Wave · bath bomb palette</span>
+  </div>
+</header>
+
+<div class="page">
+
+  <!-- LOCKUP -->
+  <section>
+    <h2>Primary lockup</h2>
+    <div class="card lockup-grid">
+      <div class="lp">
+        <svg viewBox="0 0 800 200" aria-label="AXIOMM">
+          <defs>
+            <linearGradient id="lg1" x1="28%" y1="0%" x2="72%" y2="100%">
+              <stop offset="0%" stop-color="#C8326A"/>
+              <stop offset="100%" stop-color="#F07850"/>
+            </linearGradient>
+          </defs>
+          <path fill="url(#lg1)" fill-rule="evenodd"
+            d="M 93,40 Q 100,26 107,40 L 174,178 L 26,178 Z M 100,70 L 58,178 L 142,178 Z"/>
+          <g transform="translate(228,50)" fill="none" stroke="#7A2448"
+             stroke-width="8.5" stroke-linecap="butt" stroke-linejoin="miter">
+            <path d="M0,94 L35,10 L70,94"/>
+            <path d="M98,10 L160,94 M160,10 L98,94"/>
+            <path d="M194,10 L194,94"/>
+            <circle cx="272" cy="52" r="42"/>
+            <path d="M344,94 L344,10 L383,58 L422,10 L422,94"/>
+            <path d="M448,94 L448,10 L487,58 L526,10 L526,94"/>
+          </g>
+        </svg>
+      </div>
+      <div class="lp dark">
+        <svg viewBox="0 0 800 200" aria-label="AXIOMM">
+          <defs>
+            <linearGradient id="lg2" x1="28%" y1="0%" x2="72%" y2="100%">
+              <stop offset="0%" stop-color="#D66791"/>
+              <stop offset="100%" stop-color="#F49B7D"/>
+            </linearGradient>
+          </defs>
+          <path fill="url(#lg2)" fill-rule="evenodd"
+            d="M 93,40 Q 100,26 107,40 L 174,178 L 26,178 Z M 100,70 L 58,178 L 142,178 Z"/>
+          <g transform="translate(228,50)" fill="none" stroke="#F5C0D0"
+             stroke-width="8.5" stroke-linecap="butt" stroke-linejoin="miter">
+            <path d="M0,94 L35,10 L70,94"/>
+            <path d="M98,10 L160,94 M160,10 L98,94"/>
+            <path d="M194,10 L194,94"/>
+            <circle cx="272" cy="52" r="42"/>
+            <path d="M344,94 L344,10 L383,58 L422,10 L422,94"/>
+            <path d="M448,94 L448,10 L487,58 L526,10 L526,94"/>
+          </g>
+        </svg>
+      </div>
+    </div>
+  </section>
+
+  <!-- ICON SIZES -->
+  <section>
+    <h2>Mark · sizes</h2>
+    <div class="card">
+      <div class="icon-row">
+        <div class="icon-cell" style="background:var(--plum)">
+          <svg width="128" height="128" viewBox="0 0 200 200">
+            <defs><linearGradient id="ig128" x1="28%" y1="0%" x2="72%" y2="100%">
+              <stop offset="0%" stop-color="#D66791"/><stop offset="100%" stop-color="#F49B7D"/>
+            </linearGradient></defs>
+            <path fill="url(#ig128)" fill-rule="evenodd"
+              d="M 93,40 Q 100,26 107,40 L 174,178 L 26,178 Z M 100,70 L 58,178 L 142,178 Z"/>
+          </svg>
+          <span class="sz" style="color:#F5C0D0;opacity:.5">128 px · PyPI avatar</span>
+        </div>
+        <div class="icon-cell">
+          <svg width="64" height="64" viewBox="0 0 200 200">
+            <defs><linearGradient id="ig64" x1="28%" y1="0%" x2="72%" y2="100%">
+              <stop offset="0%" stop-color="#C8326A"/><stop offset="100%" stop-color="#F07850"/>
+            </linearGradient></defs>
+            <path fill="url(#ig64)" fill-rule="evenodd"
+              d="M 93,40 Q 100,26 107,40 L 174,178 L 26,178 Z M 100,70 L 58,178 L 142,178 Z"/>
+          </svg>
+          <span class="sz">64 px · docs sidebar</span>
+        </div>
+        <div class="icon-cell">
+          <svg width="32" height="32" viewBox="0 0 200 200">
+            <defs><linearGradient id="ig32" x1="28%" y1="0%" x2="72%" y2="100%">
+              <stop offset="0%" stop-color="#C8326A"/><stop offset="100%" stop-color="#F07850"/>
+            </linearGradient></defs>
+            <path fill="url(#ig32)" fill-rule="evenodd"
+              d="M 93,40 Q 100,26 107,40 L 174,178 L 26,178 Z M 100,70 L 58,178 L 142,178 Z"/>
+          </svg>
+          <span class="sz">32 px · favicon</span>
+        </div>
+        <div class="icon-cell">
+          <svg width="16" height="16" viewBox="0 0 200 200">
+            <defs><linearGradient id="ig16" x1="28%" y1="0%" x2="72%" y2="100%">
+              <stop offset="0%" stop-color="#C8326A"/><stop offset="100%" stop-color="#F07850"/>
+            </linearGradient></defs>
+            <path fill="url(#ig16)" fill-rule="evenodd"
+              d="M 93,40 Q 100,26 107,40 L 174,178 L 26,178 Z M 100,70 L 58,178 L 142,178 Z"/>
+          </svg>
+          <span class="sz">16 px · browser tab</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PALETTE -->
+  <section>
+    <h2>Palette · bath bomb extraction</h2>
+    <div class="pal-row">
+      <div class="swatch"><div class="chip" style="background:#C8326A"></div>
+        <div class="sm"><div class="nm">Swirl Magenta</div><div class="hx">#C8326A</div></div></div>
+      <div class="swatch"><div class="chip" style="background:#E5628E"></div>
+        <div class="sm"><div class="nm">Bath Rose</div><div class="hx">#E5628E</div></div></div>
+      <div class="swatch"><div class="chip" style="background:#F07850"></div>
+        <div class="sm"><div class="nm">Coral Fizz</div><div class="hx">#F07850</div></div></div>
+      <div class="swatch"><div class="chip" style="background:#F5B088"></div>
+        <div class="sm"><div class="nm">Dry Peach</div><div class="hx">#F5B088</div></div></div>
+      <div class="swatch"><div class="chip" style="background:#FDF2EC;border-bottom:1px solid var(--line)"></div>
+        <div class="sm"><div class="nm">Cream Pool</div><div class="hx">#FDF2EC</div></div></div>
+      <div class="swatch"><div class="chip" style="background:#3C1428"></div>
+        <div class="sm"><div class="nm">Plum Dark</div><div class="hx">#3C1428</div></div></div>
+    </div>
+  </section>
+
+  <!-- HOW TO USE -->
+  <section>
+    <h2>How to use</h2>
+    <div class="use-grid">
+
+      <div class="card use-card">
+        <div class="use-title">GitHub README</div>
+        <div class="use-sub">SVGs render natively in GitHub markdown. Place the lockup at the top of your README.md.</div>
+        <div class="code"><button class="copy-btn" onclick="copy(this)">Copy</button><span>![AXIOMM](axiomm_wave_lockup.svg)</span></div>
+      </div>
+
+      <div class="card use-card">
+        <div class="use-title">PyPI · pyproject.toml</div>
+        <div class="use-sub">PyPI doesn't render SVG — use the 128 px PNG. Add to your pyproject.toml under [project].</div>
+        <div class="code"><button class="copy-btn" onclick="copy(this)">Copy</button><span># pyproject.toml
+[project]
+name = "axiomm"
+
+[tool.setuptools.package-data]
+axiomm = ["axiomm_wave_128.png"]</span></div>
+      </div>
+
+      <div class="card use-card">
+        <div class="use-title">MkDocs (docs/)</div>
+        <div class="use-sub">Place the icon SVG in docs/ and reference it in mkdocs.yml.</div>
+        <div class="code"><button class="copy-btn" onclick="copy(this)">Copy</button><span># mkdocs.yml
+theme:
+  name: material
+  logo: axiomm_wave_icon.svg
+  favicon: axiomm_wave_icon.svg</span></div>
+      </div>
+
+      <div class="card use-card">
+        <div class="use-title">Sphinx (conf.py)</div>
+        <div class="use-sub">For Sphinx docs using the Furo or PyData theme.</div>
+        <div class="code"><button class="copy-btn" onclick="copy(this)">Copy</button><span># conf.py
+html_logo = "_static/axiomm_wave_icon.svg"
+html_favicon = "_static/axiomm_wave_32.png"</span></div>
+      </div>
+
+      <div class="card use-card">
+        <div class="use-title">HTML embed</div>
+        <div class="use-sub">Inline SVG for pixel-perfect rendering at any size in web docs or notebooks.</div>
+        <div class="code"><button class="copy-btn" onclick="copy(this)">Copy</button><span>&lt;img src="axiomm_wave_icon.svg"
+     alt="AXIOMM" width="48" height="48"&gt;</span></div>
+      </div>
+
+      <div class="card use-card">
+        <div class="use-title">Jupyter / notebook</div>
+        <div class="use-sub">Display the mark in an output cell or as a header in your notebook.</div>
+        <div class="code"><button class="copy-btn" onclick="copy(this)">Copy</button><span>from IPython.display import Image
+Image("axiomm_wave_icon.svg", width=64)</span></div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- FILES -->
+  <section>
+    <h2>Files in this kit</h2>
+    <div class="file-list">
+      <div class="file-item">
+        <div class="file-icon" style="background:#FDE8F0">🔴</div>
+        <div><div class="file-name">axiomm_wave_icon.svg</div><div class="file-desc">Mark only · scalable · light bg</div></div>
+      </div>
+      <div class="file-item">
+        <div class="file-icon" style="background:#3C1428">🔴</div>
+        <div><div class="file-name">axiomm_wave_icon_dark.svg</div><div class="file-desc">Mark only · scalable · on dark plum</div></div>
+      </div>
+      <div class="file-item">
+        <div class="file-icon" style="background:#FDE8F0">🅰️</div>
+        <div><div class="file-name">axiomm_wave_lockup.svg</div><div class="file-desc">Mark + AXIOMM wordmark · light</div></div>
+      </div>
+      <div class="file-item">
+        <div class="file-icon" style="background:#3C1428">🅰️</div>
+        <div><div class="file-name">axiomm_wave_lockup_dark.svg</div><div class="file-desc">Mark + wordmark · dark plum</div></div>
+      </div>
+      <div class="file-item">
+        <div class="file-icon" style="background:#FDE8F0">🖼️</div>
+        <div><div class="file-name">axiomm_wave_512.png</div><div class="file-desc">PNG 512×512 · high-res export</div></div>
+      </div>
+      <div class="file-item">
+        <div class="file-icon" style="background:#FDE8F0">🖼️</div>
+        <div><div class="file-name">axiomm_wave_256.png</div><div class="file-desc">PNG 256×256 · app icon</div></div>
+      </div>
+      <div class="file-item">
+        <div class="file-icon" style="background:#FDE8F0">🖼️</div>
+        <div><div class="file-name">axiomm_wave_128.png</div><div class="file-desc">PNG 128×128 · PyPI avatar</div></div>
+      </div>
+      <div class="file-item">
+        <div class="file-icon" style="background:#FDE8F0">🖼️</div>
+        <div><div class="file-name">axiomm_wave_32.png</div><div class="file-desc">PNG 32×32 · favicon fallback</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- DO / DON'T -->
+  <section>
+    <h2>Usage rules</h2>
+    <div class="rules">
+      <div class="card rule-card do">
+        <div class="rule-label">✓ Do</div>
+        <div class="rule-item">Use the SVG for all web contexts — it scales to any size</div>
+        <div class="rule-item">Use the dark lockup on backgrounds darker than #7A4858</div>
+        <div class="rule-item">Keep clear space equal to the mark height on all sides</div>
+        <div class="rule-item">Use axiomm_wave_128.png for PyPI and conda-forge</div>
+      </div>
+      <div class="card rule-card dont">
+        <div class="rule-label">✗ Don't</div>
+        <div class="rule-item">Don't stretch or distort the mark asymmetrically</div>
+        <div class="rule-item">Don't change the gradient colours or direction</div>
+        <div class="rule-item">Don't place the light lockup on coloured backgrounds</div>
+        <div class="rule-item">Don't use the mark below 16 px without fallback to flat #C8326A</div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<script>
+function copy(btn){
+  const code = btn.nextSibling.textContent;
+  navigator.clipboard.writeText(code).then(()=>{
+    btn.textContent = 'Copied!';
+    setTimeout(()=>btn.textContent='Copy', 1600);
+  });
+}
+</script>
+</body>
+</html>

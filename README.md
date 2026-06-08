@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="identy/AXIOMM_Design/axiomm_wave_lockup_dark.svg">
+    <img src="identy/AXIOMM_Design/axiomm_wave_lockup.svg" alt="AXIOMM" width="360">
+  </picture>
+</p>
+
 # AXIOMM
 
 **AXIOMM** — *Automated X-ray Intelligence for Organising Mineral Mapping* —
