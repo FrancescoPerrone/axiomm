@@ -62,7 +62,15 @@ when the time comes.
 |---|----------------------------------------------------------------------|------------|
 | 9 | Stricter axis validation + `roi_variant_index` for real XRM files    | ✅ done    |
 | 10 | Restructure `payload.metadata["AXIOMM"]` per spec §15 nested layout | ✅ done    |
-| 11 | Real-file e2e regression fixture + scientific-constant justification | ⬜ next    |
+| 11 | Real-file e2e regression fixture + scientific-constant justification | ✅ done    |
+
+**Phase 2 complete.** The converter now validates axes strictly, exposes
+the ROI-variant choice, uses the nested AXIOMM metadata layout from
+spec §15, ships a manifest schema (v2) that mirrors it, and carries
+realistic-shape regression coverage. Three scientific constants remain
+flagged as open assumptions (`energy_scale`, `roi_limit_scale`,
+`fallback_field_width_um`) — see the user guide for what needs domain
+confirmation before public release.
 
 ### Phase 3 — extensibility
 
@@ -70,7 +78,7 @@ Tracked in spec §23. Reader/writer registry with plugin discovery,
 generic HDF5 schema-driven reader, additional output formats. Pick up
 after Phase 2.
 
-## Current state (as of Chunk 10 — Phase 2.2: nested AXIOMM metadata + manifest v2)
+## Current state (as of Chunk 11 — Phase 2 complete)
 
 What exists in this repository:
 
@@ -391,54 +399,32 @@ produces a `Signal1D` whose axes label correctly: `idx=0 → 'x' size=23`,
 > see the Chunk-10 entry in *Current state* and the migration guide
 > in [`docs/user/known_issues.md`](../user/known_issues.md).
 
-## Next chunk: Chunk 11 — real-file regression fixture + scientific-constant justification
+## Next chunk: decision needed
 
-Phase 2's last remaining item per spec §23. Two independent pieces,
-both unaffected by the UX-layout block on Chunks 6 and 8:
+Phase 2 is closed. From the spec's standpoint the remaining work
+sits in two places, and neither is unilaterally ours to start:
 
-**Real-file regression fixture.** Commit a small XRM-like file
-under `tests/io/converters/fixtures/` (or generate it on the fly in
-a fixture helper). It must capture the real-file shape gotchas the
-synthetic fixture currently underspecifies: in particular the
-`(n_rois, n_variants, 2)` ROI-limits layout, a populated environ
-table with a `Experiment.Beam_Size__Nominal` entry, and the
-`(xdim, ydim, n_channels)` counts shape. Wire it into the suite as
-a regression so the realistic shape is exercised on every run, not
-just in occasional out-of-band smoke tests.
+**Phase 3 (spec §23) — extensibility.** Reader/writer registry with
+plugin entry points, generic HDF5 schema-driven reader, additional
+output formats only when scientifically justified. This is a natural
+next phase and is not blocked on UX.
 
-**Scientific-constant justification.** The three magic constants
-spec §17 marked as open questions are currently `XRMMapH5Config`
-fields with no in-code or in-docs explanation:
+**UX-blocked chunks (6 and 8).** Still on hold pending Francesco's
+UX-layout decision (Hybrid vs. spec-literal vs. defer further).
+Implementing either of these without the decision would lock in a
+namespace we may regret.
 
-- `energy_scale = 40.96 / 4096`
-- `roi_limit_scale = 0.01`
-- `fallback_field_width_um = 500.0`
+**Other plausible next moves before opening Phase 3:**
 
-Add a clearly-marked "needs domain confirmation" section to
-`XRMMapH5Config`'s docstring and to the converter user guide
-listing these constants and what would have to be confirmed (or
-replaced) before public release. **Do not invent domain narrative**;
-describe the gap, not the resolution.
-
-**Acceptance criteria.**
-
-1. A real-shape fixture file (or programmatic generator) exists
-   under `tests/io/converters/fixtures/` and is exercised by at
-   least one end-to-end regression test through the full
-   reader → builder → writer pipeline.
-2. The synthetic fixture already in place stays working; the new
-   regression test is additive, not a replacement.
-3. `XRMMapH5Config`'s docstring (or a linked
-   `docs/user/converter.md` section) names `energy_scale`,
-   `roi_limit_scale`, and `fallback_field_width_um` as configurable
-   scientific assumptions requiring domain confirmation.
-4. Full `pytest` suite green.
-
-After Chunk 11, Phase 2 is closed. The next phase (Phase 3 per
-spec §23) covers the reader/writer registry with plugin entry
-points and the generic schema-driven HDF5 reader. Chunks 6 and 8
-remain blocked on the UX-layout decision and must not be
-implemented from this state.
+* A second post-progress wiki sweep — last one was after Chunk 5;
+  per the doc-quality commitment another is overdue.
+* Domain-confirm the three scientific constants
+  (`energy_scale`, `roi_limit_scale`, `fallback_field_width_um`)
+  with the package author; that's the only outstanding open
+  question from spec §17 and the only thing standing between the
+  converter and a public release.
+* Publish the Sphinx docs (Read the Docs or GitHub Pages) so the
+  user guide and API reference become reachable without cloning.
 
 ## Verifying the current state (after Chunk 10)
 
@@ -451,10 +437,11 @@ python -m pip install -e ".[dev,all]"
 pytest -q
 ```
 
-Expected result: **212 tests pass**, 0 fail. With only h5py installed
-(no hyperspy): 142 pass, 4 skipped (the hspy_writer, hyperspy_builder
-and workflows modules skip as one unit each; the lazy-export
-`test_lazy_concrete_builder_exports` skips individually).
+Expected result: **217 tests pass**, 0 fail. With only h5py installed
+(no hyperspy): 142 pass, 5 skipped (the hspy_writer, hyperspy_builder,
+workflows, and realistic-fixture regression modules skip as one unit
+each; the lazy-export `test_lazy_concrete_builder_exports` skips
+individually).
 
 > Note: Francesco's `xrf` conda env has hyperspy 2.3.0 and h5py 2.10.0
 > but is Python 3.9, below our declared `requires-python = ">=3.10"`,
