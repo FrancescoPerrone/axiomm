@@ -130,7 +130,11 @@ class HyperSpyBuilder:
         data, axes = _reorder_for_hyperspy(payload)
         signal = self._construct_signal(kind, data)
         self._assign_axes(signal, axes)
-        self._assign_metadata(signal, payload)
+        # Pass the post-transpose axes so signal.metadata.AXIOMM.axes
+        # describes the actual signal that was built, not the original
+        # payload layout. When no transpose happened, `axes is payload.axes`
+        # so this is a no-op for canonical-order payloads.
+        self._assign_metadata(signal, payload, axes=axes)
         logger.info(
             "HyperSpyBuilder: built %s of shape %s", kind, tuple(data.shape)
         )
@@ -167,15 +171,23 @@ class HyperSpyBuilder:
             hs_axis.offset = spec.offset
 
     def _assign_metadata(
-        self, signal: Any, payload: AxiommSignalPayload
+        self,
+        signal: Any,
+        payload: AxiommSignalPayload,
+        *,
+        axes,
     ) -> None:
         # Compose the canonical nested AXIOMM namespace (spec §15 layout)
         # via the shared composer. The reader's contribution lives in
         # payload.metadata["AXIOMM"]; we read out the "converter" and the
         # "provenance_classification" subsections it populated, then add
-        # the axes / source / diagnostics sections from the payload's own
-        # fields. Same composer is used by ManifestWriter, so signal
-        # metadata and manifest content stay in lock-step.
+        # the axes / source / diagnostics sections.
+        # `axes` here is the *post-transpose* tuple from
+        # _reorder_for_hyperspy — that is what the constructed signal
+        # actually exposes — so AXIOMM.axes describes the real signal,
+        # not the original payload layout. Same composer runs in
+        # ManifestWriter, so signal metadata and manifest content stay
+        # in lock-step.
         payload_axiomm = (
             payload.metadata.get("AXIOMM", {}) if payload.metadata else {}
         )
@@ -186,7 +198,7 @@ class HyperSpyBuilder:
             reader_name=converter_section.get("reader", "unknown"),
             reader_version=converter_section.get("reader_version"),
             config=converter_section.get("config", {}),
-            axes=payload.axes,
+            axes=axes,
             provenance=payload.provenance,
             classification=classification,
             diagnostics=payload.diagnostics,

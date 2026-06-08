@@ -147,6 +147,59 @@ beam-size key) is non-fatal: the reader attaches a structured
 `Diagnostic` to the payload and continues. This is by design (spec
 §7.8): scientific-data safety, but graceful degradation.
 
+## Scientific assumptions still requiring owner confirmation
+
+Three of `XRMMapH5Config`'s defaults are **assumed scientific
+constants**, not values derived from the input file. They reproduce
+the AXIOMM prototype's behaviour and are exposed as configuration —
+but they have not been independently validated against the package
+owner's instrument data. Per spec §17 they remain an open question
+that must be resolved before public release.
+
+```{list-table}
+:header-rows: 1
+:widths: 32 18 50
+
+* - Constant
+  - Default
+  - What needs confirming
+* - `energy_scale` (keV per MCA channel)
+  - `40.96 / 4096`
+  - The detector / MCA gain. Confirm against your instrument's
+    energy calibration, or — better — extract it from the source
+    file's metadata when available.
+* - `roi_limit_scale`
+  - `0.01`
+  - The scaling applied to the integer ROI limits in
+    `/xrmmap/config/rois/limits`. Default assumes centi-keV
+    (divide by 100 for keV). Confirm this matches the units your
+    XRM software writes.
+* - `fallback_field_width_um` (µm)
+  - `500.0`
+  - The assumed map width when no beam size is available. Used as
+    `fallback_field_width_um / xdim` for the navigation scale.
+    This is a pure fallback; if your instrument writes a beam size
+    into the environ table you should rely on that (the converter
+    already does) and this fallback never applies.
+```
+
+Each of these is a field on `XRMMapH5Config`, so a user with the
+correct value can pass a configured reader without subclassing:
+
+```python
+from axiomm.io.converters import XRMMapH5Config, XRMMapH5Reader, convert_file
+
+reader = XRMMapH5Reader(config=XRMMapH5Config(
+    energy_scale=...,     # your confirmed gain
+    roi_limit_scale=...,
+    fallback_field_width_um=...,
+))
+convert_file("input.h5", output_path="out.hspy", reader=reader)
+```
+
+The manifest sidecar records the `config_used`, so any conversion
+done with non-default values is auditable after the fact.
+
 ## AXIOMM metadata layout
 
 Both `signal.metadata.AXIOMM` (in-memory after build) and the

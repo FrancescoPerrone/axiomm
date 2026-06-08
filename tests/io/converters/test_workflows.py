@@ -300,6 +300,30 @@ def test_existing_output_raises_by_default(synthetic_xrmmap_h5, tmp_path):
         convert_file(src, output_path=out, reader="xrmmap_h5")
 
 
+def test_existing_manifest_alone_prevents_partial_artifact(
+    synthetic_xrmmap_h5, tmp_path
+):
+    """A stale .axiomm.json sidecar must not allow a half-written conversion.
+
+    Pre-fix behaviour: HSpyWriter happily wrote out.hspy because it didn't
+    exist, then ManifestWriter raised OutputExistsError because the
+    sidecar was there — leaving out.hspy on disk in a partial state.
+    """
+    src = synthetic_xrmmap_h5("input.h5")
+    out = tmp_path / "out.hspy"
+    manifest_path = out.with_name(out.name + MANIFEST_SUFFIX)
+    manifest_path.write_text("{}")  # stale sidecar, no .hspy
+    assert not out.exists()
+
+    with pytest.raises(OutputExistsError):
+        convert_file(src, output_path=out, reader="xrmmap_h5")
+
+    # The .hspy must not have been written — that was the bug.
+    assert not out.exists()
+    # The stale sidecar is left untouched (we never wrote anything).
+    assert manifest_path.read_text() == "{}"
+
+
 def test_overwrite_true_replaces_existing_output(synthetic_xrmmap_h5, tmp_path):
     src = synthetic_xrmmap_h5("input.h5")
     out = tmp_path / "out.hspy"

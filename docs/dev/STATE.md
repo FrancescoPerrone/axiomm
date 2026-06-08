@@ -385,217 +385,62 @@ produces a `Signal1D` whose axes label correctly: `idx=0 → 'x' size=23`,
 `signal.metadata.General.title` set from the file stem and
 `signal.metadata.AXIOMM.{reader,provenance,diagnostics}` populated.
 
-## Next chunk: Chunk 10 — metadata restructure to spec §15 nested layout
+> Note: that Chunk-4 finding refers to the *flat* AXIOMM namespace
+> that existed at the time. Chunk 10 nested it under `converter` /
+> `axes` / `source` / `provenance_classification` / `diagnostics` —
+> see the Chunk-10 entry in *Current state* and the migration guide
+> in [`docs/user/known_issues.md`](../user/known_issues.md).
 
-Phase 2 opened at Francesco's direction; Chunk 9 (stricter validation +
-ROI variant extraction) is done. The next two Phase 2 chunks are
-independent and can be tackled in either order:
+## Next chunk: Chunk 11 — real-file regression fixture + scientific-constant justification
 
-**Chunk 10 (recommended next).** Restructure
-`payload.metadata["AXIOMM"]` from the current flat
-`{reader, reader_version, config, provenance, diagnostics,
-provenance_classification}` into the nested
-`{converter: {reader, ...}, axes: {...}, source: {...}}` layout that
-spec §15's example shows. **This is a breaking change** for any user
-reading `signal.metadata.AXIOMM.reader` directly — they would have to
-move to `signal.metadata.AXIOMM.converter.reader`. The manifest schema
-also changes (bump `manifest_schema_version` to `"2"`). Document the
-migration clearly in the user guide and Known-Issues.
+Phase 2's last remaining item per spec §23. Two independent pieces,
+both unaffected by the UX-layout block on Chunks 6 and 8:
 
-**Chunk 11.** Commit a tiny real fixture file under
-`tests/io/converters/fixtures/` (or generate one out-of-band that's
-indistinguishable from a real file at the scales we need) and wire it
-into the test suite as a real-file regression. Also add an explicit
-"scientific justification" section to the converter user guide and to
-`XRMMapH5Config`'s docstring for the three magic constants the spec
-§17 open question flagged: `energy_scale = 40.96/4096`,
-`roi_limit_scale = 0.01`, `fallback_field_width_um = 500.0`. These need
-domain narrative from Francesco — not justification we can invent.
+**Real-file regression fixture.** Commit a small XRM-like file
+under `tests/io/converters/fixtures/` (or generate it on the fly in
+a fixture helper). It must capture the real-file shape gotchas the
+synthetic fixture currently underspecifies: in particular the
+`(n_rois, n_variants, 2)` ROI-limits layout, a populated environ
+table with a `Experiment.Beam_Size__Nominal` entry, and the
+`(xdim, ydim, n_channels)` counts shape. Wire it into the suite as
+a regression so the realistic shape is exercised on every run, not
+just in occasional out-of-band smoke tests.
 
-**Naming policy (per new feedback memory).** From Chunk 9 onwards, all
-new identifiers are checked against the policy in
-`feedback_naming_policy`. Chunk 9 added two new public names —
-`XRMMapH5Config.roi_variant_index` and the
-`roi_variant_out_of_bounds` diagnostic code — both deliberately long-
-but-clear; both follow the predictable pattern of neighbouring
-fields/codes. Not retroactive: existing names stay.
+**Scientific-constant justification.** The three magic constants
+spec §17 marked as open questions are currently `XRMMapH5Config`
+fields with no in-code or in-docs explanation:
 
-UX-blocked chunks (6, 8) remain on hold until Francesco picks a UX
-layout or a second AXIOMM tool's UX needs make the right answer
-obvious.
+- `energy_scale = 40.96 / 4096`
+- `roi_limit_scale = 0.01`
+- `fallback_field_width_um = 500.0`
 
-**Goal (Chunk 7).** Implement the spec §9.5 manifest writer, the spec
-§14 logging cleanup, and the spec §15 provenance classification
-(observed / inferred / assumed metadata). Together these make every
-conversion *reproducible* in the scientific sense: the `.axiomm.json`
-sidecar records what went in, what came out, which scientific
-assumptions applied, and which warnings were raised.
+Add a clearly-marked "needs domain confirmation" section to
+`XRMMapH5Config`'s docstring and to the converter user guide
+listing these constants and what would have to be confirmed (or
+replaced) before public release. **Do not invent domain narrative**;
+describe the gap, not the resolution.
 
-**New files (expected):**
+**Acceptance criteria.**
 
-* `src/axiomm/io/converters/writers/manifest.py` — `ManifestWriter`
-  that builds and writes a `<output>.axiomm.json` sidecar.
-* Updates to `workflows.py` — wire `manifest=True` to actually produce
-  the sidecar; populate `ConversionResult.manifest_path`.
-* Updates to `readers/xrmmap_h5.py` and `signals/hyperspy_builder.py` —
-  classify metadata entries as observed / inferred / assumed per
-  spec §15, attaching the classification to the `AXIOMM` namespace.
-* `tests/io/converters/test_manifest_writer.py` — manifest schema and
-  round-trip.
-* Updates to `tests/io/converters/test_workflows.py` — assert
-  `manifest_path` is set when `manifest=True`, schema-validate the
-  sidecar.
+1. A real-shape fixture file (or programmatic generator) exists
+   under `tests/io/converters/fixtures/` and is exercised by at
+   least one end-to-end regression test through the full
+   reader → builder → writer pipeline.
+2. The synthetic fixture already in place stays working; the new
+   regression test is additive, not a replacement.
+3. `XRMMapH5Config`'s docstring (or a linked
+   `docs/user/converter.md` section) names `energy_scale`,
+   `roi_limit_scale`, and `fallback_field_width_um` as configurable
+   scientific assumptions requiring domain confirmation.
+4. Full `pytest` suite green.
 
-**Acceptance criteria for Chunk 7:**
+After Chunk 11, Phase 2 is closed. The next phase (Phase 3 per
+spec §23) covers the reader/writer registry with plugin entry
+points and the generic schema-driven HDF5 reader. Chunks 6 and 8
+remain blocked on the UX-layout decision and must not be
+implemented from this state.
 
-1. `convert_file(..., manifest=True)` writes
-   `<output>.axiomm.json` next to the `.hspy` output and sets
-   `ConversionResult.manifest_path` to that path.
-2. `convert_file(..., manifest=False)` does *not* write a manifest and
-   leaves `manifest_path = None`.
-3. The manifest is a JSON document containing at least: `input_path`,
-   `output_path`, `reader_name`, `writer_name`, `axiomm_version`,
-   `created_at` (ISO 8601 UTC), `source_shape`, `axes_summary`,
-   `diagnostics`, `config_used`, and `provenance_classification`.
-4. `print(...)` calls in the converter package are replaced with
-   `logging.getLogger(__name__)` (spec §14); core components are
-   quiet at default log level.
-5. The metadata classification distinguishes observed (read from the
-   file) vs. inferred (derived from shape or other observed values)
-   vs. assumed (fallback defaults like
-   `fallback_field_width_um=500.0`) per spec §15. The classification
-   is recorded both on the payload and in the manifest.
-6. `manifest_not_yet_implemented` diagnostic is removed.
-7. Existing tests still pass; full suite green.
-
-**Out of scope for Chunk 7.** No CLI (Chunk 6, blocked). No notebook /
-Tk helpers (Chunk 8, blocked). No registry plugin discovery (Phase 3).
-
-**New files (expected):**
-
-* `src/axiomm/io/converters/writers/hspy.py` — `HSpyWriter` class
-  implementing the `Writer` protocol. Default extension `.hspy`. Raises
-  `OutputExistsError` when the target exists and `overwrite=False`;
-  delegates the actual write to `signal.save(...)`.
-* `src/axiomm/io/converters/workflows.py` — `convert_file(...)` per
-  spec §11.2, returning a `ConversionResult`. A small built-in
-  reader/writer name-to-class lookup is acceptable (the full
-  `registry.py` lands in Phase 3); `reader="auto"` should dispatch via
-  `Reader.can_read(path)` against the built-in mapping and fail with
-  `ReaderDetectionError` when ambiguous or unsupported.
-* `tests/io/converters/test_hspy_writer.py` — writer behaviour
-  (writes a usable file; refuses to overwrite by default; respects
-  the `overwrite` flag).
-* `tests/io/converters/test_workflows.py` — `convert_file` happy path
-  end-to-end on the synthetic fixture; `OutputExistsError` enforcement;
-  `reader="auto"` dispatch.
-
-**Acceptance criteria for Chunk 5:**
-
-1. `HSpyWriter()` advertises `name="hspy"` and
-   `supported_extensions=(".hspy",)`.
-2. `HSpyWriter().write(signal, output_path)` writes a `.hspy` file at
-   `output_path` and returns the resolved `Path`. The written file is
-   loadable back by `hyperspy.api.load(...)` with the same shape and
-   the same `AXIOMM` metadata namespace.
-3. `HSpyWriter().write(signal, output_path)` raises `OutputExistsError`
-   when the file already exists and `overwrite=False`. Passing
-   `overwrite=True` replaces the file.
-4. `convert_file(input_path, output_path=...)` returns a
-   `ConversionResult` whose `input_path`, `output_path`, `reader_name`
-   and `writer_name` fields are populated. `manifest_path` is `None`
-   (manifest is Chunk 7, not Chunk 5).
-5. Output-path resolution rules:
-   - explicit `output_path=...` wins;
-   - otherwise `output_dir + input_path.stem + ".hspy"`;
-   - otherwise `input_path.with_suffix(".hspy")`.
-6. `reader="xrmmap_h5"` resolves through a tiny built-in mapping to
-   `XRMMapH5Reader()`; `reader="auto"` iterates the built-in mapping,
-   accepts the first reader whose `can_read(path)` is `True`, and
-   raises `ReaderDetectionError` if none or multiple do.
-7. End-to-end test on the synthetic fixture: `convert_file(...)`
-   produces a `.hspy` file that loads back with shape `(4, 3, 16)` and
-   the AXIOMM metadata namespace intact.
-8. Importing `workflows.py` and `writers/hspy.py` does not pull in
-   tkinter; the side-effect tests from all earlier chunks still pass.
-9. `pytest` is green overall, both with and without HyperSpy
-   installed (HyperSpy-requiring tests use `pytest.importorskip`).
-
-**Out of scope for Chunk 5.**
-
-* Manifest writer (`<output>.axiomm.json`) — Chunk 7.
-* `convert_many` — Chunk 6.
-* CLI entry point — Chunk 6 (blocked on the UX-layout decision).
-* Real lazy execution — still future.
-* Full plugin registry (entry points) — Phase 3.
-* Provenance classification (observed vs. inferred vs. assumed) — Chunk 7.
-
-**New files (expected):**
-
-* `src/axiomm/io/converters/signals/hyperspy_builder.py` —
-  `HyperSpyBuilder` class implementing `SignalBuilder`, plus the
-  convenience function `build_hyperspy_signal(payload)`.
-* `src/axiomm/io/converters/signals/validation.py` — `validate_axes(...)`
-  helper used by the builder (spec §8.6).
-* `tests/io/converters/test_hyperspy_builder.py` — tests covering:
-  - signal-kind resolution (`signal1d`, `signal2d`, `auto`, `base`);
-  - axis count vs. `data.ndim`;
-  - axis sizes vs. data shape;
-  - axis name/units/scale/offset propagation;
-  - **HyperSpy axis-order correctness** — given a payload with
-    `AxisSpec.index_in_array=(0=x, 1=y, 2=Energy)`, the resulting
-    HyperSpy `axes_manager` must label the axes correctly *despite*
-    HyperSpy reversing navigation-axis order relative to numpy;
-  - metadata namespacing under `signal.metadata.AXIOMM`;
-  - real-file round-trip with `XRMMapH5Reader → HyperSpyBuilder` on
-    the smallest local XRM file
-    (`IE_30s_map__Sep16_15_20_39_A22-043_1_001.h5`).
-
-**Acceptance criteria for Chunk 4:**
-
-1. `HyperSpyBuilder().build(payload)` returns a `hs.signals.Signal1D`
-   for `signal_kind="signal1d"`, `Signal2D` for `"signal2d"`,
-   `BaseSignal` for `"base"`, and auto-infers from the count of signal
-   axes when `signal_kind="auto"`.
-2. Axis validation raises `SignalValidationError` when:
-   - the number of `AxisSpec` entries does not match `data.ndim`;
-   - any axis size does not match the corresponding data dimension;
-   - the number of signal axes is wrong for the chosen signal kind.
-3. Axis names, units, scales, and offsets propagate correctly into
-   the HyperSpy `axes_manager`, with the navigation/signal split
-   determined by `AxisSpec.role` and the array-order mapping driven by
-   `AxisSpec.index_in_array` (not by tuple position).
-4. `payload.metadata`, `payload.original_metadata`, `payload.title`,
-   `payload.provenance`, and `payload.diagnostics` are all preserved on
-   the resulting signal under a stable `signal.metadata.AXIOMM`
-   namespace.
-5. End-to-end test against the local real XRM file produces a
-   `Signal1D` whose `axes_manager` has the expected x / y / Energy
-   axes in the correct positions (this is the test that catches the
-   prototype's axis-labelling bug).
-6. Importing `axiomm.io.converters.signals.hyperspy_builder` does not
-   pull in tkinter; all earlier side-effect tests still pass.
-7. Tests are skipped cleanly with `pytest.importorskip("hyperspy")` when
-   HyperSpy is not installed.
-8. `pytest` is green overall.
-
-**Out of scope for Chunk 4.**
-
-* No writer (Chunk 5).
-* No workflow orchestration (Chunk 5).
-* No registry (Phase 1+).
-* No alternative builder backends (xarray, RosettaSciIO, etc.) — the
-  `SignalBuilder` protocol is already in place; new builders ship as
-  separate chunks when needed.
-
-**Dependency note.** Chunk 4 introduces `hyperspy` as a real runtime
-dependency. Install with `pip install -e ".[dev,hyperspy]"` (or `[all]`).
-HyperSpy's reversed axis convention vs. numpy is the *single biggest
-risk* in this chunk — invest the time to assert axis labels and sizes
-explicitly against the constructed `axes_manager`, not just against the
-payload's `AxisSpec` tuple.
-
-## Verifying the current state (after Chunk 7)
+## Verifying the current state (after Chunk 10)
 
 In an environment with Python ≥ 3.10 and the dev extras installed, the
 canonical chunk-verification commands are:
@@ -606,8 +451,8 @@ python -m pip install -e ".[dev,all]"
 pytest -q
 ```
 
-Expected result: **185 tests pass**, 0 fail. With only h5py installed
-(no hyperspy): 117 pass, 4 skipped (the hspy_writer, hyperspy_builder
+Expected result: **212 tests pass**, 0 fail. With only h5py installed
+(no hyperspy): 142 pass, 4 skipped (the hspy_writer, hyperspy_builder
 and workflows modules skip as one unit each; the lazy-export
 `test_lazy_concrete_builder_exports` skips individually).
 

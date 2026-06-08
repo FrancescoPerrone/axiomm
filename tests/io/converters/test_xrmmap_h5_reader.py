@@ -65,6 +65,13 @@ def test_parse_micrometre_value_raises_on_malformed(value):
         parse_micrometre_value(value)
 
 
+@pytest.mark.parametrize("value", ["0 um", "0um", "0", "-1 um", "-0.5 µm"])
+def test_parse_micrometre_value_rejects_non_positive(value):
+    """Beam size is a physical length; zero / negative makes no sense."""
+    with pytest.raises(MetadataParseError, match="strictly positive"):
+        parse_micrometre_value(value)
+
+
 def test_parse_micrometre_value_raises_on_non_string():
     with pytest.raises(MetadataParseError):
         parse_micrometre_value(1.0)  # type: ignore[arg-type]
@@ -430,6 +437,48 @@ def test_reader_still_handles_2d_roi_limits(synthetic_xrmmap_h5):
     codes = {d.code for d in payload.diagnostics}
     assert "roi_limits_unexpected_shape" not in codes
     assert "roi_variant_out_of_bounds" not in codes
+
+
+def test_reader_rejects_wide_2d_roi_limits(synthetic_xrmmap_h5):
+    """An (n_rois, k) limits array with k != 2 is not 'just take the first two'.
+
+    Pre-fix behaviour: shape (n, 3) was silently accepted because the
+    check was `shape[1] < 2`. Now it's an explicit
+    roi_limits_unexpected_shape warning.
+    """
+    limits = np.zeros((2, 3), dtype=np.int32)
+    limits[0, :] = [640, 670, 9999]
+    limits[1, :] = [800, 830, 9999]
+    p = synthetic_xrmmap_h5(
+        "wide_2d.h5",
+        rois=[("Fe Ka", 0, 0), ("Cu Ka", 0, 0)],
+        roi_limits_override=limits,
+    )
+    payload = XRMMapH5Reader().read(p)
+    codes = {d.code for d in payload.diagnostics}
+    assert "roi_limits_unexpected_shape" in codes
+    assert "rois" not in payload.original_metadata
+
+
+def test_reader_warns_on_roi_names_limits_length_mismatch(synthetic_xrmmap_h5):
+    """Silently truncating to the shorter array would hide corruption.
+
+    Now the reader emits roi_names_limits_length_mismatch and skips
+    extraction, so callers see the issue explicitly.
+    """
+    # Provide 2 names but 3 rows of limits, so they disagree.
+    limits = np.array(
+        [[640, 670], [800, 830], [900, 930]], dtype=np.int32,
+    )
+    p = synthetic_xrmmap_h5(
+        "mismatch.h5",
+        rois=[("Fe Ka", 0, 0), ("Cu Ka", 0, 0)],
+        roi_limits_override=limits,
+    )
+    payload = XRMMapH5Reader().read(p)
+    codes = {d.code for d in payload.diagnostics}
+    assert "roi_names_limits_length_mismatch" in codes
+    assert "rois" not in payload.original_metadata
 
 
 # -- read: missing-metadata branches (spec §7.8) -----------------------------

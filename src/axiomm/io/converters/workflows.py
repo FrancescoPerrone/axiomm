@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from axiomm.io.converters.errors import (
+    OutputExistsError,
     ReaderDetectionError,
     UnsupportedFormatError,
 )
@@ -232,6 +233,25 @@ def convert_file(
             writer_name=resolved_writer.name,
             diagnostics=tuple(extra_diagnostics),
         )
+
+    # Preflight: refuse to begin the conversion if the manifest sidecar
+    # would later refuse to write. Otherwise a stale sidecar already
+    # next to the planned output causes a partial artefact — the .hspy
+    # gets written successfully and the manifest then raises
+    # OutputExistsError, leaving the output file orphaned. HSpyWriter
+    # does its own preflight for the .hspy itself, so we only need to
+    # check the sidecar here.
+    if manifest and not overwrite:
+        from axiomm.io.converters.writers.manifest import manifest_path_for
+
+        planned_manifest = manifest_path_for(out)
+        if planned_manifest.exists():
+            raise OutputExistsError(
+                f"Manifest sidecar already exists at {planned_manifest}. "
+                f"Pass overwrite=True to replace it (the .hspy output and "
+                f"the sidecar are written together) or manifest=False to "
+                f"skip the sidecar entirely."
+            )
 
     payload = resolved_reader.read(src, lazy=lazy)
 

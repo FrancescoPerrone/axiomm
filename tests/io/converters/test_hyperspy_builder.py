@@ -403,6 +403,47 @@ def test_non_canonical_axis_order_is_reordered_transparently():
     assert nav_names == ["x", "y"]
 
 
+def test_axiomm_metadata_axes_describe_post_transpose_layout():
+    """Regression: signal.metadata.AXIOMM.axes must describe the actual
+    built signal's axes, not the original payload layout.
+
+    Before this fix the builder passed payload.axes (pre-transpose) into
+    the AXIOMM-namespace composer; the metadata then disagreed with both
+    signal.data.shape and signal.axes_manager whenever the payload had
+    its signal axis at numpy index 0 (or any other non-canonical
+    arrangement).
+    """
+    data = np.arange(4 * 3 * 16, dtype=np.float32).reshape((16, 4, 3))
+    axes = (
+        AxisSpec("Energy", "signal", 16, units="keV", scale=0.01, index_in_array=0),
+        AxisSpec("x", "navigation", 4, units="µm", scale=1.0, index_in_array=1),
+        AxisSpec("y", "navigation", 3, units="µm", scale=2.0, index_in_array=2),
+    )
+    payload = AxiommSignalPayload(
+        data=data, axes=axes, signal_kind="signal1d",
+    )
+    signal = HyperSpyBuilder().build(payload)
+
+    # data is reordered to (x, y, Energy) with index_in_array 0..2.
+    assert signal.data.shape == (4, 3, 16)
+    meta_axes = signal.metadata.AXIOMM.axes
+    # The hyperspy DictionaryTreeBrowser stores lists of dicts directly.
+    assert len(meta_axes) == 3
+    by_index = {ax["index_in_array"]: ax for ax in meta_axes}
+    assert by_index[0]["name"] == "x" and by_index[0]["size"] == 4
+    assert by_index[1]["name"] == "y" and by_index[1]["size"] == 3
+    assert by_index[2]["name"] == "Energy" and by_index[2]["size"] == 16
+
+    # And the metadata axes agree with the axes_manager labels.
+    am_by_index = {
+        a.index_in_array: a.name
+        for a in list(signal.axes_manager.navigation_axes)
+           + list(signal.axes_manager.signal_axes)
+    }
+    for ax in meta_axes:
+        assert ax["name"] == am_by_index[ax["index_in_array"]]
+
+
 # ---------------------------------------------------------------------------
 # Metadata propagation under signal.metadata.AXIOMM
 # ---------------------------------------------------------------------------

@@ -78,6 +78,30 @@ class XRMMapH5Config:
     Defaults follow spec §17 and reproduce the prototype's behaviour. Override
     any field to read a similar-but-not-identical XRM-style file without
     subclassing the reader.
+
+    .. warning::
+
+       The three scientific constants below are **configurable
+       assumptions that have not yet been confirmed for the AXIOMM
+       package author's instrument data** (spec §17 open question):
+
+       - ``energy_scale = 40.96 / 4096`` (keV per channel) — assumed
+         a 40.96 keV span over a 4096-channel MCA, with no calibration
+         pulled from the file. If your detector / MCA differs,
+         override.
+       - ``roi_limit_scale = 0.01`` — assumed the integer ROI limits
+         in the HDF5 file are in centi-keV (so divide by 100 to get
+         keV). Not derived from any file metadata.
+       - ``fallback_field_width_um = 500.0`` — assumed field of view
+         in µm, divided by ``xdim`` to produce a navigation pixel
+         scale, used only when no beam size is present in the environ
+         table. Pure assumption.
+
+       These need owner domain confirmation (or, ideally, extraction
+       from instrument metadata) before AXIOMM is suitable for public
+       release. See :mod:`axiomm.io.converters` user guide section
+       "Scientific assumptions still requiring owner confirmation"
+       and ``docs/user/converter.md``.
     """
 
     # HDF5 paths (the converter's first line of generality)
@@ -177,6 +201,12 @@ def parse_micrometre_value(value: str) -> float:
     ``"1 µm"``, ``"1 μm"``, ``"1.0um"``, ``"1.0 micrometre"``,
     ``"1.0 micrometer"``. A bare numeric string (``"1"``) is also accepted,
     interpreted as already in micrometres.
+
+    The result is required to be **strictly positive** — a physical
+    micrometre length cannot be zero or negative. Zero/negative values
+    raise :class:`MetadataParseError`, so they flow through the same
+    fall-back path as malformed inputs at the call site (the
+    ``beam_size_unparseable`` diagnostic in the reader).
     """
     if not isinstance(value, str):
         raise MetadataParseError(
@@ -186,7 +216,13 @@ def parse_micrometre_value(value: str) -> float:
     match = _MICROMETRE_PATTERN.match(value)
     if match is None:
         raise MetadataParseError(f"Cannot parse micrometre value: {value!r}")
-    return float(match.group("value"))
+    parsed = float(match.group("value"))
+    if not parsed > 0:
+        raise MetadataParseError(
+            f"Micrometre value must be strictly positive; got "
+            f"{value!r} -> {parsed}."
+        )
+    return parsed
 
 
 # ---------------------------------------------------------------------------
@@ -527,7 +563,10 @@ class XRMMapH5Reader:
             return [], diagnostics
 
         # Real XRM files store ROI limits as (n_rois, n_variants, 2);
-        # the original prototype assumed (n_rois, 2). Handle both.
+        # the original prototype assumed (n_rois, 2). Accept exactly
+        # those two layouts and reject anything else — silently honouring
+        # wider 2-D arrays risks reading the wrong column on files we
+        # don't actually understand.
         if limits.ndim == 3 and limits.shape[2] == 2:
             n_variants = limits.shape[1]
             variant = self.config.roi_variant_index
@@ -548,21 +587,37 @@ class XRMMapH5Reader:
                 )
                 return [], diagnostics
             limits = limits[:, variant, :]
-        elif limits.ndim != 2 or limits.shape[1] < 2:
+        elif not (limits.ndim == 2 and limits.shape[1] == 2):
             diagnostics.append(
                 Diagnostic(
                     severity="warning",
                     code="roi_limits_unexpected_shape",
                     message=(
                         f"ROI limits array has unexpected shape "
-                        f"{limits.shape!r}; expected (n_rois, 2) or "
+                        f"{limits.shape!r}; expected exactly (n_rois, 2) or "
                         f"(n_rois, n_variants, 2). Skipping ROI extraction."
                     ),
                 )
             )
             return [], diagnostics
 
-        n = min(len(names), len(limits))
+        # ROI names and limits must align. Silently truncating to the
+        # shorter array hides upstream corruption and produces wrong
+        # ROI assignments. Refuse to extract and let the user decide.
+        if len(names) != len(limits):
+            diagnostics.append(
+                Diagnostic(
+                    severity="warning",
+                    code="roi_names_limits_length_mismatch",
+                    message=(
+                        f"ROI names ({len(names)}) and limits ({len(limits)}) "
+                        f"have different lengths; refusing to guess which "
+                        f"to keep. Skipping ROI extraction."
+                    ),
+                )
+            )
+            return [], diagnostics
+
         scale = self.config.roi_limit_scale
         return [
             {
@@ -570,7 +625,7 @@ class XRMMapH5Reader:
                 "start": float(limits[i, 0]) * scale,
                 "end": float(limits[i, 1]) * scale,
             }
-            for i in range(n)
+            for i in range(len(names))
         ], diagnostics
 
     def _resolve_navigation_scale(
