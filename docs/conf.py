@@ -72,10 +72,18 @@ html_theme = "furo"
 html_title = f"AXIOMM {release}"
 html_static_path: list[str] = []  # empty for now; add _static when needed
 
+# Use the dark axiomm_wave icon as the favicon for published docs (shown
+# in browser tabs and on the Sphinx-generated HTML pages). GitHub itself
+# does not let us set a per-repo icon via tracked files — that's the
+# social-preview image and has to be uploaded via Settings → General.
+html_favicon = "../identy/AXIOMM_Design/axiomm_wave_icon_dark.svg"
+
 html_theme_options = {
     "source_repository": "https://github.com/FrancescoPerrone/axiomm/",
     "source_branch": "main",
     "source_directory": "docs/",
+    "light_logo": "../identy/AXIOMM_Design/axiomm_wave_icon.svg",
+    "dark_logo": "../identy/AXIOMM_Design/axiomm_wave_icon_dark.svg",
 }
 
 
