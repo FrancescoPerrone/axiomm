@@ -69,7 +69,16 @@ exclude_patterns = [
 # -- HTML output -------------------------------------------------------------
 
 html_theme = "furo"
-html_title = f"AXIOMM {release}"
+
+# Empty html_title so the sidebar shows the AXIOMM logo alone instead
+# of "AXIOMM 0.1.0.dev0" text underneath it. The lockup SVG already
+# carries the AXIOMM wordmark, so a separate text title would be
+# redundant. html_short_title is also set so browser tabs fall back
+# to a clean "AXIOMM — page title" rather than the noisy
+# "{project} {release} documentation" default Sphinx would otherwise
+# pick.
+html_title = ""
+html_short_title = "AXIOMM"
 
 # Register the design-identity folder as a static path so Sphinx copies
 # the axiomm_wave assets into `_static/` at build time. Furo resolves
@@ -78,10 +87,12 @@ html_title = f"AXIOMM {release}"
 # that 404 on the deployed site.
 html_static_path = ["../identy/AXIOMM_Design"]
 
-# Favicon: tab-bar icon for the published docs. Sphinx copies whatever
-# you point at into `_static/`, so this works with the bare filename
-# now that the identity folder is registered above.
-html_favicon = "axiomm_wave_icon_dark.svg"
+# Favicon: tab-bar icon for the published docs. Unlike Furo's
+# `light_logo` / `dark_logo` (which are resolved relative to
+# `_static/`), Sphinx looks for `html_favicon` relative to the
+# configuration directory — so we point at the source file directly
+# here. Sphinx still copies it into `_static/` at build time.
+html_favicon = "../identy/AXIOMM_Design/axiomm_wave_icon_dark.svg"
 
 html_theme_options = {
     "source_repository": "https://github.com/FrancescoPerrone/axiomm/",
@@ -90,7 +101,16 @@ html_theme_options = {
     # Furo: paths are resolved relative to `_static/`. Both variants
     # are in the identity folder we registered above, so the bare
     # filename is enough.
-    "light_logo": "axiomm_wave_icon.svg",
+    #
+    # Light mode uses the *lockup* (icon + AXIOMM wordmark) so the
+    # sidebar's primary brand element is fully readable. The previous
+    # icon-only light variant (`axiomm_wave_icon.svg`) rendered
+    # incorrectly on the deployed Pages site; the lockup is the
+    # canonical light-mode mark anyway.
+    "light_logo": "axiomm_wave_lockup.svg",
+    # Dark mode keeps the dark icon — the wordmark in the dark
+    # lockup's stroke colour can read poorly on Furo's dark surface,
+    # and the icon-only mark is a clean fallback there.
     "dark_logo": "axiomm_wave_icon_dark.svg",
 }
 
