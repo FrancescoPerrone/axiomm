@@ -440,13 +440,19 @@ namespace we may regret.
 
 * A second post-progress wiki sweep — last one was after Chunk 5;
   per the doc-quality commitment another is overdue.
-* Domain-confirm the three scientific constants
-  (`energy_scale`, `roi_limit_scale`, `fallback_field_width_um`)
-  with the package author; that's the only outstanding open
-  question from spec §17 and the only thing standing between the
-  converter and a public release.
-* Publish the Sphinx docs (Read the Docs or GitHub Pages) so the
-  user guide and API reference become reachable without cloning.
+* ⛔ Domain-confirm the three scientific constants
+  (`energy_scale`, `roi_limit_scale`, `fallback_field_width_um`):
+  **blocked**. Francesco has asked his geology team for the
+  values + scientific narrative; until that reply lands, the
+  constants stay flagged as configurable assumptions in the
+  `XRMMapH5Config` docstring and in the user guide's "Scientific
+  assumptions still requiring owner confirmation" section. Next
+  session: ask Francesco whether the team has replied; if so,
+  apply the updates and lift the warning.
+* ✅ Publish the Sphinx docs — set up via
+  `.github/workflows/docs.yml` (GitHub Pages) and
+  `.readthedocs.yaml` (Read the Docs). One manual activation step
+  remains on each platform; see *Documentation publishing* above.
 
 ## Verifying the current state (after Chunk 10)
 
