@@ -407,12 +407,17 @@ produces a `Signal1D` whose axes label correctly: `idx=0 → 'x' size=23`,
 The `docs/` Sphinx project is configured to publish via two
 independent hosts. Pick whichever (or both):
 
-* **GitHub Pages** — `.github/workflows/docs.yml`. Triggers on every
-  push to `main` (and PRs, for verification only). The deploy job
-  runs after a successful build and ships the HTML to GitHub Pages.
-  **One manual action needed before the first deploy:**
-  Settings → Pages → Source = "GitHub Actions". For private repos,
-  GitHub Pages requires a Pro / Team / Enterprise plan.
+* **GitHub Pages** — `.github/workflows/docs.yml`. The *build* job
+  runs on every push to `main`, every PR, and on manual dispatch —
+  so doc regressions are caught even when nobody intends to publish.
+  The *deploy* job is **opt-in via manual dispatch only**: it runs
+  exclusively when you click `Actions → docs → Run workflow` on the
+  main branch. This deliberately stops push-to-main runs from
+  emailing "deploy failed" while Pages is unavailable (the previous
+  always-deploy behaviour produced silent noise on this private
+  repo). To actually publish: enable
+  `Settings → Pages → Source: GitHub Actions` (private repos need
+  Pro / Team / Enterprise), then trigger the workflow manually.
 * **Read the Docs** — `.readthedocs.yaml`. Sign in at
   readthedocs.org with the GitHub account and import the repo;
   RTD reads the config automatically. Public repos are free;

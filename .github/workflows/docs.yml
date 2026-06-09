@@ -1,14 +1,24 @@
 name: docs
 
-# Build the Sphinx documentation on every push to `main` and (optionally)
-# deploy it to GitHub Pages. Pages must be enabled once in
-# `Settings -> Pages -> Source: GitHub Actions` for the deploy job to
-# actually publish; until then the build job still runs and verifies the
-# docs compile cleanly.
+# Always builds the docs on push to `main`, pull requests, and manual
+# dispatch — so doc regressions get caught even when nobody intends
+# to publish. Deployment to GitHub Pages is **opt-in via manual
+# dispatch only**: the deploy job runs exclusively when you click
+# `Actions → docs → Run workflow` on the main branch. This stops the
+# push-to-main builds from emitting "deploy failed" emails when Pages
+# isn't configured for the repo.
 #
-# For private repositories, GitHub Pages requires a paid plan (Pro,
-# Team, or Enterprise). If that's not available, use the same Sphinx
-# config via Read the Docs — see `.readthedocs.yaml` at the repo root.
+# To actually publish to Pages:
+#   1. Enable Pages in `Settings → Pages → Source: GitHub Actions`.
+#      Private repos need a GitHub plan that supports Pages (Pro,
+#      Team, or Enterprise).
+#   2. Trigger the workflow from `Actions → docs → Run workflow → main`.
+#   3. The deploy job lifts `pages: write` and `id-token: write` only
+#      for itself; the build job stays on minimal `contents: read`.
+#
+# Read the Docs is configured independently in `.readthedocs.yaml`
+# and uses the same `docs/` Sphinx project; the two paths don't
+# interfere.
 
 on:
   push:
@@ -17,13 +27,13 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Workflow-level permissions are minimal; the deploy job lifts what
+# it needs for the Pages API on its own.
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
-# Only one Pages deployment in flight at a time; never cancel a deploy
-# already running (canceling can leave the live site half-updated).
+# One Pages deployment at a time; never cancel a deploy already in
+# flight (canceling can leave the live site half-updated).
 concurrency:
   group: pages
   cancel-in-progress: false
@@ -56,17 +66,26 @@ jobs:
           sphinx-build -b html docs docs/_build/html
 
       - name: Upload Pages artefact
-        # Only upload on push to main; PR builds verify but don't ship.
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        # Only when we're going to deploy. Push and PR builds still
+        # verify the docs compile; they just don't bother uploading
+        # the Pages artefact (which would otherwise need `pages: write`).
+        if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-pages-artifact@v3
         with:
           path: docs/_build/html
 
   deploy:
-    # Deploy only after a successful push-to-main build.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Opt-in via manual dispatch only. Push-to-main builds verify the
+    # docs but do not attempt a deploy — so emails about failed
+    # deploys stop until you intentionally publish.
+    if: github.event_name == 'workflow_dispatch'
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      # Pages API capabilities lifted only on the deploy job, scoped
+      # as narrowly as the deploy action accepts.
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
