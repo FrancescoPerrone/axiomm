@@ -78,10 +78,10 @@ confirmation before public release.
 |----|--------------------------------------------------------------------|------------|
 | 12 | Reader/writer registry (no plugin discovery yet)                   | ✅ done    |
 | 13 | Plugin discovery via Python entry points                           | ✅ done    |
-| 14 | Generic HDF5 schema-driven reader prototype                        | ⬜ next    |
+| 14 | Generic HDF5 schema-driven reader prototype                        | ✅ done    |
 | 15 | Additional output writers (only when scientifically justified)     | ⬜ pending |
 
-## Current state (as of Chunk 13 — Phase 3.2: plugin discovery)
+## Current state (as of Chunk 14 — Phase 3.3: generic HDF5 reader)
 
 What exists in this repository:
 
@@ -502,8 +502,8 @@ python -m pip install -e ".[dev,all]"
 pytest -q
 ```
 
-Expected result: **250 tests pass**, 0 fail. With only h5py installed
-(no hyperspy): 175 pass, 5 skipped (the hspy_writer, hyperspy_builder,
+Expected result: **283 tests pass**, 0 fail. With only h5py installed
+(no hyperspy): 208 pass, 5 skipped (the hspy_writer, hyperspy_builder,
 workflows, and realistic-fixture regression modules skip as one unit
 each; the lazy-export `test_lazy_concrete_builder_exports` skips
 individually).

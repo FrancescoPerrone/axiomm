@@ -89,6 +89,10 @@ __all__ = [
     # concrete readers + builders + writers (lazily imported — see __getattr__ below)
     "XRMMapH5Config",
     "XRMMapH5Reader",
+    "GenericHDF5MapReader",
+    "HDF5MapConfig",
+    "HDF5MapSchema",
+    "XRMMAP_H5_SCHEMA",
     "HyperSpyBuilder",
     "build_hyperspy_signal",
     "HSpyWriter",
@@ -129,6 +133,22 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "XRMMapH5Config": (
         "axiomm.io.converters.readers.xrmmap_h5",
         "XRMMapH5Config",
+    ),
+    "GenericHDF5MapReader": (
+        "axiomm.io.converters.readers.hdf5_generic",
+        "GenericHDF5MapReader",
+    ),
+    "HDF5MapConfig": (
+        "axiomm.io.converters.readers.hdf5_generic",
+        "HDF5MapConfig",
+    ),
+    "HDF5MapSchema": (
+        "axiomm.io.converters.readers.hdf5_schema",
+        "HDF5MapSchema",
+    ),
+    "XRMMAP_H5_SCHEMA": (
+        "axiomm.io.converters.readers.hdf5_schema",
+        "XRMMAP_H5_SCHEMA",
     ),
     "HyperSpyBuilder": (
         "axiomm.io.converters.signals.hyperspy_builder",

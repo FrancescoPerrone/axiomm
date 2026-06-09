@@ -343,7 +343,16 @@ class XRMMapH5Reader:
             ])
 
             # --- environ / configuration table (optional) -----------------
-            environ, environ_diag = self._read_environ_table(f)
+            from axiomm.io.converters.readers.hdf5_helpers import (
+                read_environ_table,
+                read_roi_table,
+            )
+
+            environ, environ_diag = read_environ_table(
+                f,
+                name_path=self.config.environ_name_path,
+                value_path=self.config.environ_value_path,
+            )
             diagnostics.extend(environ_diag)
             if environ:
                 original_metadata["environ"] = dict(environ)
@@ -352,7 +361,13 @@ class XRMMapH5Reader:
                 )
 
             # --- ROI table (optional) -------------------------------------
-            rois, roi_diag = self._read_roi_table(f)
+            rois, roi_diag = read_roi_table(
+                f,
+                name_path=self.config.roi_name_path,
+                limits_path=self.config.roi_limits_path,
+                roi_variant_index=self.config.roi_variant_index,
+                roi_limit_scale=self.config.roi_limit_scale,
+            )
             diagnostics.extend(roi_diag)
             if rois:
                 original_metadata["rois"] = rois
@@ -366,8 +381,15 @@ class XRMMapH5Reader:
                 )
 
         # --- navigation scale ---------------------------------------------
-        nav_scale_um, scale_diag, scale_source = self._resolve_navigation_scale(
-            environ, xdim=xdim
+        from axiomm.io.converters.readers.hdf5_helpers import (
+            resolve_navigation_scale,
+        )
+
+        nav_scale_um, scale_diag, scale_source = resolve_navigation_scale(
+            environ,
+            beam_size_key=self.config.beam_size_key,
+            fallback_field_width_um=self.config.fallback_field_width_um,
+            xdim=xdim,
         )
         diagnostics.extend(scale_diag)
         nav_scale_bucket = {
@@ -472,222 +494,6 @@ class XRMMapH5Reader:
             title=source_path.stem,
         )
 
-    # -- internal helpers ---------------------------------------------------
-
-    def _read_environ_table(
-        self, f: Any
-    ) -> tuple[dict[str, str], list[Diagnostic]]:
-        diagnostics: list[Diagnostic] = []
-        if (
-            self.config.environ_name_path not in f
-            or self.config.environ_value_path not in f
-        ):
-            diagnostics.append(
-                Diagnostic(
-                    severity="warning",
-                    code="environ_missing",
-                    message=(
-                        f"Configuration table not found at "
-                        f"{self.config.environ_name_path!r} and "
-                        f"{self.config.environ_value_path!r}; "
-                        f"beam-size resolution will fall back to "
-                        f"fallback_field_width_um if configured."
-                    ),
-                )
-            )
-            return {}, diagnostics
-        try:
-            names = decode_hdf5_string_array(
-                f[self.config.environ_name_path][...]
-            )
-            values = decode_hdf5_string_array(
-                f[self.config.environ_value_path][...]
-            )
-        except (TypeError, OSError, KeyError) as exc:
-            diagnostics.append(
-                Diagnostic(
-                    severity="warning",
-                    code="environ_unreadable",
-                    message=f"Could not decode configuration table: {exc}",
-                )
-            )
-            return {}, diagnostics
-        if len(names) != len(values):
-            diagnostics.append(
-                Diagnostic(
-                    severity="warning",
-                    code="environ_length_mismatch",
-                    message=(
-                        f"Configuration name/value arrays have different "
-                        f"lengths ({len(names)} vs {len(values)}); "
-                        f"truncating to the shorter."
-                    ),
-                )
-            )
-        return dict(zip(names, values)), diagnostics
-
-    def _read_roi_table(
-        self, f: Any
-    ) -> tuple[list[dict[str, Any]], list[Diagnostic]]:
-        diagnostics: list[Diagnostic] = []
-        if (
-            self.config.roi_name_path not in f
-            or self.config.roi_limits_path not in f
-        ):
-            diagnostics.append(
-                Diagnostic(
-                    severity="warning",
-                    code="roi_missing",
-                    message=(
-                        f"ROI metadata not found at "
-                        f"{self.config.roi_name_path!r} and "
-                        f"{self.config.roi_limits_path!r}; "
-                        f"continuing without ROI info."
-                    ),
-                )
-            )
-            return [], diagnostics
-        try:
-            names = decode_hdf5_string_array(
-                f[self.config.roi_name_path][...]
-            )
-            limits = np.asarray(f[self.config.roi_limits_path][...])
-        except (TypeError, OSError, KeyError) as exc:
-            diagnostics.append(
-                Diagnostic(
-                    severity="warning",
-                    code="roi_unreadable",
-                    message=f"Could not decode ROI metadata: {exc}",
-                )
-            )
-            return [], diagnostics
-
-        # Real XRM files store ROI limits as (n_rois, n_variants, 2);
-        # the original prototype assumed (n_rois, 2). Accept exactly
-        # those two layouts and reject anything else — silently honouring
-        # wider 2-D arrays risks reading the wrong column on files we
-        # don't actually understand.
-        if limits.ndim == 3 and limits.shape[2] == 2:
-            n_variants = limits.shape[1]
-            variant = self.config.roi_variant_index
-            if not 0 <= variant < n_variants:
-                diagnostics.append(
-                    Diagnostic(
-                        severity="warning",
-                        code="roi_variant_out_of_bounds",
-                        message=(
-                            f"ROI limits dataset has shape {limits.shape!r} "
-                            f"({n_variants} variants per ROI); configured "
-                            f"roi_variant_index={variant} is out of bounds "
-                            f"[0, {n_variants}). Skipping ROI extraction. "
-                            f"Set XRMMapH5Config(roi_variant_index=<n>) "
-                            f"with 0 <= n < {n_variants} to extract."
-                        ),
-                    )
-                )
-                return [], diagnostics
-            limits = limits[:, variant, :]
-        elif not (limits.ndim == 2 and limits.shape[1] == 2):
-            diagnostics.append(
-                Diagnostic(
-                    severity="warning",
-                    code="roi_limits_unexpected_shape",
-                    message=(
-                        f"ROI limits array has unexpected shape "
-                        f"{limits.shape!r}; expected exactly (n_rois, 2) or "
-                        f"(n_rois, n_variants, 2). Skipping ROI extraction."
-                    ),
-                )
-            )
-            return [], diagnostics
-
-        # ROI names and limits must align. Silently truncating to the
-        # shorter array hides upstream corruption and produces wrong
-        # ROI assignments. Refuse to extract and let the user decide.
-        if len(names) != len(limits):
-            diagnostics.append(
-                Diagnostic(
-                    severity="warning",
-                    code="roi_names_limits_length_mismatch",
-                    message=(
-                        f"ROI names ({len(names)}) and limits ({len(limits)}) "
-                        f"have different lengths; refusing to guess which "
-                        f"to keep. Skipping ROI extraction."
-                    ),
-                )
-            )
-            return [], diagnostics
-
-        scale = self.config.roi_limit_scale
-        return [
-            {
-                "name": names[i],
-                "start": float(limits[i, 0]) * scale,
-                "end": float(limits[i, 1]) * scale,
-            }
-            for i in range(len(names))
-        ], diagnostics
-
-    def _resolve_navigation_scale(
-        self,
-        environ: dict[str, str],
-        *,
-        xdim: int,
-    ) -> tuple[float, list[Diagnostic], str]:
-        """Return (scale, diagnostics, source_tag).
-
-        ``source_tag`` is one of ``"beam_size"``, ``"fallback"``, or
-        ``"unit"``, so callers can classify the resulting axis scale
-        per spec §15 (beam_size → observed, fallback → assumed,
-        unit → assumed).
-        """
-        diagnostics: list[Diagnostic] = []
-        beam_size_str = environ.get(self.config.beam_size_key)
-        if beam_size_str is not None:
-            try:
-                return parse_micrometre_value(beam_size_str), diagnostics, "beam_size"
-            except MetadataParseError as exc:
-                diagnostics.append(
-                    Diagnostic(
-                        severity="warning",
-                        code="beam_size_unparseable",
-                        message=(
-                            f"Could not parse beam size "
-                            f"{beam_size_str!r}: {exc}. Falling back to "
-                            f"fallback_field_width_um / xdim."
-                        ),
-                    )
-                )
-        else:
-            diagnostics.append(
-                Diagnostic(
-                    severity="warning",
-                    code="beam_size_missing",
-                    message=(
-                        f"Beam-size key {self.config.beam_size_key!r} not "
-                        f"found in the configuration table; falling back "
-                        f"to fallback_field_width_um / xdim."
-                    ),
-                )
-            )
-        if self.config.fallback_field_width_um is None:
-            diagnostics.append(
-                Diagnostic(
-                    severity="warning",
-                    code="navigation_scale_unknown",
-                    message=(
-                        "No beam size available and no "
-                        "fallback_field_width_um configured; navigation "
-                        "scale set to 1.0."
-                    ),
-                )
-            )
-            return 1.0, diagnostics, "unit"
-        return (
-            float(self.config.fallback_field_width_um) / xdim,
-            diagnostics,
-            "fallback",
-        )
 
 
 __all__ = [

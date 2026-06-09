@@ -379,6 +379,76 @@ the converter made on your behalf:
 Pattern-match `d.code` rather than `d.message` if you build automation
 on top — codes are stable, messages may be reworded.
 
+## Reading non-XRM HDF5 files via `GenericHDF5MapReader`
+
+If your file has the same *structure* as an XRM-Map file — a 3-D
+counts dataset, an optional environ name/value table, an optional
+ROI name/limits table — but lives at different HDF5 paths, you do
+not need to write a new `Reader` class. Pass an `HDF5MapSchema` to
+`GenericHDF5MapReader`:
+
+```python
+from axiomm.io.converters import (
+    GenericHDF5MapReader, HDF5MapConfig, HDF5MapSchema, convert_file,
+)
+
+schema = HDF5MapSchema(
+    counts_path="/scan/data/counts",
+    environ_name_path="/scan/metadata/names",
+    environ_value_path="/scan/metadata/values",
+    beam_size_key="Beam_Size_Um",
+    # ROIs absent in this hypothetical file → leave roi_*_path = None
+)
+
+reader = GenericHDF5MapReader(
+    schema=schema,
+    config=HDF5MapConfig(
+        energy_scale=0.005,                # keV per channel
+        roi_limit_scale=1.0,               # if you had ROIs in keV already
+        fallback_field_width_um=None,      # no fallback; nav scale must come from environ
+    ),
+)
+
+convert_file(
+    input_path="scan.h5",
+    output_path="scan.hspy",
+    reader=reader,
+)
+```
+
+The schema describes **where** things live; the config describes
+**what they mean**. The two are deliberately separate so a single
+schema can serve multiple instruments / generations whose
+calibration constants differ. The built-in
+`XRMMAP_H5_SCHEMA` covers the canonical XRM-Map / Larch layout, so
+you can use it as a starting point:
+
+```python
+from dataclasses import replace
+from axiomm.io.converters import XRMMAP_H5_SCHEMA, HDF5MapSchema
+
+# Same layout as XRM but with a renamed root group.
+schema = replace(XRMMAP_H5_SCHEMA,
+    counts_path="/xrm_v2/counts",
+    environ_name_path="/xrm_v2/config/env/name",
+    environ_value_path="/xrm_v2/config/env/value",
+)
+```
+
+`GenericHDF5MapReader` follows the same conventions as
+`XRMMapH5Reader`: counts are required, environ / ROI metadata are
+optional with structured diagnostics on absence, ROI limits handle
+both `(n_rois, 2)` and `(n_rois, n_variants, 2)` shapes (via
+`HDF5MapConfig.roi_variant_index`), and the
+`signal.metadata.AXIOMM.converter.config` records both the schema
+and the config used for the conversion, making manifests fully
+reproducible.
+
+For files whose structure diverges from this layout (multiple
+counts datasets per file, non-trailing signal axis, no environ
+table at all), write a bespoke `Reader` class instead — see the
+next section.
+
 ## Extending AXIOMM with custom readers and writers
 
 Third-party packages can add their own readers and writers without
