@@ -379,6 +379,125 @@ the converter made on your behalf:
 Pattern-match `d.code` rather than `d.message` if you build automation
 on top — codes are stable, messages may be reworded.
 
+## Extending AXIOMM with custom readers and writers
+
+Third-party packages can add their own readers and writers without
+modifying AXIOMM — declare them as Python **entry points** in your
+package's `pyproject.toml` and AXIOMM discovers them automatically
+on import via :func:`axiomm.io.converters.load_plugins`.
+
+### Entry-point groups
+
+| Group              | What it registers |
+|--------------------|-------------------|
+| `axiomm.readers`   | A `Reader` plugin |
+| `axiomm.writers`   | A `Writer` plugin |
+
+### Writing a reader plugin
+
+Implement the `Reader` protocol — a `name` attribute, a
+`supported_extensions` tuple, and `can_read(path)` /
+`read(path, *, lazy=True)` methods returning an
+`AxiommSignalPayload`:
+
+```python
+# my_xrf_package/readers/my_format.py
+from axiomm.io.converters.models import AxiommSignalPayload
+
+class MyFormatReader:
+    name = "my_format"
+    supported_extensions = (".myx",)
+
+    def can_read(self, path) -> bool:
+        # Cheap probe — extension + signature peek.
+        return str(path).endswith(".myx")
+
+    def read(self, path, *, lazy: bool = True) -> AxiommSignalPayload:
+        # Open the file, extract the counts dataset and any metadata,
+        # return a populated AxiommSignalPayload.
+        ...
+```
+
+In your package's `pyproject.toml`:
+
+```toml
+[project.entry-points."axiomm.readers"]
+my_format = "my_xrf_package.readers.my_format:MyFormatReader"
+```
+
+After `pip install`-ing your package alongside AXIOMM:
+
+```python
+from axiomm.io.converters import iter_readers, convert_file
+
+[r.name for r in iter_readers()]
+# -> ['xrmmap_h5', 'my_format']
+
+convert_file("scan.myx", output_path="scan.hspy", reader="my_format")
+# or
+convert_file("scan.myx", output_path="scan.hspy", reader="auto")
+```
+
+`reader="auto"` walks the registry and picks the (single) plugin
+whose `can_read(path)` returns `True`, so your plugin participates
+in auto-detection alongside the built-in readers.
+
+### Writing a writer plugin
+
+Same pattern using `axiomm.writers`:
+
+```toml
+[project.entry-points."axiomm.writers"]
+my_out = "my_xrf_package.writers.my_out:MyFormatWriter"
+```
+
+```python
+# my_xrf_package/writers/my_out.py
+from pathlib import Path
+from axiomm.io.converters.errors import OutputExistsError
+
+class MyFormatWriter:
+    name = "my_out"
+    supported_extensions = (".myout",)
+
+    def write(self, signal, output_path, *, overwrite: bool = False) -> Path:
+        path = Path(output_path)
+        if path.exists() and not overwrite:
+            raise OutputExistsError(f"{path} already exists; pass overwrite=True.")
+        # ...persist `signal` to disk in your format...
+        return path
+```
+
+### What happens if a plugin is broken?
+
+AXIOMM aims to be tolerant of third-party breakage without silencing
+real bugs:
+
+- **Malformed entry-point value** (e.g. missing `:`) — logged at
+  `WARNING` by `load_plugins`; that single plugin is skipped, the
+  rest still register.
+- **Plugin package uninstalled but entry-point metadata stale** —
+  the registration succeeds (it's a lazy string), but
+  `iter_readers()` (used by `reader="auto"`) logs a `WARNING` for
+  that plugin and continues with the others.
+- **Direct `get_reader("name")` of a broken plugin** — the
+  underlying `ImportError` / `AttributeError` propagates, so
+  explicit calls *do* fail loudly. Auto-detection is the tolerant
+  path; named lookup is the strict path.
+
+### Forcing a re-discovery
+
+If you install a plugin into the running Python session (e.g. via
+`pip install` from a notebook), call:
+
+```python
+from axiomm.io.converters import load_plugins
+load_plugins()
+```
+
+to pick up the new entry points without restarting the process.
+`load_plugins()` is idempotent — calling it repeatedly is safe.
+
 ## See also
 
 - {doc}`Known issues <known_issues>` — the user-facing traps AXIOMM

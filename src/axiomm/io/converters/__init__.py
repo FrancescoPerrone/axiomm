@@ -80,6 +80,12 @@ __all__ = [
     "iter_writers",
     "register_reader",
     "register_writer",
+    # plugin discovery via Python entry points
+    "ENTRY_POINT_READERS",
+    "ENTRY_POINT_WRITERS",
+    "find_reader_plugins",
+    "find_writer_plugins",
+    "load_plugins",
     # concrete readers + builders + writers (lazily imported — see __getattr__ below)
     "XRMMapH5Config",
     "XRMMapH5Reader",
@@ -93,11 +99,16 @@ __all__ = [
 # Re-export validate_axes and convert_file eagerly: neither pulls heavy deps
 # at module load time (h5py / hyperspy are imported inside call sites).
 from axiomm.io.converters.registry import (  # noqa: E402
+    ENTRY_POINT_READERS,
+    ENTRY_POINT_WRITERS,
     Registry,
+    find_reader_plugins,
+    find_writer_plugins,
     get_reader,
     get_writer,
     iter_readers,
     iter_writers,
+    load_plugins,
     register_reader,
     register_writer,
 )

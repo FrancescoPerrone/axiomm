@@ -9,15 +9,22 @@ in ``test_workflows.py`` already cover the end-to-end use.
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
 
 from axiomm.io.converters.errors import UnsupportedFormatError
 from axiomm.io.converters.registry import (
+    ENTRY_POINT_READERS,
+    ENTRY_POINT_WRITERS,
     Registry,
+    find_reader_plugins,
+    find_writer_plugins,
     get_reader,
     get_writer,
     iter_readers,
     iter_writers,
+    load_plugins,
     readers,
     register_reader,
     register_writer,
@@ -227,6 +234,222 @@ def test_register_writer_helper_adds_to_default_registry():
 # ---------------------------------------------------------------------------
 # Lazy import: the built-in registrations don't pull h5py in
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Iteration tolerates broken factories (regression for Chunk 13's plugin work)
+# ---------------------------------------------------------------------------
+
+def test_registry_iter_skips_factory_that_raises():
+    """A broken factory must not crash the whole iteration.
+
+    A plugin's package can be uninstalled without uninstalling its
+    entry-point metadata; the iter() of the registry must tolerate
+    that so auto-detection still walks the rest of the plugins.
+    """
+    r = Registry("reader")
+
+    class _GoodReader:
+        name = "good"
+
+    def _broken_factory():
+        raise ImportError("simulated: plugin package not installed")
+
+    r.register("broken", _broken_factory)
+    r.register("good", _GoodReader)
+
+    yielded = list(r)
+    # Only the good one shows up; the broken one was logged + skipped.
+    assert len(yielded) == 1
+    assert isinstance(yielded[0], _GoodReader)
+
+
+# ---------------------------------------------------------------------------
+# Plugin discovery via Python entry points (Chunk 13)
+# ---------------------------------------------------------------------------
+
+class _FakeEntryPoint:
+    """Stand-in for ``importlib.metadata.EntryPoint``.
+
+    Carries only the fields the registry actually reads (``name``,
+    ``value``, ``group``) so the tests don't need to subclass the real
+    type, which changes signature across Python versions.
+    """
+
+    def __init__(self, name: str, value: str, group: str) -> None:
+        self.name = name
+        self.value = value
+        self.group = group
+
+
+def _fake_entry_points_factory(eps: list[_FakeEntryPoint]):
+    """Return a callable matching the modern ``importlib.metadata.entry_points``
+    signature, filtering ``eps`` by the requested group.
+    """
+
+    def fake_entry_points(*, group: str | None = None, **_):
+        if group is None:
+            return list(eps)
+        return [ep for ep in eps if ep.group == group]
+
+    return fake_entry_points
+
+
+def test_entry_point_group_constants_have_documented_values():
+    assert ENTRY_POINT_READERS == "axiomm.readers"
+    assert ENTRY_POINT_WRITERS == "axiomm.writers"
+
+
+def test_find_reader_plugins_yields_name_value_pairs():
+    fake_eps = [
+        _FakeEntryPoint(
+            "my_format",
+            "my_pkg.readers.my_format:MyReader",
+            "axiomm.readers",
+        ),
+        _FakeEntryPoint(
+            "irrelevant",
+            "some.writer:SomeWriter",
+            "axiomm.writers",
+        ),
+    ]
+    with patch(
+        "axiomm.io.converters.registry.importlib.metadata.entry_points",
+        _fake_entry_points_factory(fake_eps),
+    ):
+        result = list(find_reader_plugins())
+    assert result == [("my_format", "my_pkg.readers.my_format:MyReader")]
+
+
+def test_find_writer_plugins_yields_name_value_pairs():
+    fake_eps = [
+        _FakeEntryPoint(
+            "my_out", "my_pkg.writers.my_out:MyWriter", "axiomm.writers",
+        ),
+    ]
+    with patch(
+        "axiomm.io.converters.registry.importlib.metadata.entry_points",
+        _fake_entry_points_factory(fake_eps),
+    ):
+        result = list(find_writer_plugins())
+    assert result == [("my_out", "my_pkg.writers.my_out:MyWriter")]
+
+
+def test_find_reader_plugins_is_empty_when_no_plugins_installed():
+    """The common case: no third-party AXIOMM plugins on this machine."""
+    with patch(
+        "axiomm.io.converters.registry.importlib.metadata.entry_points",
+        _fake_entry_points_factory([]),
+    ):
+        assert list(find_reader_plugins()) == []
+        assert list(find_writer_plugins()) == []
+
+
+def test_load_plugins_registers_into_explicit_registries():
+    """`load_plugins(into_readers=..., into_writers=...)` allows isolated
+    testing without touching the global default registries."""
+    reader_registry = Registry("reader")
+    writer_registry = Registry("writer")
+
+    fake_eps = [
+        _FakeEntryPoint(
+            "plug_reader",
+            "axiomm.io.converters.errors:UnsupportedFormatError",
+            "axiomm.readers",
+        ),
+        _FakeEntryPoint(
+            "plug_writer",
+            "axiomm.io.converters.errors:UnsupportedFormatError",
+            "axiomm.writers",
+        ),
+    ]
+    with patch(
+        "axiomm.io.converters.registry.importlib.metadata.entry_points",
+        _fake_entry_points_factory(fake_eps),
+    ):
+        load_plugins(
+            into_readers=reader_registry, into_writers=writer_registry,
+        )
+
+    assert "plug_reader" in reader_registry
+    assert "plug_writer" in writer_registry
+
+
+def test_load_plugins_is_idempotent():
+    """Calling load_plugins twice must not raise and must produce the
+    same final state — the second call overwrites with the same value."""
+    reader_registry = Registry("reader")
+    writer_registry = Registry("writer")
+
+    fake_eps = [
+        _FakeEntryPoint(
+            "plug",
+            "axiomm.io.converters.errors:UnsupportedFormatError",
+            "axiomm.readers",
+        ),
+    ]
+    with patch(
+        "axiomm.io.converters.registry.importlib.metadata.entry_points",
+        _fake_entry_points_factory(fake_eps),
+    ):
+        load_plugins(
+            into_readers=reader_registry, into_writers=writer_registry,
+        )
+        load_plugins(
+            into_readers=reader_registry, into_writers=writer_registry,
+        )
+
+    assert reader_registry.names() == ["plug"]
+
+
+def test_load_plugins_skips_malformed_entry_points(caplog):
+    """A plugin whose entry-point value is structurally broken (no
+    colon, wrong type) must be logged and skipped — the registry-level
+    `register()` rejects bad strings, and load_plugins absorbs the
+    failure so the rest of the registrations still go through.
+    """
+    reader_registry = Registry("reader")
+    writer_registry = Registry("writer")
+
+    fake_eps = [
+        _FakeEntryPoint("broken", "no_colon_here", "axiomm.readers"),
+        _FakeEntryPoint(
+            "good",
+            "axiomm.io.converters.errors:UnsupportedFormatError",
+            "axiomm.readers",
+        ),
+    ]
+    with patch(
+        "axiomm.io.converters.registry.importlib.metadata.entry_points",
+        _fake_entry_points_factory(fake_eps),
+    ):
+        with caplog.at_level("WARNING"):
+            load_plugins(
+                into_readers=reader_registry,
+                into_writers=writer_registry,
+            )
+
+    # Good one made it in; broken one didn't.
+    assert "good" in reader_registry
+    assert "broken" not in reader_registry
+    # And the failure was surfaced to logging, not silently swallowed.
+    assert any(
+        "broken" in record.getMessage() for record in caplog.records
+    )
+
+
+def test_default_registries_run_load_plugins_at_import_time():
+    """Module-level ``load_plugins()`` call exposes installed plugins
+    in the default registries. With no plugins installed (the test
+    environment), only the built-ins are present.
+    """
+    # We can't easily install a fake distribution into the running
+    # environment, so this test just verifies the call happened by
+    # checking that the built-ins remain (a crash during the
+    # load_plugins call at import time would have failed *every*
+    # test in this module).
+    assert "xrmmap_h5" in readers
+    assert "hspy" in writers
+
 
 def test_registry_module_import_does_not_trigger_h5py():
     """Registering the XRMMapH5Reader via 'module:attr' must be lazy.

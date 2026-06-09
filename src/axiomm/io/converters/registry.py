@@ -27,14 +27,28 @@ imports.
 from __future__ import annotations
 
 import importlib
+import importlib.metadata
+import logging
 from collections.abc import Iterator
 from typing import Any, Callable, Union
 
 from axiomm.io.converters.errors import UnsupportedFormatError
 
+
+logger = logging.getLogger(__name__)
+
+
 #: A factory either is a callable returning an instance, or a
 #: ``"module:attr"`` string resolved lazily to such a callable.
 Factory = Union[Callable[[], Any], str]
+
+
+#: Entry-point group names third-party packages declare in their
+#: ``pyproject.toml`` to register AXIOMM plugins. See
+#: ``docs/user/converter.md`` -> "Extending AXIOMM with custom
+#: readers and writers" for the full plugin-authoring guide.
+ENTRY_POINT_READERS: str = "axiomm.readers"
+ENTRY_POINT_WRITERS: str = "axiomm.writers"
 
 
 class Registry:
@@ -100,9 +114,24 @@ class Registry:
         Order is the registration order; for deterministic iteration
         either pin registration order at module level or sort
         :meth:`names` and dispatch through :meth:`get`.
+
+        A factory that fails to instantiate (e.g. an entry-point
+        plugin whose package was uninstalled, or whose module raises
+        ``ImportError``) is logged at WARNING and skipped. Auto-
+        detection callers (workflow ``reader="auto"`` dispatch)
+        therefore tolerate a broken plugin instead of crashing the
+        whole conversion. Direct ``get(name)`` lookups still surface
+        the underlying error so explicit calls are not silenced.
         """
-        for factory in self._factories.values():
-            yield factory()
+        for name, factory in self._factories.items():
+            try:
+                yield factory()
+            except Exception as exc:  # noqa: BLE001 — plugin-loading boundary
+                logger.warning(
+                    "axiomm: %s plugin %r failed to instantiate: %s",
+                    self._kind, name, exc,
+                )
+                continue
 
     def __len__(self) -> int:
         return len(self._factories)
@@ -148,6 +177,82 @@ def _from_import_string(spec: str) -> Callable[[], Any]:
 
 
 # ---------------------------------------------------------------------------
+# Plugin discovery via Python entry points (Chunk 13, spec §12)
+# ---------------------------------------------------------------------------
+
+def _discover_entry_points(group: str) -> Iterator[tuple[str, str]]:
+    """Yield ``(name, "module:attr")`` for each entry point in ``group``.
+
+    Single private wrapper over :func:`importlib.metadata.entry_points` so
+    the rest of the module never has to touch the ``EntryPoint`` type
+    directly. Returns an empty iterator when no plugins are installed.
+    """
+    for ep in importlib.metadata.entry_points(group=group):
+        yield ep.name, ep.value
+
+
+def find_reader_plugins() -> Iterator[tuple[str, str]]:
+    """Yield ``(name, spec_string)`` for every installed reader plugin.
+
+    A reader plugin is declared by a third-party package via
+    ``[project.entry-points."axiomm.readers"]`` in its ``pyproject.toml``.
+    No package is required to register a plugin; this generator is
+    empty if none are installed.
+    """
+    return _discover_entry_points(ENTRY_POINT_READERS)
+
+
+def find_writer_plugins() -> Iterator[tuple[str, str]]:
+    """Yield ``(name, spec_string)`` for every installed writer plugin.
+
+    The writer counterpart of :func:`find_reader_plugins`, using the
+    ``axiomm.writers`` entry-point group.
+    """
+    return _discover_entry_points(ENTRY_POINT_WRITERS)
+
+
+def load_plugins(
+    *,
+    into_readers: "Registry | None" = None,
+    into_writers: "Registry | None" = None,
+) -> None:
+    """Discover all installed AXIOMM plugins and register them.
+
+    Idempotent: re-running this function silently overwrites existing
+    entries with the same name. Called automatically at module import
+    time against the default :data:`readers` and :data:`writers`
+    registries; user code can call it again explicitly after
+    dynamically installing a plugin in the running process.
+
+    A plugin whose entry-point ``value`` cannot even be *registered*
+    (e.g. the string is malformed) is logged at WARNING and skipped —
+    the rest of the registrations still go through. A plugin whose
+    spec registers but fails to *instantiate* later is also tolerated;
+    see :meth:`Registry.__iter__`.
+    """
+    target_readers = readers if into_readers is None else into_readers
+    target_writers = writers if into_writers is None else into_writers
+
+    for name, spec in find_reader_plugins():
+        try:
+            target_readers.register(name, spec)
+        except Exception as exc:  # noqa: BLE001 — plugin-loading boundary
+            logger.warning(
+                "axiomm: skipping reader plugin %r=%r: %s",
+                name, spec, exc,
+            )
+
+    for name, spec in find_writer_plugins():
+        try:
+            target_writers.register(name, spec)
+        except Exception as exc:  # noqa: BLE001 — plugin-loading boundary
+            logger.warning(
+                "axiomm: skipping writer plugin %r=%r: %s",
+                name, spec, exc,
+            )
+
+
+# ---------------------------------------------------------------------------
 # Module-level default registries + pre-registered built-ins
 # ---------------------------------------------------------------------------
 
@@ -169,6 +274,14 @@ writers.register(
     "hspy",
     "axiomm.io.converters.writers.hspy:HSpyWriter",
 )
+
+
+# Discover third-party plugins declared via entry points. Runs once at
+# module import time so any package installed before AXIOMM is imported
+# is reflected in the default registries. Built-ins above are registered
+# *first*; a plugin can intentionally override a built-in by reusing the
+# same name. See docs/user/converter.md for the plugin-authoring guide.
+load_plugins()
 
 
 # ---------------------------------------------------------------------------
@@ -206,12 +319,17 @@ def iter_writers() -> Iterator[Any]:
 
 
 __all__ = [
+    "ENTRY_POINT_READERS",
+    "ENTRY_POINT_WRITERS",
     "Factory",
     "Registry",
+    "find_reader_plugins",
+    "find_writer_plugins",
     "get_reader",
     "get_writer",
     "iter_readers",
     "iter_writers",
+    "load_plugins",
     "readers",
     "register_reader",
     "register_writer",
