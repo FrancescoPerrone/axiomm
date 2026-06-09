@@ -165,22 +165,35 @@ that must be resolved before public release.
   - What needs confirming
 * - `energy_scale` (keV per MCA channel)
   - `40.96 / 4096`
-  - The detector / MCA gain. Confirm against your instrument's
-    energy calibration, or — better — extract it from the source
-    file's metadata when available.
+  - The detector / MCA gain. The default encodes the assumption
+    that the full MCA range spans $40.96\ \mathrm{keV}$ over
+    $4096$ channels, giving a per-channel energy width of
+    $E_\text{scale} = \dfrac{40.96\ \mathrm{keV}}{4096\ \mathrm{channels}} \approx 0.01\ \mathrm{keV/channel}$.
+    The channel-$i$ energy is then $E_i = E_\text{scale} \cdot i$
+    (offset = 0). Confirm against your instrument's energy
+    calibration, or — better — extract it from the source file's
+    metadata when available.
 * - `roi_limit_scale`
   - `0.01`
-  - The scaling applied to the integer ROI limits in
-    `/xrmmap/config/rois/limits`. Default assumes centi-keV
-    (divide by 100 for keV). Confirm this matches the units your
-    XRM software writes.
+  - The scaling applied to the integer ROI limits stored at
+    `/xrmmap/config/rois/limits`. With the default the conversion
+    is $E_\text{ROI} = 0.01 \cdot n_\text{ROI,int}$, i.e. the
+    integers are interpreted as centi-keV (so $640 \to 6.40\ \mathrm{keV}$).
+    Confirm this matches the units your XRM software writes; in
+    particular, this is independent of `energy_scale` only if the
+    file does not store ROI limits as MCA channel indices.
 * - `fallback_field_width_um` (µm)
   - `500.0`
-  - The assumed map width when no beam size is available. Used as
-    `fallback_field_width_um / xdim` for the navigation scale.
-    This is a pure fallback; if your instrument writes a beam size
-    into the environ table you should rely on that (the converter
-    already does) and this fallback never applies.
+  - The assumed total map width in µm when no beam size is in the
+    environ table. The navigation pixel scale is then
+    $s_\text{nav,fallback} = \dfrac{w_\text{fallback}}{x_\text{dim}}$
+    where $w_\text{fallback}$ = `fallback_field_width_um` and
+    $x_\text{dim}$ is the size of the first navigation axis. This
+    is a pure fallback; if your instrument writes a beam size into
+    the environ table the converter uses
+    $s_\text{nav} = b_\text{nominal}$ instead, where
+    $b_\text{nominal}$ is the parsed
+    `Experiment.Beam_Size__Nominal` value.
 ```
 
 Each of these is a field on `XRMMapH5Config`, so a user with the
