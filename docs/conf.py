@@ -70,20 +70,28 @@ exclude_patterns = [
 
 html_theme = "furo"
 html_title = f"AXIOMM {release}"
-html_static_path: list[str] = []  # empty for now; add _static when needed
 
-# Use the dark axiomm_wave icon as the favicon for published docs (shown
-# in browser tabs and on the Sphinx-generated HTML pages). GitHub itself
-# does not let us set a per-repo icon via tracked files — that's the
-# social-preview image and has to be uploaded via Settings → General.
-html_favicon = "../identy/AXIOMM_Design/axiomm_wave_icon_dark.svg"
+# Register the design-identity folder as a static path so Sphinx copies
+# the axiomm_wave assets into `_static/` at build time. Furo resolves
+# `light_logo` / `dark_logo` *relative to `_static/`*, so without this
+# step the generated HTML produces broken `_static/../identy/...` URLs
+# that 404 on the deployed site.
+html_static_path = ["../identy/AXIOMM_Design"]
+
+# Favicon: tab-bar icon for the published docs. Sphinx copies whatever
+# you point at into `_static/`, so this works with the bare filename
+# now that the identity folder is registered above.
+html_favicon = "axiomm_wave_icon_dark.svg"
 
 html_theme_options = {
     "source_repository": "https://github.com/FrancescoPerrone/axiomm/",
     "source_branch": "main",
     "source_directory": "docs/",
-    "light_logo": "../identy/AXIOMM_Design/axiomm_wave_icon.svg",
-    "dark_logo": "../identy/AXIOMM_Design/axiomm_wave_icon_dark.svg",
+    # Furo: paths are resolved relative to `_static/`. Both variants
+    # are in the identity folder we registered above, so the bare
+    # filename is enough.
+    "light_logo": "axiomm_wave_icon.svg",
+    "dark_logo": "axiomm_wave_icon_dark.svg",
 }
 
 

@@ -402,6 +402,35 @@ produces a `Signal1D` whose axes label correctly: `idx=0 → 'x' size=23`,
 > see the Chunk-10 entry in *Current state* and the migration guide
 > in [`docs/user/known_issues.md`](../user/known_issues.md).
 
+## Published docs — outstanding issues
+
+First successful GitHub Pages deploy uncovered three issues. One
+fixed now, two recorded for later:
+
+* ✅ **Dark / light logo not loading.** Furo resolves `light_logo`
+  and `dark_logo` *relative to* `_static/`, so paths like
+  `"../identy/AXIOMM_Design/axiomm_wave_icon.svg"` produced
+  broken `_static/../identy/...` URLs on the deployed site. Fixed
+  by adding `html_static_path = ["../identy/AXIOMM_Design"]` in
+  `docs/conf.py` and reducing the logo / favicon entries to bare
+  filenames. Sphinx now copies the identity assets into
+  `_build/html/_static/` at build time, and Furo's URL rewriting
+  resolves cleanly. (Local builds also copy any other files
+  currently in the identity folder, but `.gitignore` keeps the
+  drafts out of the CI checkout, so the deployed site stays clean.)
+* ⬜ **Table of contents under Furo.** Adding a `{toctree}` to a
+  page surfaces an error / mis-render under the current style.
+  Not investigated this turn — needs a specific reproduction
+  (which page, which directive, exact error) before a fix. Pick
+  up after Phase 3 land or whenever it becomes blocking.
+* ⬜ **Dark-mode is the default; user reports it should be light.**
+  Furo ships a built-in dark/light toggle in the top-right; the
+  initial mode follows `prefers-color-scheme` from the browser /
+  OS, so this might just be system-level rather than a Furo
+  default. Re-check on a system with a light-mode browser before
+  changing anything; if a default-light pin is needed, Furo
+  supports `default_mode` in `html_theme_options`.
+
 ## Documentation publishing
 
 The `docs/` Sphinx project is configured to publish via two
