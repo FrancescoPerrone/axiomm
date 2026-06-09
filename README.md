@@ -17,6 +17,14 @@ work.
 > user-facing APIs — will be added by the author as the package
 > matures.
 
+> 📌 **About this README.** AXIOMM as a whole will eventually
+> include analyses and workflows beyond the converter, but the
+> **converter** (`axiomm.io.converters`) is the one tool currently
+> being implemented and the only end-user-visible surface this
+> README documents. The README is therefore intentionally
+> converter-focused and **temporary**; it will broaden as the
+> rest of the package takes shape.
+
 ## Scientific scope
 
 AXIOMM converts and structures X-ray spectroscopy maps. A typical
@@ -95,23 +103,61 @@ Per the AXIOMM convention each tool lives under its own subpackage:
 |-----------|---------------------------|--------------------------------------------------|
 | Converter | `axiomm.io.converters`    | Phases 0–2 complete; reader registry (Phase 3.1) in place. CLI / notebook helpers still blocked on a UX-layout decision. |
 
-## Installation (development)
+## Installation
 
-AXIOMM requires Python **3.10+**.
+AXIOMM requires **Python 3.10+**.
+
+### 1. Clone the repository
 
 ```bash
-python -m pip install -e ".[dev]"
+git clone https://github.com/FrancescoPerrone/axiomm.git
+cd axiomm
 ```
 
-For the HDF5 reader and the HyperSpy backend:
+### 2. (Recommended) create and activate a virtual environment
+
+```bash
+python -m venv .venv
+source .venv/bin/activate          # macOS / Linux
+# .venv\Scripts\Activate.ps1       # Windows PowerShell
+```
+
+### 3. Install AXIOMM with the runtime extras for the converter
+
+For just using the converter:
+
+```bash
+python -m pip install -e ".[hdf5,hyperspy]"
+```
+
+For development (tests + lints) on top of the converter runtime:
 
 ```bash
 python -m pip install -e ".[dev,hdf5,hyperspy]"
-# or
-python -m pip install -e ".[dev,all]"
 ```
 
-## Running the tests
+For everything — dev tools, docs builder, every backend:
+
+```bash
+python -m pip install -e ".[dev,all,docs]"
+```
+
+| Extra        | What it adds                                                       |
+|--------------|--------------------------------------------------------------------|
+| `[hdf5]`     | `h5py` — required by `XRMMapH5Reader`                              |
+| `[hyperspy]` | `hyperspy` — the signal-builder backend that produces `Signal1D`   |
+| `[all]`      | Shorthand for `[hdf5,hyperspy]`                                    |
+| `[dev]`      | `pytest`, `pytest-cov`, `ruff` — for running tests and lints       |
+| `[docs]`     | Sphinx + furo + sphinx-autoapi + myst-parser — for building the docs |
+| `[notebook]` | `ipywidgets`, `jupyter` — for the (planned) notebook helpers       |
+
+### 4. Verify the install
+
+```bash
+python -c "from axiomm.io.converters import convert_file; print('AXIOMM converter ready')"
+```
+
+If you intend to develop or run the test suite:
 
 ```bash
 pytest
