@@ -14,10 +14,8 @@ the real registry later.
 
 from __future__ import annotations
 
-import importlib
 import logging
 from pathlib import Path
-from typing import Any
 
 from axiomm.io.converters.errors import (
     OutputExistsError,
@@ -29,30 +27,12 @@ from axiomm.io.converters.models import (
     Diagnostic,
 )
 from axiomm.io.converters.readers.base import Reader
+from axiomm.io.converters.registry import readers as _readers_registry
+from axiomm.io.converters.registry import writers as _writers_registry
 from axiomm.io.converters.writers.base import Writer
 
 
 logger = logging.getLogger(__name__)
-
-
-# Name → "module:ClassName" pointer. Resolved lazily so the workflow
-# module stays importable without h5py / hyperspy installed.
-_BUILTIN_READERS: dict[str, str] = {
-    "xrmmap_h5": "axiomm.io.converters.readers.xrmmap_h5:XRMMapH5Reader",
-}
-
-_BUILTIN_WRITERS: dict[str, str] = {
-    "hspy": "axiomm.io.converters.writers.hspy:HSpyWriter",
-}
-
-
-def _import_string(spec: str) -> Any:
-    module_name, attr = spec.split(":", 1)
-    return getattr(importlib.import_module(module_name), attr)
-
-
-def _instantiate_reader(name: str) -> Reader:
-    return _import_string(_BUILTIN_READERS[name])()
 
 
 def _resolve_reader(reader: str | Reader, path: Path) -> Reader:
@@ -60,19 +40,13 @@ def _resolve_reader(reader: str | Reader, path: Path) -> Reader:
         return reader
     if reader == "auto":
         return _auto_resolve_reader(path)
-    if reader in _BUILTIN_READERS:
-        return _instantiate_reader(reader)
-    raise UnsupportedFormatError(
-        f"Unknown reader name {reader!r}. Known readers: "
-        f"{sorted(_BUILTIN_READERS)} (plus 'auto')."
-    )
+    return _readers_registry.get(reader)
 
 
 def _auto_resolve_reader(path: Path) -> Reader:
-    """Iterate registered readers and pick the (single) one that accepts ``path``."""
+    """Iterate the reader registry and pick the (single) one that accepts ``path``."""
     candidates: list[Reader] = []
-    for name in _BUILTIN_READERS:
-        instance = _instantiate_reader(name)
+    for instance in _readers_registry:
         try:
             accepts = instance.can_read(path)
         except Exception:  # noqa: BLE001 - workflow boundary: see spec §13
@@ -84,7 +58,7 @@ def _auto_resolve_reader(path: Path) -> Reader:
         raise ReaderDetectionError(
             f"No registered reader can read {path}. "
             f"Pass reader=<name> explicitly. Known readers: "
-            f"{sorted(_BUILTIN_READERS)}."
+            f"{_readers_registry.names()}."
         )
     if len(candidates) > 1:
         names = [c.name for c in candidates]
@@ -98,12 +72,7 @@ def _auto_resolve_reader(path: Path) -> Reader:
 def _resolve_writer(writer: str | Writer) -> Writer:
     if not isinstance(writer, str):
         return writer
-    if writer in _BUILTIN_WRITERS:
-        return _import_string(_BUILTIN_WRITERS[writer])()
-    raise UnsupportedFormatError(
-        f"Unknown writer name {writer!r}. Known writers: "
-        f"{sorted(_BUILTIN_WRITERS)}."
-    )
+    return _writers_registry.get(writer)
 
 
 def _resolve_output_path(

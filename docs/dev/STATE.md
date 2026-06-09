@@ -72,13 +72,16 @@ flagged as open assumptions (`energy_scale`, `roi_limit_scale`,
 `fallback_field_width_um`) — see the user guide for what needs domain
 confirmation before public release.
 
-### Phase 3 — extensibility
+### Phase 3 — extensibility (spec §23)
 
-Tracked in spec §23. Reader/writer registry with plugin discovery,
-generic HDF5 schema-driven reader, additional output formats. Pick up
-after Phase 2.
+| #  | Chunk                                                              | Status     |
+|----|--------------------------------------------------------------------|------------|
+| 12 | Reader/writer registry (no plugin discovery yet)                   | ✅ done    |
+| 13 | Plugin discovery via Python entry points                           | ⬜ next    |
+| 14 | Generic HDF5 schema-driven reader prototype                        | ⬜ pending |
+| 15 | Additional output writers (only when scientifically justified)     | ⬜ pending |
 
-## Current state (as of Chunk 11 — Phase 2 complete)
+## Current state (as of Chunk 12 — Phase 3.1: registry)
 
 What exists in this repository:
 
@@ -465,8 +468,8 @@ python -m pip install -e ".[dev,all]"
 pytest -q
 ```
 
-Expected result: **217 tests pass**, 0 fail. With only h5py installed
-(no hyperspy): 142 pass, 5 skipped (the hspy_writer, hyperspy_builder,
+Expected result: **241 tests pass**, 0 fail. With only h5py installed
+(no hyperspy): 166 pass, 5 skipped (the hspy_writer, hyperspy_builder,
 workflows, and realistic-fixture regression modules skip as one unit
 each; the lazy-export `test_lazy_concrete_builder_exports` skips
 individually).

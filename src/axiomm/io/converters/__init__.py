@@ -72,6 +72,14 @@ __all__ = [
     "validate_axes",
     # workflow orchestrator (eagerly importable: no heavy deps at module load)
     "convert_file",
+    # registry (eagerly importable: no heavy deps at module load)
+    "Registry",
+    "get_reader",
+    "get_writer",
+    "iter_readers",
+    "iter_writers",
+    "register_reader",
+    "register_writer",
     # concrete readers + builders + writers (lazily imported — see __getattr__ below)
     "XRMMapH5Config",
     "XRMMapH5Reader",
@@ -84,6 +92,15 @@ __all__ = [
 
 # Re-export validate_axes and convert_file eagerly: neither pulls heavy deps
 # at module load time (h5py / hyperspy are imported inside call sites).
+from axiomm.io.converters.registry import (  # noqa: E402
+    Registry,
+    get_reader,
+    get_writer,
+    iter_readers,
+    iter_writers,
+    register_reader,
+    register_writer,
+)
 from axiomm.io.converters.signals.validation import validate_axes  # noqa: E402
 from axiomm.io.converters.workflows import convert_file  # noqa: E402
 
