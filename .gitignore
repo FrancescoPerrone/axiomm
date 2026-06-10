@@ -80,6 +80,7 @@ docs/autoapi/
 
 # Local task / handoff notes that don't belong in version control
 CLAUDE.md
+HANDOFF.md
 checks*.txt
 
 # Design identity working folder: only the axiomm_wave assets and the
