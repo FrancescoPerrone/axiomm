@@ -202,6 +202,7 @@ class HyperSpyBuilder:
             provenance=payload.provenance,
             classification=classification,
             diagnostics=payload.diagnostics,
+            resolved_calibration=payload.resolved_calibration,
         )
 
         general: dict[str, Any] = {}

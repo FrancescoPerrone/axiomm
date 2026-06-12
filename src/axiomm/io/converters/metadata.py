@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from axiomm.io.converters.calibration import ResolvedValue
 from axiomm.io.converters.models import (
     AxisSpec,
     Diagnostic,
@@ -110,6 +111,45 @@ def diagnostics_to_dicts(diagnostics) -> list[dict[str, Any]]:
     ]
 
 
+def nest_calibration_section(
+    resolved: Mapping[str, ResolvedValue] | None,
+) -> dict[str, dict[str, Any]] | None:
+    """Return the ``"calibration"`` subsection, or ``None`` to omit it.
+
+    Serialises a mapping of calibration-name → :class:`ResolvedValue`
+    into JSON-friendly nested dicts of the form::
+
+        {
+          "energy_scale": {"value": 0.01, "source": "legacy_preset",
+                           "note": "APS 13-ID-E v1"},
+          ...
+        }
+
+    Returns ``None`` when ``resolved`` is ``None`` or empty, so the
+    AXIOMM namespace can omit the ``"calibration"`` subkey entirely.
+    This keeps payloads from readers that pre-date Chunk 16
+    (no per-value provenance) producing the same namespace shape they
+    did before — manifest snapshots and round-trip tests stay valid.
+
+    The ``CalibrationSource`` enum is a ``str`` subclass so it
+    serialises directly to its token (``"source_metadata"`` etc.)
+    via the writer's ``json.dump(..., default=str)``; we still
+    coerce explicitly here so the in-memory dict that lives at
+    ``signal.metadata.AXIOMM.calibration`` is plain dict/str/scalar
+    even before any JSON round-trip.
+    """
+    if not resolved:
+        return None
+    return {
+        name: {
+            "value": rv.value,
+            "source": str(rv.source.value),
+            "note": rv.note,
+        }
+        for name, rv in resolved.items()
+    }
+
+
 def nest_classification(
     classification: Mapping[str, list[str]] | None,
 ) -> dict[str, list[str]]:
@@ -142,6 +182,7 @@ def build_axiomm_namespace(
     provenance: SourceProvenance | None,
     classification: Mapping[str, list[str]] | None,
     diagnostics,
+    resolved_calibration: Mapping[str, ResolvedValue] | None = None,
 ) -> dict[str, Any]:
     """Build the full nested AXIOMM metadata namespace (spec §15 layout).
 
@@ -153,12 +194,19 @@ def build_axiomm_namespace(
           "source":    {path, reader, reader_version, input_hash} | None,
           "provenance_classification": {observed, inferred, assumed},
           "diagnostics": [diagnostic_dict, ...],
+          "calibration": {name: {value, source, note}, ...} | omitted,
         }
 
     The orchestrator is pure composition; every leaf comes from a
     dedicated transformer above. Callers (the HyperSpy builder and the
     manifest writer) get the same canonical layout from a single
     function call.
+
+    The ``"calibration"`` subkey is **additive**: when
+    ``resolved_calibration`` is ``None`` or empty (e.g. for readers
+    that pre-date Chunk 16's resolution ladder) the subkey is omitted
+    entirely, so the namespace shape is byte-identical to the
+    pre-Phase-4 layout.
     """
     namespace: dict[str, Any] = {
         "converter": nest_converter_section(
@@ -173,6 +221,9 @@ def build_axiomm_namespace(
     source = nest_source_section(provenance)
     if source is not None:
         namespace["source"] = source
+    calibration = nest_calibration_section(resolved_calibration)
+    if calibration is not None:
+        namespace["calibration"] = calibration
     return namespace
 
 
@@ -180,6 +231,7 @@ __all__ = [
     "build_axiomm_namespace",
     "diagnostics_to_dicts",
     "nest_axes_section",
+    "nest_calibration_section",
     "nest_classification",
     "nest_converter_section",
     "nest_source_section",

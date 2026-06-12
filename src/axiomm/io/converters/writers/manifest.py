@@ -112,6 +112,7 @@ def build_manifest_dict(
         provenance=payload.provenance,
         classification=classification,
         diagnostics=all_diagnostics,
+        resolved_calibration=payload.resolved_calibration,
     )
 
     return {

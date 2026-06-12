@@ -19,6 +19,11 @@ Tk dialogs) live separately and wrap the core; they are never imported here.
 from __future__ import annotations
 
 from axiomm.io.converters import errors, models
+from axiomm.io.converters.calibration import (
+    CalibrationSource,
+    ConversionMode,
+    ResolvedValue,
+)
 from axiomm.io.converters.discovery import discover_inputs
 from axiomm.io.converters.errors import (
     AxiommConverterError,
@@ -46,6 +51,10 @@ __all__ = [
     # subpackages re-exported for discoverability
     "errors",
     "models",
+    # calibration provenance primitives (Phase 4, Chunk 15)
+    "CalibrationSource",
+    "ConversionMode",
+    "ResolvedValue",
     # exception hierarchy
     "AxiommConverterError",
     "ConversionWorkflowError",

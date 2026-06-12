@@ -213,6 +213,66 @@ convert_file("input.h5", output_path="out.hspy", reader=reader)
 The manifest sidecar records the `config_used`, so any conversion
 done with non-default values is auditable after the fact.
 
+## Calibration provenance primitives (Chunk 15)
+
+Phase 4 of the converter introduces **per-value calibration
+provenance**. Chunk 15 lays the *types and plumbing* for it; the
+ladder behaviour itself lands in Chunk 16 and the user-facing
+precedence rewrite in Chunk 19. **No reader behaviour has changed
+yet** — the three constants on the previous section are still
+applied exactly as they were before.
+
+What's new are three importable types in
+`axiomm.io.converters.calibration` (re-exported at the package
+top-level):
+
+* `CalibrationSource` — where a single calibration value came from.
+  Five members: `source_metadata`, `user_config`, `legacy_preset`,
+  `inferred`, `unknown`. Stored as a `str` subclass so the value
+  serialises to its bare token in manifest JSON.
+* `ConversionMode` — policy switch on the ladder. Four members:
+  `legacy` (current default, allows preset fallback), `generic`
+  (safe public default, no silent preset fallback), `strict` (no
+  inference allowed), `diagnostic` (dry-run report). The `legacy`
+  default stays in force through Chunk 17 and flips to `generic`
+  in Chunk 18 — that single flip is the only breaking change
+  planned for Phase 4.
+* `ResolvedValue(value, source, note=None)` — frozen dataclass
+  pairing a value with its provenance.
+
+Readers can attach a per-value provenance dict to the neutral
+payload:
+
+```python
+from axiomm.io.converters import (
+    AxiommSignalPayload, AxisSpec,
+    CalibrationSource, ResolvedValue,
+)
+
+payload = AxiommSignalPayload(
+    data=...,
+    axes=(AxisSpec("Energy", "signal", 4096, units="keV",
+                   scale=0.01, index_in_array=2),),
+    signal_kind="signal1d",
+    resolved_calibration={
+        "energy_scale": ResolvedValue(
+            value=0.01,
+            source=CalibrationSource.LEGACY_PRESET,
+            note="APS 13-ID-E preset v1",
+        ),
+    },
+)
+```
+
+When `resolved_calibration` is populated, the AXIOMM metadata
+namespace and the manifest sidecar gain a new `calibration`
+subkey alongside the existing `converter` / `axes` / `source` /
+`provenance_classification` / `diagnostics` sections. The subkey
+is **additive**: when `resolved_calibration` is `None` or empty,
+the namespace byte-shape is identical to the pre-Chunk-15
+layout — existing snapshots and round-trip tests continue to
+pass unchanged.
+
 ## AXIOMM metadata layout
 
 Both `signal.metadata.AXIOMM` (in-memory after build) and the
@@ -236,9 +296,15 @@ AXIOMM
 │   ├── observed          [ ... ]
 │   ├── inferred          [ ... ]
 │   └── assumed           [ ... ]
-└── diagnostics
-    └── [ {severity, code, message, context}, ... ]
+├── diagnostics
+│   └── [ {severity, code, message, context}, ... ]
+└── calibration                                       (optional, Chunk 15+)
+    └── { <name>: {value, source, note}, ... }
 ```
+
+The `calibration` subkey only appears when the reader populated
+`payload.resolved_calibration`. Readers that pre-date Chunk 16
+leave it absent, so existing snapshots stay byte-identical.
 
 Every section is built by a composable transformer in
 `axiomm.io.converters.metadata`; the same transformers are used by

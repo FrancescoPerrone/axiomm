@@ -79,7 +79,92 @@ confirmation before public release.
 | 12 | Reader/writer registry (no plugin discovery yet)                   | ✅ done    |
 | 13 | Plugin discovery via Python entry points                           | ✅ done    |
 | 14 | Generic HDF5 schema-driven reader prototype                        | ✅ done    |
-| 15 | Additional output writers (only when scientifically justified)     | ⬜ pending |
+
+**Phase 3 complete.** "Additional output writers" — parked in the
+*Backlog* section below until a concrete scientific need surfaces.
+
+### Phase 4 — calibration provenance & resolution
+
+Driven by the geology team's reply (2026-06-12) on the three legacy
+scientific constants. They **did not confirm values**; they returned a
+*policy*: treat all three as legacy beamline/sample-specific assumptions,
+never apply silently as universal defaults, and build a
+metadata-resolution layer with named modes (`legacy` / `generic` /
+`strict` / `diagnostic`). Notes recorded at
+`scientific_constant_domain_confirmation_notes.txt` at the repo root
+(gitignored).
+
+The five decisions locked in 2026-06-12 with Francesco:
+
+1. Default mode stays `legacy` through Chunk 17; **flips to `generic`
+   in Chunk 18** (single migration entry in Known-Issues).
+2. Presets are code constants in `presets.py`. **The primary UX
+   investment is making user-supplied calibration first-class** via
+   `convert_file(..., calibration=...)`; the preset is the backstop
+   for the known legacy dataset.
+3. Split `XRMMapH5Config` → `XRMMapH5Calibration` + `XRMMapH5Schema`,
+   mirroring Chunk 14's `HDF5MapConfig` / `HDF5MapSchema` split.
+4. The same resolution layer applies to `HDF5MapConfig`.
+5. No further deferral — implement + document in this phase.
+
+| #  | Chunk                                                                  | Status     |
+|----|------------------------------------------------------------------------|------------|
+| 15 | Calibration provenance primitives (`CalibrationSource`, `ConversionMode`, `ResolvedValue`); extend `AxiommSignalPayload`; propagate through metadata + manifest | ✅ done    |
+| 16 | Resolution ladder + mode plumbing in `XRMMapH5Reader` and `GenericHDF5MapReader`; new diagnostic codes | ⬜ pending |
+| 17 | Legacy preset extraction (`presets.py`, `XRMMAP_LEGACY_APS_13_ID_E_PRESET_V1`); split `XRMMapH5Config` into calibration + schema | ⬜ pending |
+| 18 | Explicit-units ROI (`roi_limit_units`) + explicit-geometry spatial (`field_width_um`, `pixel_size_um`); rename `fallback_field_width_um` → `legacy_field_width_um`; **flip default mode to `generic`** | ⬜ pending |
+| 19 | Documentation + status closure: rewrite "Scientific assumptions" section → "Calibration resolution: precedence, modes, presets"; wiki Known-Issues entry; wiki Home status row ✅ | ⬜ pending |
+
+### Chunk 15 — acceptance criteria
+
+**Goal.** Introduce the *types* and *plumbing* for per-value
+calibration provenance, with **no behavioural change** to any reader.
+Existing 283 tests must remain green; new tests cover the primitives.
+
+* New module `src/axiomm/io/converters/calibration.py` exports:
+  - `CalibrationSource` (StrEnum) — `source_metadata`, `user_config`,
+    `legacy_preset`, `inferred`, `unknown`.
+  - `ConversionMode` (StrEnum) — `legacy`, `generic`, `strict`,
+    `diagnostic`.
+  - `ResolvedValue` (frozen dataclass) — `(value: Any, source:
+    CalibrationSource, note: str | None = None)`.
+* `AxiommSignalPayload` (in `models.py`) gains an optional
+  `resolved_calibration: dict[str, ResolvedValue] | None = None`
+  field. Default `None` keeps existing readers and tests untouched.
+* `metadata.py` gains `nest_calibration_section(resolved)` which
+  serialises the dict to plain JSON-friendly dicts. The
+  `build_axiomm_namespace` orchestrator accepts an optional
+  `resolved_calibration` keyword and inserts a `"calibration"` subkey
+  *only when present*, so existing snapshots and tests stay valid.
+* `writers/manifest.py` propagates `payload.resolved_calibration`
+  into `build_axiomm_namespace`. Manifest schema version stays at
+  `"2"` — the new subkey is additive.
+* New unit tests in `tests/io/converters/test_calibration.py`:
+  enum values, `ResolvedValue` immutability + equality,
+  `nest_calibration_section` shape, payload round-trip with and
+  without `resolved_calibration`, manifest JSON shape with the new
+  subkey.
+* Existing 283 tests green; full suite ≥ ~290 with the new ones.
+* Docs: short "Calibration provenance primitives (Chunk 15)"
+  subsection in `docs/user/converter.md` *after* the existing
+  assumptions section. Math + assumptions section itself is
+  untouched until Chunk 19's rewrite.
+* Memory file `project_calibration_resolution_epic.md` already
+  written so a fresh session can resume Chunks 16–19 without
+  re-reading the geology-team notes.
+
+### Backlog (no chunk number assigned)
+
+* **Additional output writers.** Was Phase 3's Chunk 15; parked
+  until a specific scientific need surfaces. Reader/writer registry
+  (Chunk 12) + entry-point discovery (Chunk 13) mean a future writer
+  can drop in without changing AXIOMM.
+* **True lazy execution.** The MVP reader materialises eagerly even
+  when `lazy=True`; a `lazy_downgraded_to_eager` diagnostic records
+  this. Real lazy support pending a concrete user request.
+* **UX-blocked chunks (former 6 + 8).** CLI + Tk dialogs +
+  notebook helpers. Still on hold pending Francesco's UX-layout
+  decision (`axiomm.io.converters.ux.*` vs `axiomm.ux.*`).
 
 ## Current state (as of Chunk 14 — Phase 3.3: generic HDF5 reader)
 
@@ -458,38 +543,33 @@ cosmetic docutils warnings; the HTML output is unaffected. Local
 builds still surface them so the underlying docstring formatting
 can be cleaned up when convenient.
 
-## Next chunk: decision needed
+## Next chunk: Phase 4 / Chunk 15
 
-Phase 2 is closed. From the spec's standpoint the remaining work
-sits in two places, and neither is unilaterally ours to start:
+Phase 3 closed at Chunk 14. **Phase 4 (calibration provenance &
+resolution) is open**, opened by the geology team's policy reply on
+2026-06-12. See the Phase 4 table above for the chunk plan and the
+Chunk 15 acceptance criteria. Five chunks total (15 → 19); Chunk 15
+is *types and plumbing only*, no reader behaviour change yet.
 
-**Phase 3 (spec §23) — extensibility.** Reader/writer registry with
-plugin entry points, generic HDF5 schema-driven reader, additional
-output formats only when scientifically justified. This is a natural
-next phase and is not blocked on UX.
+**Resolved former blocker.** The "domain-confirm the three scientific
+constants" item is no longer a block. The geology team returned a
+*policy* (resolution layer with named modes) rather than values; that
+policy *is* the Phase 4 epic. The three constants stay flagged in
+`XRMMapH5Config`'s docstring and in `docs/user/converter.md` until
+Chunk 19's rewrite.
 
-**UX-blocked chunks (6 and 8).** Still on hold pending Francesco's
-UX-layout decision (Hybrid vs. spec-literal vs. defer further).
-Implementing either of these without the decision would lock in a
-namespace we may regret.
+**Other concurrent moves available:**
 
-**Other plausible next moves before opening Phase 3:**
-
-* A second post-progress wiki sweep — last one was after Chunk 5;
-  per the doc-quality commitment another is overdue.
-* ⛔ Domain-confirm the three scientific constants
-  (`energy_scale`, `roi_limit_scale`, `fallback_field_width_um`):
-  **blocked**. Francesco has asked his geology team for the
-  values + scientific narrative; until that reply lands, the
-  constants stay flagged as configurable assumptions in the
-  `XRMMapH5Config` docstring and in the user guide's "Scientific
-  assumptions still requiring owner confirmation" section. Next
-  session: ask Francesco whether the team has replied; if so,
-  apply the updates and lift the warning.
+* A second post-progress wiki sweep — overdue per the doc-quality
+  commitment. Best done as part of Chunk 19's status-closure pass
+  so Known-Issues, Home, and Roadmap update in one go.
 * ✅ Publish the Sphinx docs — set up via
   `.github/workflows/docs.yml` (GitHub Pages) and
   `.readthedocs.yaml` (Read the Docs). One manual activation step
   remains on each platform; see *Documentation publishing* above.
+
+**Still UX-blocked.** Former Chunks 6 and 8 (CLI + Tk + notebook).
+Decision still deferred. Listed in *Backlog* above.
 
 ## Verifying the current state (after Chunk 10)
 

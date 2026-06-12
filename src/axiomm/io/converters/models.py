@@ -12,7 +12,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal, Mapping
+from typing import TYPE_CHECKING, Any, Literal, Mapping
+
+if TYPE_CHECKING:
+    from axiomm.io.converters.calibration import ResolvedValue
 
 AxisRole = Literal["navigation", "signal"]
 """The role an axis plays in the signal: a navigation axis indexes points in
@@ -107,6 +110,15 @@ class AxiommSignalPayload:
     provenance: SourceProvenance | None = None
     diagnostics: list[Diagnostic] = field(default_factory=list)
     title: str | None = None
+    #: Per-value calibration provenance (Phase 4, Chunk 15). When non-None,
+    #: maps a calibration name (e.g. ``"energy_scale"``,
+    #: ``"navigation_scale"``, ``"roi_limit_units"``) to a
+    #: :class:`~axiomm.io.converters.calibration.ResolvedValue` carrying
+    #: the value plus its :class:`~axiomm.io.converters.calibration
+    #: .CalibrationSource`. ``None`` until a reader populates it; readers
+    #: pre-dating Chunk 16 leave it as ``None`` and the metadata namespace
+    #: omits the ``"calibration"`` subkey accordingly.
+    resolved_calibration: dict[str, "ResolvedValue"] | None = None
 
 
 @dataclass(frozen=True)

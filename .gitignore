@@ -82,6 +82,7 @@ docs/autoapi/
 CLAUDE.md
 HANDOFF.md
 checks*.txt
+scientific_constant_domain_confirmation_notes.txt
 
 # Design identity working folder: only the axiomm_wave assets and the
 # Identity Kit are tracked; the .jsx sources, .thumbnail / state files,
