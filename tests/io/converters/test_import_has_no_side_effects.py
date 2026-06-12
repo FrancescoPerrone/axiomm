@@ -134,12 +134,18 @@ def test_public_symbols_exposed():
 
 
 def test_lazy_concrete_reader_exports():
-    """XRMMapH5Reader / XRMMapH5Config are importable lazily from the top-level package."""
+    """XRMMapH5Reader / XRMMapH5Calibration / XRMMAP_H5_SCHEMA are
+    importable lazily from the top-level package (Phase 4, Chunk 17)."""
     pytest.importorskip("h5py")
-    from axiomm.io.converters import XRMMapH5Config, XRMMapH5Reader  # noqa: F401
+    from axiomm.io.converters import (  # noqa: F401
+        XRMMAP_H5_SCHEMA,
+        XRMMapH5Calibration,
+        XRMMapH5Reader,
+    )
 
     assert XRMMapH5Reader().name == "xrmmap_h5"
-    assert XRMMapH5Config().counts_path == "/xrmmap/mcasum/counts"
+    assert XRMMAP_H5_SCHEMA.counts_path == "/xrmmap/mcasum/counts"
+    assert XRMMapH5Calibration().energy_scale is None
 
 
 def test_lazy_concrete_builder_exports():

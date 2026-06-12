@@ -247,16 +247,24 @@ class GenericHDF5MapReader:
                     f"{self.config.roi_limit_scale} applied to raw integer limits)"
                 )
 
+        # GenericHDF5MapReader has no named legacy preset (it's meant for
+        # users to configure per-instrument). Every HDF5MapConfig field
+        # the user supplied therefore enters the resolution ladder as
+        # USER_CONFIG; preset_value is left None. Chunk 18 splits
+        # HDF5MapConfig into a schema/calibration pair to match this
+        # reader's role more precisely.
         nav_scale_resolved, scale_diag = resolve_navigation_scale_calibration(
             environ,
             beam_size_key=self.schema.beam_size_key,
-            fallback_field_width_um=self.config.fallback_field_width_um,
+            user_fallback_um=self.config.fallback_field_width_um,
+            preset_fallback_um=None,
             xdim=xdim,
             mode=self.mode,
         )
         nav_scale_um = nav_scale_resolved.value
         scale_source = {
             CalibrationSource.SOURCE_METADATA: "beam_size",
+            CalibrationSource.USER_CONFIG: "fallback",
             CalibrationSource.LEGACY_PRESET: "fallback",
             CalibrationSource.UNKNOWN: "unit",
         }[nav_scale_resolved.source]
@@ -326,32 +334,38 @@ class GenericHDF5MapReader:
             ),
         )
 
-        # --- calibration provenance (Phase 4, Chunk 16) -------------------
+        # --- calibration provenance (Phase 4, Chunks 16–17) ---------------
         resolved_calibration: dict[str, ResolvedValue] = {
             "navigation_scale": nav_scale_resolved,
             "energy_scale": resolve_energy_scale(
-                self.config.energy_scale, mode=self.mode,
+                user_value=self.config.energy_scale,
+                preset_value=None,
+                mode=self.mode,
             ),
             "roi_limit_units": resolve_roi_limit_interpretation(
-                self.config.roi_limit_scale, mode=self.mode,
+                user_value=self.config.roi_limit_scale,
+                preset_value=None,
+                mode=self.mode,
             ),
         }
-        preset_names = sorted(
+        user_config_names = sorted(
             name for name, rv in resolved_calibration.items()
-            if rv.source is CalibrationSource.LEGACY_PRESET
+            if rv.source is CalibrationSource.USER_CONFIG
         )
-        if preset_names:
+        if user_config_names:
             diagnostics.append(
                 Diagnostic(
                     severity="info",
-                    code="calibration_resolved_from_preset",
+                    code="calibration_resolved_from_user_config",
                     message=(
-                        f"Resolved {', '.join(preset_names)} from the "
-                        f"generic HDF5MapConfig preset (mode="
-                        f"{self.mode.value}). Pass an explicit calibration "
-                        f"or switch to a different mode to override."
+                        f"Resolved {', '.join(user_config_names)} from "
+                        f"the HDF5MapConfig values supplied to "
+                        f"GenericHDF5MapReader (mode={self.mode.value})."
                     ),
-                    context={"keys": preset_names, "mode": self.mode.value},
+                    context={
+                        "keys": user_config_names,
+                        "mode": self.mode.value,
+                    },
                 )
             )
         metadata_resolved_names = sorted(

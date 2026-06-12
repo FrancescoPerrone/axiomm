@@ -98,12 +98,17 @@ __all__ = [
     "find_writer_plugins",
     "load_plugins",
     # concrete readers + builders + writers (lazily imported — see __getattr__ below)
-    "XRMMapH5Config",
     "XRMMapH5Reader",
     "GenericHDF5MapReader",
     "HDF5MapConfig",
     "HDF5MapSchema",
     "XRMMAP_H5_SCHEMA",
+    # calibration presets (Phase 4, Chunk 17)
+    "XRMMapH5Calibration",
+    "XRMMAP_LEGACY_APS_13_ID_E_PRESET_V1",
+    "get_preset",
+    "iter_presets",
+    "register_preset",
     "HyperSpyBuilder",
     "build_hyperspy_signal",
     "HSpyWriter",
@@ -141,9 +146,25 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
         "axiomm.io.converters.readers.xrmmap_h5",
         "XRMMapH5Reader",
     ),
-    "XRMMapH5Config": (
-        "axiomm.io.converters.readers.xrmmap_h5",
-        "XRMMapH5Config",
+    "XRMMapH5Calibration": (
+        "axiomm.io.converters.presets",
+        "XRMMapH5Calibration",
+    ),
+    "XRMMAP_LEGACY_APS_13_ID_E_PRESET_V1": (
+        "axiomm.io.converters.presets",
+        "XRMMAP_LEGACY_APS_13_ID_E_PRESET_V1",
+    ),
+    "get_preset": (
+        "axiomm.io.converters.presets",
+        "get_preset",
+    ),
+    "iter_presets": (
+        "axiomm.io.converters.presets",
+        "iter_presets",
+    ),
+    "register_preset": (
+        "axiomm.io.converters.presets",
+        "register_preset",
     ),
     "GenericHDF5MapReader": (
         "axiomm.io.converters.readers.hdf5_generic",

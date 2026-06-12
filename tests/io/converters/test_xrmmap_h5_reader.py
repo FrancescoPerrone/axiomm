@@ -12,13 +12,19 @@ import pytest
 # not installed so the rest of the suite still runs in lean environments.
 h5py = pytest.importorskip("h5py")
 
+from dataclasses import replace
+
 from axiomm.io.converters.errors import (
     DatasetNotFoundError,
     MetadataParseError,
 )
 from axiomm.io.converters.models import AxiommSignalPayload
+from axiomm.io.converters.presets import (
+    XRMMAP_LEGACY_APS_13_ID_E_PRESET_V1,
+    XRMMapH5Calibration,
+)
+from axiomm.io.converters.readers.hdf5_schema import XRMMAP_H5_SCHEMA
 from axiomm.io.converters.readers.xrmmap_h5 import (
-    XRMMapH5Config,
     XRMMapH5Reader,
     decode_hdf5_string,
     decode_hdf5_string_array,
@@ -117,25 +123,41 @@ class TestDecodeHdf5StringArray:
             decode_hdf5_string_array(42)
 
 
-# -- XRMMapH5Config defaults (spec §17) --------------------------------------
+# -- Schema + Calibration defaults (Phase 4, Chunk 17) -----------------------
 
-def test_xrmmap_h5_config_defaults_match_spec_17():
-    cfg = XRMMapH5Config()
-    assert cfg.counts_path == "/xrmmap/mcasum/counts"
-    assert cfg.environ_name_path == "/xrmmap/config/environ/name"
-    assert cfg.environ_value_path == "/xrmmap/config/environ/value"
-    assert cfg.roi_name_path == "/xrmmap/config/rois/name"
-    assert cfg.roi_limits_path == "/xrmmap/config/rois/limits"
-    assert cfg.beam_size_key == "Experiment.Beam_Size__Nominal"
-    assert cfg.energy_scale == pytest.approx(40.96 / 4096)
-    assert cfg.roi_limit_scale == pytest.approx(0.01)
-    assert cfg.fallback_field_width_um == 500.0
+def test_xrmmap_h5_schema_default_matches_legacy_paths():
+    """The default schema is the canonical XRM-Map / Larch layout."""
+    s = XRMMAP_H5_SCHEMA
+    assert s.counts_path == "/xrmmap/mcasum/counts"
+    assert s.environ_name_path == "/xrmmap/config/environ/name"
+    assert s.environ_value_path == "/xrmmap/config/environ/value"
+    assert s.roi_name_path == "/xrmmap/config/rois/name"
+    assert s.roi_limits_path == "/xrmmap/config/rois/limits"
+    assert s.beam_size_key == "Experiment.Beam_Size__Nominal"
 
 
-def test_xrmmap_h5_config_is_frozen():
-    cfg = XRMMapH5Config()
-    with pytest.raises(Exception):  # FrozenInstanceError, defensive on Python version
-        cfg.counts_path = "/other"  # type: ignore[misc]
+def test_xrmmap_h5_calibration_defaults_are_all_none():
+    """XRMMapH5Calibration() distinguishes user-supplied from preset."""
+    cal = XRMMapH5Calibration()
+    assert cal.energy_scale is None
+    assert cal.roi_limit_scale is None
+    assert cal.fallback_field_width_um is None
+    assert cal.roi_variant_index is None
+
+
+def test_xrmmap_h5_legacy_preset_carries_historic_values():
+    """The named preset reproduces the AXIOMM-inherited APS 13-ID-E values."""
+    p = XRMMAP_LEGACY_APS_13_ID_E_PRESET_V1
+    assert p.energy_scale == pytest.approx(40.96 / 4096)
+    assert p.roi_limit_scale == pytest.approx(0.01)
+    assert p.fallback_field_width_um == 500.0
+    assert p.roi_variant_index == 0
+
+
+def test_xrmmap_h5_calibration_is_frozen():
+    cal = XRMMapH5Calibration()
+    with pytest.raises(Exception):
+        cal.energy_scale = 0.01  # type: ignore[misc]
 
 
 # -- Reader protocol attributes ----------------------------------------------
@@ -276,9 +298,13 @@ def test_read_records_axiomm_namespace_metadata(synthetic_xrmmap_h5):
     converter = axiomm_meta["converter"]
     assert converter["reader"] == "xrmmap_h5"
     assert converter["reader_version"] is not None
-    # Reader now emits the full dataclass dump as config.
-    assert converter["config"]["counts_path"] == "/xrmmap/mcasum/counts"
-    assert converter["config"]["roi_variant_index"] == 0
+    # Phase 4, Chunk 17: config is now the {schema, calibration, mode} bundle.
+    assert converter["config"]["schema"]["counts_path"] == "/xrmmap/mcasum/counts"
+    # Default calibration: all None (preset values applied via the
+    # resolution ladder, not via dataclass defaults).
+    assert converter["config"]["calibration"]["energy_scale"] is None
+    assert converter["config"]["calibration"]["roi_variant_index"] is None
+    assert converter["config"]["mode"] == "legacy"
 
 
 # -- Provenance classification (spec §15) -----------------------------------
@@ -343,8 +369,9 @@ def test_navigation_scale_from_fallback_is_assumed(synthetic_xrmmap_h5):
 
 # -- ROI variant extraction (Chunk 9) ---------------------------------------
 
-def test_xrmmap_config_default_roi_variant_index_is_zero():
-    assert XRMMapH5Config().roi_variant_index == 0
+def test_xrmmap_legacy_preset_roi_variant_index_is_zero():
+    """The legacy preset's roi_variant_index is the historic default of 0."""
+    assert XRMMAP_LEGACY_APS_13_ID_E_PRESET_V1.roi_variant_index == 0
 
 
 def test_reader_handles_3d_roi_limits_via_default_variant_index(
@@ -396,8 +423,9 @@ def test_reader_with_nondefault_roi_variant_index_extracts_that_slice(
         rois=[("Fe Ka", 0, 0), ("Cu Ka", 0, 0)],
         roi_limits_override=limits,
     )
-    config = XRMMapH5Config(roi_variant_index=3)
-    payload = XRMMapH5Reader(config=config).read(p)
+    payload = XRMMapH5Reader(
+        calibration=XRMMapH5Calibration(roi_variant_index=3),
+    ).read(p)
 
     rois = payload.original_metadata["rois"]
     assert rois[0]["start"] == pytest.approx(6.40)
@@ -416,8 +444,9 @@ def test_reader_emits_diagnostic_when_roi_variant_index_out_of_bounds(
         rois=[("Fe Ka", 0, 0), ("Cu Ka", 0, 0)],
         roi_limits_override=limits,
     )
-    config = XRMMapH5Config(roi_variant_index=99)  # out of bounds
-    payload = XRMMapH5Reader(config=config).read(p)
+    payload = XRMMapH5Reader(
+        calibration=XRMMapH5Calibration(roi_variant_index=99),  # out of bounds
+    ).read(p)
 
     codes = {d.code for d in payload.diagnostics}
     assert "roi_variant_out_of_bounds" in codes
@@ -538,16 +567,23 @@ def test_unparseable_beam_size_warns_and_falls_back(synthetic_xrmmap_h5):
     assert nav_x.scale == pytest.approx(500.0 / 10)
 
 
-def test_disabling_fallback_uses_unit_scale_with_diagnostic(synthetic_xrmmap_h5):
+def test_strict_mode_raises_when_no_fallback_resolves(synthetic_xrmmap_h5):
+    """In strict mode the preset fallback is skipped — and if no environ
+    beam_size is present and the user supplied no fallback either, the
+    reader raises rather than silently using scale=1.0."""
+    from axiomm.io.converters.calibration import ConversionMode
+    from axiomm.io.converters.errors import CalibrationUnresolvedError
     p = synthetic_xrmmap_h5(
         "nofallback.h5", include_environ=False, shape=(10, 5, 16)
     )
-    config = XRMMapH5Config(fallback_field_width_um=None)
-    payload = XRMMapH5Reader(config=config).read(p)
-    codes = {d.code for d in payload.diagnostics}
-    assert "navigation_scale_unknown" in codes
-    nav_x = next(a for a in payload.axes if a.index_in_array == 0)
-    assert nav_x.scale == pytest.approx(1.0)
+    reader = XRMMapH5Reader(
+        calibration=XRMMapH5Calibration(
+            energy_scale=0.01, roi_limit_scale=0.01,
+        ),
+        mode=ConversionMode.STRICT,
+    )
+    with pytest.raises(CalibrationUnresolvedError, match="navigation_scale"):
+        reader.read(p)
 
 
 # -- read: lazy flag ---------------------------------------------------------
@@ -564,11 +600,11 @@ def test_lazy_false_does_not_emit_downgrade_diagnostic(synthetic_xrmmap_h5):
     assert "lazy_downgraded_to_eager" not in codes
 
 
-# -- Config-override: the "different file structure" use case ----------------
+# -- Schema-override: the "different file structure" use case ---------------
 
-def test_config_override_reads_file_with_alternative_paths(tmp_path):
+def test_schema_override_reads_file_with_alternative_paths(tmp_path):
     """A file with the same logical structure but different HDF5 paths
-    is handled by passing a configured reader, no subclassing.
+    is handled by passing a configured schema, no subclassing.
     """
     p = tmp_path / "alt.h5"
     rng = np.random.default_rng(0)
@@ -578,13 +614,14 @@ def test_config_override_reads_file_with_alternative_paths(tmp_path):
             data=rng.integers(0, 10, size=(4, 3, 16), dtype=np.int32),
         )
 
-    # Default config can't find the counts dataset.
+    # Default schema can't find the counts dataset.
     with pytest.raises(DatasetNotFoundError):
         XRMMapH5Reader().read(p)
 
-    # Custom config does.
-    config = XRMMapH5Config(counts_path="/custom/group/counts")
-    payload = XRMMapH5Reader(config=config).read(p)
+    # Custom schema does — use dataclasses.replace to derive from the
+    # XRM-Map canonical layout, overriding only the field that changed.
+    schema = replace(XRMMAP_H5_SCHEMA, counts_path="/custom/group/counts")
+    payload = XRMMapH5Reader(schema=schema).read(p)
     assert payload.data.shape == (4, 3, 16)
 
 

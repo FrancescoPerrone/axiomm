@@ -99,39 +99,73 @@ target file already exists:
 
 If both are set, `skip_existing` wins (no work is done).
 
-## Handling XRM files with non-default HDF5 paths
+## Configuring `XRMMapH5Reader` (Phase 4, Chunk 17)
 
-XRM-style files produced by different acquisition-software versions
-sometimes store the same information at different HDF5 paths. Rather
-than subclass the reader, pass a configured `XRMMapH5Reader`:
+As of Chunk 17 the reader's configuration is split in two:
+
+* **Schema** — an
+  [`HDF5MapSchema`](https://github.com/FrancescoPerrone/axiomm/blob/main/src/axiomm/io/converters/readers/hdf5_schema.py)
+  naming the HDF5 paths to read. The package-level
+  `XRMMAP_H5_SCHEMA` constant carries the canonical XRM-Map /
+  Larch layout and is the reader's default.
+* **Calibration** — an `XRMMapH5Calibration` with the explicit
+  scientific values. Every field defaults to `None` so the
+  resolution ladder can tell user-supplied calibration from
+  preset/unresolved values.
+
+### Different HDF5 paths via the schema
 
 ```python
-from axiomm.io.converters import XRMMapH5Config, XRMMapH5Reader, convert_file
+from dataclasses import replace
+from axiomm.io.converters import (
+    XRMMAP_H5_SCHEMA, XRMMapH5Reader, convert_file,
+)
 
-reader = XRMMapH5Reader(config=XRMMapH5Config(
+schema = replace(
+    XRMMAP_H5_SCHEMA,
     counts_path="/some/other/path/counts",
     environ_name_path="/some/other/config/name",
-    # ...override only the fields you need; defaults cover the rest.
-))
-
+    # override only what changed; the rest stay at the XRM-Map defaults.
+)
 convert_file(
     input_path="alternative.h5",
     output_path="alternative.hspy",
-    reader=reader,
+    reader=XRMMapH5Reader(schema=schema),
 )
 ```
+
+### Different scientific values via the calibration
+
+```python
+from axiomm.io.converters import XRMMapH5Calibration, XRMMapH5Reader
+
+reader = XRMMapH5Reader(
+    calibration=XRMMapH5Calibration(
+        energy_scale=0.005,       # your instrument's keV/channel
+        roi_limit_scale=0.01,
+        fallback_field_width_um=300.0,
+    ),
+)
+```
+
+Any field left as `None` falls back to the named legacy preset
+`XRMMAP_LEGACY_APS_13_ID_E_PRESET_V1` when the conversion mode is
+`LEGACY` (the default) — `GENERIC` / `DIAGNOSTIC` still consult the
+preset but escalate the diagnostic, and `STRICT` raises
+`CalibrationUnresolvedError`.
 
 ### Picking a ROI variant on real files
 
 Real instrument files store ROI limits as `(n_rois, n_variants, 2)`,
 not `(n_rois, 2)`. The reader handles both shapes; on the 3-D shape
-it extracts `limits[:, roi_variant_index, :]`. The default
-`roi_variant_index = 0` works for the "first variant is canonical"
-convention; set it to a different value if your acquisition stores
-the trusted variant elsewhere:
+it extracts `limits[:, roi_variant_index, :]`. Set
+`XRMMapH5Calibration(roi_variant_index=...)` to override the legacy
+preset's default of `0`:
 
 ```python
-reader = XRMMapH5Reader(config=XRMMapH5Config(roi_variant_index=3))
+reader = XRMMapH5Reader(
+    calibration=XRMMapH5Calibration(roi_variant_index=3),
+)
 ```
 
 An out-of-bounds index emits the `roi_variant_out_of_bounds`
@@ -196,13 +230,16 @@ that must be resolved before public release.
     `Experiment.Beam_Size__Nominal` value.
 ```
 
-Each of these is a field on `XRMMapH5Config`, so a user with the
-correct value can pass a configured reader without subclassing:
+As of Chunk 17 each of these is a field on `XRMMapH5Calibration`,
+so a user with the correct value can pass an explicit calibration
+without subclassing:
 
 ```python
-from axiomm.io.converters import XRMMapH5Config, XRMMapH5Reader, convert_file
+from axiomm.io.converters import (
+    XRMMapH5Calibration, XRMMapH5Reader, convert_file,
+)
 
-reader = XRMMapH5Reader(config=XRMMapH5Config(
+reader = XRMMapH5Reader(calibration=XRMMapH5Calibration(
     energy_scale=...,     # your confirmed gain
     roi_limit_scale=...,
     fallback_field_width_um=...,
@@ -210,18 +247,22 @@ reader = XRMMapH5Reader(config=XRMMapH5Config(
 convert_file("input.h5", output_path="out.hspy", reader=reader)
 ```
 
-The manifest sidecar records the `config_used`, so any conversion
-done with non-default values is auditable after the fact.
+The manifest sidecar records the resolved `{schema, calibration,
+mode}` bundle plus the per-value `calibration` provenance subkey,
+so any conversion done with non-default values is auditable after
+the fact.
 
-## Calibration provenance (Chunks 15–16)
+## Calibration provenance (Chunks 15–17)
 
 Phase 4 of the converter introduces **per-value calibration
-provenance**. Chunks 15–16 lay the types and the reader plumbing;
-the user-facing precedence rewrite lands in Chunk 19. **Reader
-behaviour in legacy mode is byte-identical to pre-Phase-4** — the
-three constants from the previous section are still applied
-exactly as they were before; the only change is that each value
-is now stamped with its source on the payload and in the manifest.
+provenance**. Chunks 15–17 lay the types, the reader plumbing, and
+the resolution-ladder enforcement; the user-facing precedence
+rewrite lands in Chunk 19. **Reader behaviour in legacy mode is
+byte-identical to pre-Phase-4** for the inherited APS 13-ID-E
+dataset — the three historic constants now live in the named
+preset `XRMMAP_LEGACY_APS_13_ID_E_PRESET_V1` and are applied via
+the resolution ladder, but the *values* and *axes* the reader
+produces are unchanged on legacy files.
 
 What's new are three importable types in
 `axiomm.io.converters.calibration` (re-exported at the package

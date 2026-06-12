@@ -265,17 +265,23 @@ def test_build_manifest_dict_is_json_serialisable():
 # ---------------------------------------------------------------------------
 
 def test_extract_reader_config_returns_dataclass_dict():
+    """Generic reader still exposes .config as a single dataclass; the
+    helper unwraps it. (XRMMapH5Reader uses a split schema/calibration
+    pair as of Chunk 17 and builds the combined manifest dict inline.)"""
     pytest.importorskip("h5py")
-    from axiomm.io.converters.readers.xrmmap_h5 import (
-        XRMMapH5Config,
-        XRMMapH5Reader,
+    from axiomm.io.converters import (
+        GenericHDF5MapReader, HDF5MapConfig, XRMMAP_H5_SCHEMA,
     )
 
-    reader = XRMMapH5Reader(config=XRMMapH5Config(counts_path="/custom"))
+    reader = GenericHDF5MapReader(
+        schema=XRMMAP_H5_SCHEMA,
+        config=HDF5MapConfig(energy_scale=0.005),
+    )
     cfg = extract_reader_config(reader)
-    assert cfg["counts_path"] == "/custom"
-    # All XRMMapH5Config fields should appear.
-    assert "energy_scale" in cfg
+    assert cfg["energy_scale"] == 0.005
+    # HDF5MapConfig has roi_limit_scale + fallback_field_width_um too.
+    assert "roi_limit_scale" in cfg
+    assert "fallback_field_width_um" in cfg
 
 
 def test_extract_reader_config_returns_empty_for_readerless_object():

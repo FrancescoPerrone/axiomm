@@ -138,8 +138,12 @@ def test_manifest_content_includes_required_fields(synthetic_xrmmap_h5, tmp_path
     # Nested: the AXIOMM namespace, mirroring signal.metadata.AXIOMM.
     axiomm = manifest["axiomm_metadata"]
     assert axiomm["converter"]["reader"] == "xrmmap_h5"
-    assert axiomm["converter"]["config"]["counts_path"] == "/xrmmap/mcasum/counts"
-    assert axiomm["converter"]["config"]["roi_variant_index"] == 0
+    # Phase 4, Chunk 17: config is the {schema, calibration, mode} bundle.
+    assert (
+        axiomm["converter"]["config"]["schema"]["counts_path"]
+        == "/xrmmap/mcasum/counts"
+    )
+    assert axiomm["converter"]["config"]["mode"] == "legacy"
     assert isinstance(axiomm["axes"], list)
     assert len(axiomm["axes"]) == 3
     assert isinstance(axiomm["diagnostics"], list)

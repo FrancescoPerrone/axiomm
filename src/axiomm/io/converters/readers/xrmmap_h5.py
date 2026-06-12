@@ -5,24 +5,45 @@ XRM-map style HDF5 files — the format produced by the prototype's original
 target instrument — and returns a populated
 :class:`~axiomm.io.converters.models.AxiommSignalPayload`.
 
-Every HDF5 path the reader touches is a field of :class:`XRMMapH5Config`
-(spec §7.5), so XRM files that share the conceptual layout but use different
-paths can be read by passing a configured reader, without subclassing.
+Reader configuration is split in two (Phase 4, Chunk 17):
+
+* **Schema** — :class:`~axiomm.io.converters.readers.hdf5_schema
+  .HDF5MapSchema` — names *where* each piece of metadata lives in the
+  HDF5 file. The package-level :data:`~axiomm.io.converters.readers
+  .hdf5_schema.XRMMAP_H5_SCHEMA` constant carries the canonical
+  XRM-Map / Larch paths and is the reader's default.
+* **Calibration** — :class:`~axiomm.io.converters.presets
+  .XRMMapH5Calibration` — names *what each value means*: the
+  per-channel energy width, the ROI-limit scale, the spatial
+  fallback. Every field defaults to ``None`` so the resolution
+  ladder can distinguish user-supplied calibration from
+  preset/inferred values. The named preset
+  :data:`~axiomm.io.converters.presets
+  .XRMMAP_LEGACY_APS_13_ID_E_PRESET_V1` carries the historic AXIOMM
+  values and is consulted by the reader only when the active
+  :class:`~axiomm.io.converters.calibration.ConversionMode` allows
+  it.
+
 Optional metadata that is missing becomes a structured
 :class:`~axiomm.io.converters.models.Diagnostic` on the payload rather than
 crashing the conversion (spec §7.8). Only a missing primary counts dataset
 is fatal: that raises
 :class:`~axiomm.io.converters.errors.DatasetNotFoundError`, with an error
-message that names the path and the config field to override.
+message that names the path and the schema field to override. In
+:class:`~axiomm.io.converters.calibration.ConversionMode.STRICT` a
+calibration value that cannot be resolved raises
+:class:`~axiomm.io.converters.errors.CalibrationUnresolvedError`.
 
-See spec §7, §17, §20.1.
+See spec §7, §17, §20.1 (the spec's combined ``XRMMapH5Config`` was
+split per Phase-4 Chunk 17; the schema / calibration concepts live on
+in the two new dataclasses).
 """
 
 from __future__ import annotations
 
 import logging
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -35,6 +56,7 @@ from axiomm.io.converters.calibration import (
     ResolvedValue,
 )
 from axiomm.io.converters.errors import (
+    CalibrationUnresolvedError,
     DatasetNotFoundError,
     MetadataParseError,
 )
@@ -47,6 +69,14 @@ from axiomm.io.converters.models import (
     AxisSpec,
     Diagnostic,
     SourceProvenance,
+)
+from axiomm.io.converters.presets import (
+    XRMMAP_LEGACY_APS_13_ID_E_PRESET_V1,
+    XRMMapH5Calibration,
+)
+from axiomm.io.converters.readers.hdf5_schema import (
+    HDF5MapSchema,
+    XRMMAP_H5_SCHEMA,
 )
 
 try:
@@ -70,76 +100,6 @@ _H5PY_INSTALL_HINT = (
 def _require_h5py() -> None:
     if h5py is None:
         raise ImportError(_H5PY_INSTALL_HINT)
-
-
-# ---------------------------------------------------------------------------
-# Configuration (spec §7.5, §17)
-# ---------------------------------------------------------------------------
-
-@dataclass(frozen=True)
-class XRMMapH5Config:
-    """All structural and scientific defaults used by :class:`XRMMapH5Reader`.
-
-    Defaults follow spec §17 and reproduce the prototype's behaviour. Override
-    any field to read a similar-but-not-identical XRM-style file without
-    subclassing the reader.
-
-    .. warning::
-
-       The three scientific constants below are **configurable
-       assumptions that have not yet been confirmed for the AXIOMM
-       package author's instrument data** (spec §17 open question):
-
-       - ``energy_scale = 40.96 / 4096`` (keV per channel) — assumed
-         a 40.96 keV span over a 4096-channel MCA, with no calibration
-         pulled from the file. If your detector / MCA differs,
-         override.
-       - ``roi_limit_scale = 0.01`` — assumed the integer ROI limits
-         in the HDF5 file are in centi-keV (so divide by 100 to get
-         keV). Not derived from any file metadata.
-       - ``fallback_field_width_um = 500.0`` — assumed field of view
-         in µm, divided by ``xdim`` to produce a navigation pixel
-         scale, used only when no beam size is present in the environ
-         table. Pure assumption.
-
-       These need owner domain confirmation (or, ideally, extraction
-       from instrument metadata) before AXIOMM is suitable for public
-       release. See :mod:`axiomm.io.converters` user guide section
-       "Scientific assumptions still requiring owner confirmation"
-       and ``docs/user/converter.md``.
-    """
-
-    # HDF5 paths (the converter's first line of generality)
-    counts_path: str = "/xrmmap/mcasum/counts"
-    environ_name_path: str = "/xrmmap/config/environ/name"
-    environ_value_path: str = "/xrmmap/config/environ/value"
-    roi_name_path: str = "/xrmmap/config/rois/name"
-    roi_limits_path: str = "/xrmmap/config/rois/limits"
-
-    # Configuration-table key for the beam-size value used as nav scale.
-    beam_size_key: str = "Experiment.Beam_Size__Nominal"
-
-    # Fallback navigation scale: assumed field of view in µm divided by xdim.
-    # Set to ``None`` to disable the fallback and fall through to a unit scale
-    # with a "navigation_scale_unknown" diagnostic.
-    fallback_field_width_um: float | None = 500.0
-
-    # ROI variant selection. Real XRM files store ROI limits as
-    # ``(n_rois, n_variants, 2)`` — multiple ROI variants per element
-    # (e.g. per detector or per fit pass) — not the 2-D
-    # ``(n_rois, 2)`` the prototype assumed. This index picks which
-    # variant to read from a 3-D limits dataset. Ignored when the
-    # limits dataset is 2-D.
-    roi_variant_index: int = 0
-
-    # Axis defaults
-    navigation_x_name: str = "x"
-    navigation_y_name: str = "y"
-    navigation_units: str = "µm"  # µ (U+00B5)
-    energy_axis_name: str = "Energy"
-    energy_axis_units: str = "keV"
-    energy_scale: float = 40.96 / 4096
-    roi_limit_scale: float = 0.01
 
 
 # ---------------------------------------------------------------------------
@@ -234,25 +194,48 @@ def parse_micrometre_value(value: str) -> float:
 # Reader (spec §7)
 # ---------------------------------------------------------------------------
 
+_LEGACY_PRESET: XRMMapH5Calibration = XRMMAP_LEGACY_APS_13_ID_E_PRESET_V1
+
+
 class XRMMapH5Reader:
     """Reader for XRM-map style HDF5 files.
 
     Parameters
     ----------
-    config
-        Override the default HDF5 paths and scientific defaults. ``None``
-        uses :class:`XRMMapH5Config` defaults (spec §17).
+    schema
+        :class:`~axiomm.io.converters.readers.hdf5_schema.HDF5MapSchema`
+        naming the HDF5 paths to read. ``None`` uses
+        :data:`~axiomm.io.converters.readers.hdf5_schema.XRMMAP_H5_SCHEMA`
+        — the canonical XRM-Map / Larch layout.
+    calibration
+        :class:`~axiomm.io.converters.presets.XRMMapH5Calibration`
+        with explicit scientific values. ``None`` (and every
+        ``None`` field) is treated as "not user-supplied" so the
+        resolution ladder can distinguish user intent from absent
+        config. The defaults of an explicit
+        ``XRMMapH5Calibration()`` are all ``None``.
     mode
-        Conversion mode controlling the calibration resolution ladder
-        (Phase 4, Chunk 16). Defaults to
+        :class:`~axiomm.io.converters.calibration.ConversionMode`
+        controlling the resolution ladder. Defaults to
         :attr:`~axiomm.io.converters.calibration.ConversionMode.LEGACY`,
-        which preserves the AXIOMM prototype's behaviour byte-for-byte
-        — the three legacy constants are honoured and stamped as
-        ``CalibrationSource.LEGACY_PRESET`` on the payload's
-        ``resolved_calibration``. ``GENERIC`` / ``STRICT`` /
-        ``DIAGNOSTIC`` are accepted but their full enforcement
-        semantics land in Chunk 17+, once the calibration dataclass
-        gains explicit ``UNRESOLVED`` sentinels.
+        which falls back to
+        :data:`~axiomm.io.converters.presets
+        .XRMMAP_LEGACY_APS_13_ID_E_PRESET_V1` when a calibration
+        field is unset — preserving the AXIOMM prototype's behaviour
+        on inherited files.
+
+    The ladder, per field:
+
+    1. **USER_CONFIG** — non-``None`` field on ``calibration``.
+    2. **LEGACY_PRESET** — the named preset (legacy / generic /
+       diagnostic modes only).
+    3. **UNKNOWN** — raises
+       :class:`~axiomm.io.converters.errors
+       .CalibrationUnresolvedError` in strict mode; otherwise marks
+       the value unresolved with a diagnostic.
+
+    Source-metadata extraction
+    (e.g. ``/xrmmap/config/mca_calib/slope``) lands in Chunk 18.
     """
 
     name = "xrmmap_h5"
@@ -260,11 +243,15 @@ class XRMMapH5Reader:
 
     def __init__(
         self,
-        config: XRMMapH5Config | None = None,
         *,
+        schema: HDF5MapSchema | None = None,
+        calibration: XRMMapH5Calibration | None = None,
         mode: ConversionMode = ConversionMode.LEGACY,
     ) -> None:
-        self.config = config or XRMMapH5Config()
+        self.schema = schema if schema is not None else XRMMAP_H5_SCHEMA
+        self.calibration = (
+            calibration if calibration is not None else XRMMapH5Calibration()
+        )
         self.mode = mode
 
     # -- Reader protocol ----------------------------------------------------
@@ -286,7 +273,7 @@ class XRMMapH5Reader:
             return False
         try:
             with h5py.File(p, "r") as f:
-                return self.config.counts_path in f
+                return self.schema.counts_path in f
         except (OSError, KeyError):
             return False
 
@@ -302,7 +289,11 @@ class XRMMapH5Reader:
         ------
         DatasetNotFoundError
             The configured counts dataset is missing from the file. The
-            message names the path and the config field to override.
+            message names the path and the schema field to override.
+        CalibrationUnresolvedError
+            ``mode=ConversionMode.STRICT`` and one or more calibration
+            values could not be resolved from explicit user config. The
+            message lists the unresolved fields and how to provide them.
         """
         _require_h5py()
 
@@ -319,7 +310,10 @@ class XRMMapH5Reader:
             "assumed": [],
         }
 
-        logger.info("XRMMapH5Reader.read(%s, lazy=%s)", source_path, lazy)
+        logger.info(
+            "XRMMapH5Reader.read(%s, lazy=%s, mode=%s)",
+            source_path, lazy, self.mode.value,
+        )
 
         if lazy:
             diagnostics.append(
@@ -334,20 +328,55 @@ class XRMMapH5Reader:
                 )
             )
 
+        # Resolve the underlying scalar values via the ladder *before*
+        # touching the HDF5 file, so we can pass the resolved
+        # roi_limit_scale into read_roi_table.
+        from axiomm.io.converters.readers.hdf5_helpers import (
+            read_environ_table,
+            read_roi_table,
+            resolve_energy_scale,
+            resolve_navigation_scale_calibration,
+            resolve_roi_limit_interpretation,
+        )
+
+        energy_scale_resolved = resolve_energy_scale(
+            user_value=self.calibration.energy_scale,
+            preset_value=_LEGACY_PRESET.energy_scale,
+            mode=self.mode,
+        )
+        roi_units_resolved = resolve_roi_limit_interpretation(
+            user_value=self.calibration.roi_limit_scale,
+            preset_value=_LEGACY_PRESET.roi_limit_scale,
+            mode=self.mode,
+        )
+        # Effective roi_limit_scale for the integer→keV multiplication
+        # below. Walks the same ladder; uses 1.0 as a no-scale default
+        # when the value is unresolved.
+        effective_roi_scale = self._effective_scalar(
+            user_value=self.calibration.roi_limit_scale,
+            preset_value=_LEGACY_PRESET.roi_limit_scale,
+            default=1.0,
+        )
+        effective_roi_variant_index = self._effective_scalar(
+            user_value=self.calibration.roi_variant_index,
+            preset_value=_LEGACY_PRESET.roi_variant_index,
+            default=0,
+        )
+
         with h5py.File(source_path, "r") as f:
             # --- counts (required) ----------------------------------------
-            if self.config.counts_path not in f:
+            if self.schema.counts_path not in f:
                 raise DatasetNotFoundError(
                     f"Counts dataset not found at "
-                    f"{self.config.counts_path!r} in {source_path}. "
+                    f"{self.schema.counts_path!r} in {source_path}. "
                     f"If this XRM file stores counts elsewhere, pass "
-                    f"XRMMapH5Reader(config=XRMMapH5Config("
+                    f"XRMMapH5Reader(schema=replace(XRMMAP_H5_SCHEMA, "
                     f"counts_path=...)) with the correct path."
                 )
-            data = np.asarray(f[self.config.counts_path][...])
+            data = np.asarray(f[self.schema.counts_path][...])
             if data.ndim != 3:
                 raise DatasetNotFoundError(
-                    f"Counts dataset at {self.config.counts_path!r} has "
+                    f"Counts dataset at {self.schema.counts_path!r} has "
                     f"unexpected shape {data.shape!r}; expected a 3-D "
                     f"array (xdim, ydim, n_channels)."
                 )
@@ -355,25 +384,20 @@ class XRMMapH5Reader:
 
             # Counts come directly from the file.
             classification["observed"].append(
-                f"data (HDF5 dataset {self.config.counts_path!r})"
+                f"data (HDF5 dataset {self.schema.counts_path!r})"
             )
             # Axis sizes are inferred from the data shape.
             classification["inferred"].extend([
-                f"axes.{self.config.navigation_x_name}.size (= data.shape[0])",
-                f"axes.{self.config.navigation_y_name}.size (= data.shape[1])",
-                f"axes.{self.config.energy_axis_name}.size (= data.shape[2])",
+                f"axes.{self.schema.navigation_x_name}.size (= data.shape[0])",
+                f"axes.{self.schema.navigation_y_name}.size (= data.shape[1])",
+                f"axes.{self.schema.energy_axis_name}.size (= data.shape[2])",
             ])
 
             # --- environ / configuration table (optional) -----------------
-            from axiomm.io.converters.readers.hdf5_helpers import (
-                read_environ_table,
-                read_roi_table,
-            )
-
             environ, environ_diag = read_environ_table(
                 f,
-                name_path=self.config.environ_name_path,
-                value_path=self.config.environ_value_path,
+                name_path=self.schema.environ_name_path,
+                value_path=self.schema.environ_value_path,
             )
             diagnostics.extend(environ_diag)
             if environ:
@@ -385,165 +409,143 @@ class XRMMapH5Reader:
             # --- ROI table (optional) -------------------------------------
             rois, roi_diag = read_roi_table(
                 f,
-                name_path=self.config.roi_name_path,
-                limits_path=self.config.roi_limits_path,
-                roi_variant_index=self.config.roi_variant_index,
-                roi_limit_scale=self.config.roi_limit_scale,
+                name_path=self.schema.roi_name_path,
+                limits_path=self.schema.roi_limits_path,
+                roi_variant_index=effective_roi_variant_index,
+                roi_limit_scale=effective_roi_scale,
             )
             diagnostics.extend(roi_diag)
             if rois:
                 original_metadata["rois"] = rois
                 classification["observed"].append(
                     f"metadata.rois ({len(rois)} entries from HDF5; "
-                    f"limits scaled by configured roi_limit_scale)"
+                    f"limits scaled by resolved roi_limit_scale)"
                 )
                 classification["assumed"].append(
                     f"metadata.rois.*.start/end (roi_limit_scale="
-                    f"{self.config.roi_limit_scale} applied to raw integer limits)"
+                    f"{effective_roi_scale} applied to raw integer limits)"
                 )
 
-        # --- navigation scale ---------------------------------------------
-        from axiomm.io.converters.readers.hdf5_helpers import (
-            resolve_energy_scale,
-            resolve_navigation_scale,
-            resolve_navigation_scale_calibration,
-            resolve_roi_limit_interpretation,
-        )
-
+        # --- navigation scale (after the file is closed) -----------------
         nav_scale_resolved, scale_diag = resolve_navigation_scale_calibration(
             environ,
-            beam_size_key=self.config.beam_size_key,
-            fallback_field_width_um=self.config.fallback_field_width_um,
+            beam_size_key=self.schema.beam_size_key,
+            user_fallback_um=self.calibration.fallback_field_width_um,
+            preset_fallback_um=_LEGACY_PRESET.fallback_field_width_um,
             xdim=xdim,
             mode=self.mode,
         )
         nav_scale_um = nav_scale_resolved.value
-        scale_source = {
-            CalibrationSource.SOURCE_METADATA: "beam_size",
-            CalibrationSource.LEGACY_PRESET: "fallback",
-            CalibrationSource.UNKNOWN: "unit",
-        }[nav_scale_resolved.source]
         diagnostics.extend(scale_diag)
-        nav_scale_bucket = {
-            "beam_size": "observed",
-            "fallback": "assumed",
-            "unit": "assumed",
-        }[scale_source]
-        nav_scale_descriptor = {
-            "beam_size": (
-                f"axes.{self.config.navigation_x_name}.scale, "
-                f"axes.{self.config.navigation_y_name}.scale "
-                f"(parsed from environ {self.config.beam_size_key!r})"
-            ),
-            "fallback": (
-                f"axes.{self.config.navigation_x_name}.scale, "
-                f"axes.{self.config.navigation_y_name}.scale "
-                f"(fallback: fallback_field_width_um={self.config.fallback_field_width_um} "
-                f"/ xdim={xdim})"
-            ),
-            "unit": (
-                f"axes.{self.config.navigation_x_name}.scale, "
-                f"axes.{self.config.navigation_y_name}.scale "
-                f"(no beam size, no fallback: defaulted to 1.0)"
-            ),
-        }[scale_source]
-        classification[nav_scale_bucket].append(nav_scale_descriptor)
 
-        # The energy axis scale / units are always config-driven (no source
-        # in current XRM files) — declare them as assumed.
-        classification["assumed"].extend([
-            f"axes.{self.config.energy_axis_name}.scale "
-            f"(= {self.config.energy_scale}, config default)",
-            f"axes.{self.config.energy_axis_name}.units "
-            f"({self.config.energy_axis_units!r}, config default)",
-            f"axes.{self.config.navigation_x_name}.units, "
-            f"axes.{self.config.navigation_y_name}.units "
-            f"({self.config.navigation_units!r}, config default)",
-        ])
-
-        # --- axes ----------------------------------------------------------
-        axes: tuple[AxisSpec, ...] = (
-            AxisSpec(
-                name=self.config.navigation_x_name,
-                role="navigation",
-                size=xdim,
-                units=self.config.navigation_units,
-                scale=nav_scale_um,
-                offset=0.0,
-                index_in_array=0,
-            ),
-            AxisSpec(
-                name=self.config.navigation_y_name,
-                role="navigation",
-                size=ydim,
-                units=self.config.navigation_units,
-                scale=nav_scale_um,
-                offset=0.0,
-                index_in_array=1,
-            ),
-            AxisSpec(
-                name=self.config.energy_axis_name,
-                role="signal",
-                size=n_channels,
-                units=self.config.energy_axis_units,
-                scale=self.config.energy_scale,
-                offset=0.0,
-                index_in_array=2,
-            ),
+        # Map nav scale source to the legacy provenance-classification bucket.
+        nav_scale_bucket = (
+            "observed"
+            if nav_scale_resolved.source is CalibrationSource.SOURCE_METADATA
+            else "assumed"
+        )
+        classification[nav_scale_bucket].append(
+            f"axes.{self.schema.navigation_x_name}.scale, "
+            f"axes.{self.schema.navigation_y_name}.scale "
+            f"({nav_scale_resolved.note})"
         )
 
-        # --- calibration provenance (Phase 4, Chunk 16) -------------------
-        # Stamp each scientific calibration value with its
-        # CalibrationSource. The legacy-mode behaviour is unchanged; the
-        # provenance annotation is additive on the payload.
+        # The energy axis scale / units are config/preset-driven (no source
+        # metadata extraction yet — that lands in Chunk 18).
+        classification["assumed"].extend([
+            f"axes.{self.schema.energy_axis_name}.scale "
+            f"(= {energy_scale_resolved.value}, "
+            f"source={energy_scale_resolved.source.value})",
+            f"axes.{self.schema.energy_axis_name}.units "
+            f"({self.schema.energy_axis_units!r}, schema default)",
+            f"axes.{self.schema.navigation_x_name}.units, "
+            f"axes.{self.schema.navigation_y_name}.units "
+            f"({self.schema.navigation_units!r}, schema default)",
+        ])
+
+        # --- calibration provenance (Phase 4, Chunks 15–17) ---------------
         resolved_calibration: dict[str, ResolvedValue] = {
             "navigation_scale": nav_scale_resolved,
-            "energy_scale": resolve_energy_scale(
-                self.config.energy_scale, mode=self.mode,
-            ),
-            "roi_limit_units": resolve_roi_limit_interpretation(
-                self.config.roi_limit_scale, mode=self.mode,
-            ),
+            "energy_scale": energy_scale_resolved,
+            "roi_limit_units": roi_units_resolved,
         }
+
+        # Strict-mode enforcement: any UNKNOWN means we couldn't resolve
+        # the value from user config or source metadata. Raise with a
+        # message that names what's missing and how to supply it.
+        _raise_if_strict_unresolved(self.mode, resolved_calibration)
+
+        # Mode-driven diagnostic emission. Severity escalates from info
+        # (legacy / diagnostic) to warning (generic) because generic mode
+        # represents the public-release default where preset fallbacks
+        # *should* be loud.
+        preset_severity: Any = (
+            "warning" if self.mode is ConversionMode.GENERIC else "info"
+        )
         preset_names = sorted(
-            name for name, rv in resolved_calibration.items()
+            n for n, rv in resolved_calibration.items()
             if rv.source is CalibrationSource.LEGACY_PRESET
         )
         if preset_names:
             diagnostics.append(
                 Diagnostic(
-                    severity="info",
+                    severity=preset_severity,
                     code="calibration_resolved_from_preset",
                     message=(
                         f"Resolved {', '.join(preset_names)} from the "
-                        f"legacy XRMMapH5Config preset (mode="
-                        f"{self.mode.value}). Pass an explicit calibration "
-                        f"or switch to a different mode to override."
+                        f"named legacy preset "
+                        f"XRMMAP_LEGACY_APS_13_ID_E_PRESET_V1 "
+                        f"(mode={self.mode.value}). Pass an explicit "
+                        f"XRMMapH5Calibration(...) to override."
                     ),
-                    context={"keys": preset_names, "mode": self.mode.value},
+                    context={
+                        "keys": preset_names,
+                        "mode": self.mode.value,
+                        "preset": "xrmmap_legacy_aps_13_id_e_v1",
+                    },
                 )
             )
-        metadata_resolved_names = sorted(
-            name for name, rv in resolved_calibration.items()
+        user_config_names = sorted(
+            n for n, rv in resolved_calibration.items()
+            if rv.source is CalibrationSource.USER_CONFIG
+        )
+        if user_config_names:
+            diagnostics.append(
+                Diagnostic(
+                    severity="info",
+                    code="calibration_resolved_from_user_config",
+                    message=(
+                        f"Resolved {', '.join(user_config_names)} from "
+                        f"explicit user-supplied calibration "
+                        f"(mode={self.mode.value})."
+                    ),
+                    context={
+                        "keys": user_config_names,
+                        "mode": self.mode.value,
+                    },
+                )
+            )
+        metadata_names = sorted(
+            n for n, rv in resolved_calibration.items()
             if rv.source is CalibrationSource.SOURCE_METADATA
         )
-        if metadata_resolved_names:
+        if metadata_names:
             diagnostics.append(
                 Diagnostic(
                     severity="info",
                     code="calibration_resolved_from_metadata",
                     message=(
-                        f"Resolved {', '.join(metadata_resolved_names)} "
-                        f"from source-file metadata (mode={self.mode.value})."
+                        f"Resolved {', '.join(metadata_names)} from "
+                        f"source-file metadata (mode={self.mode.value})."
                     ),
                     context={
-                        "keys": metadata_resolved_names,
+                        "keys": metadata_names,
                         "mode": self.mode.value,
                     },
                 )
             )
         inferred_names = sorted(
-            name for name, rv in resolved_calibration.items()
+            n for n, rv in resolved_calibration.items()
             if rv.source is CalibrationSource.INFERRED
         )
         if inferred_names:
@@ -552,27 +554,64 @@ class XRMMapH5Reader:
                     severity="info",
                     code="calibration_inferred",
                     message=(
-                        f"Inferred {', '.join(inferred_names)} from numeric "
-                        f"config values (mode={self.mode.value}); see each "
-                        f"resolved_calibration entry's note for the rule. "
-                        f"Supply explicit calibration to override."
+                        f"Inferred {', '.join(inferred_names)} from "
+                        f"resolved numeric values (mode={self.mode.value}); "
+                        f"see each resolved_calibration entry's note for "
+                        f"the rule."
                     ),
-                    context={"keys": inferred_names, "mode": self.mode.value},
+                    context={
+                        "keys": inferred_names,
+                        "mode": self.mode.value,
+                    },
                 )
             )
 
+        # --- axes ----------------------------------------------------------
+        axes: tuple[AxisSpec, ...] = (
+            AxisSpec(
+                name=self.schema.navigation_x_name,
+                role="navigation",
+                size=xdim,
+                units=self.schema.navigation_units,
+                scale=nav_scale_um,
+                offset=0.0,
+                index_in_array=0,
+            ),
+            AxisSpec(
+                name=self.schema.navigation_y_name,
+                role="navigation",
+                size=ydim,
+                units=self.schema.navigation_units,
+                scale=nav_scale_um,
+                offset=0.0,
+                index_in_array=1,
+            ),
+            AxisSpec(
+                name=self.schema.energy_axis_name,
+                role="signal",
+                size=n_channels,
+                units=self.schema.energy_axis_units,
+                scale=energy_scale_resolved.value,
+                offset=0.0,
+                index_in_array=2,
+            ),
+        )
+
         # The reader populates the parts of the AXIOMM namespace it owns:
-        # the "converter" subsection (reader name/version + full config)
-        # and the provenance classification. The builder will compose the
-        # full nested namespace (adding axes, source, diagnostics) when it
-        # attaches metadata to the backend signal — see
-        # axiomm.io.converters.metadata.build_axiomm_namespace.
+        # the "converter" subsection (reader name/version + the combined
+        # schema/calibration dump) and the provenance classification.
+        # The builder composes the full nested namespace.
+        combined_config: dict[str, Any] = {
+            "schema": asdict(self.schema),
+            "calibration": asdict(self.calibration),
+            "mode": self.mode.value,
+        }
         metadata: dict[str, Any] = {
             "AXIOMM": {
                 "converter": nest_converter_section(
                     reader_name=self.name,
                     reader_version=_axiomm_version,
-                    config=asdict(self.config),
+                    config=combined_config,
                 ),
                 "provenance_classification": nest_classification(classification),
             },
@@ -596,10 +635,52 @@ class XRMMapH5Reader:
             resolved_calibration=resolved_calibration,
         )
 
+    # -- internal helpers ---------------------------------------------------
+
+    @staticmethod
+    def _effective_scalar(
+        *,
+        user_value: Any,
+        preset_value: Any,
+        default: Any,
+    ) -> Any:
+        """Return the value to *apply* (not just record) for a calibration
+        scalar: user > preset > default. ``default`` is used when nothing
+        else resolves — provenance is still flagged ``UNKNOWN`` separately
+        by the dedicated resolve_* helper."""
+        if user_value is not None:
+            return user_value
+        if preset_value is not None:
+            return preset_value
+        return default
+
+
+def _raise_if_strict_unresolved(
+    mode: ConversionMode,
+    resolved_calibration: dict[str, ResolvedValue],
+) -> None:
+    """Raise :class:`CalibrationUnresolvedError` when any calibration
+    value remains :attr:`CalibrationSource.UNKNOWN` under strict mode."""
+    if mode is not ConversionMode.STRICT:
+        return
+    unresolved = sorted(
+        name for name, rv in resolved_calibration.items()
+        if rv.source is CalibrationSource.UNKNOWN
+    )
+    if not unresolved:
+        return
+    raise CalibrationUnresolvedError(
+        f"strict mode: the following calibration values could not be "
+        f"resolved from user-supplied configuration: "
+        f"{', '.join(unresolved)}. Pass an explicit "
+        f"XRMMapH5Calibration to XRMMapH5Reader(calibration=...) "
+        f"with those fields set, or switch to ConversionMode.LEGACY / "
+        f"GENERIC to allow preset fallbacks."
+    )
+
 
 
 __all__ = [
-    "XRMMapH5Config",
     "XRMMapH5Reader",
     "decode_hdf5_string",
     "decode_hdf5_string_array",
