@@ -29,6 +29,11 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from axiomm import __version__ as _axiomm_version
+from axiomm.io.converters.calibration import (
+    CalibrationSource,
+    ConversionMode,
+    ResolvedValue,
+)
 from axiomm.io.converters.errors import (
     DatasetNotFoundError,
     MetadataParseError,
@@ -237,13 +242,30 @@ class XRMMapH5Reader:
     config
         Override the default HDF5 paths and scientific defaults. ``None``
         uses :class:`XRMMapH5Config` defaults (spec §17).
+    mode
+        Conversion mode controlling the calibration resolution ladder
+        (Phase 4, Chunk 16). Defaults to
+        :attr:`~axiomm.io.converters.calibration.ConversionMode.LEGACY`,
+        which preserves the AXIOMM prototype's behaviour byte-for-byte
+        — the three legacy constants are honoured and stamped as
+        ``CalibrationSource.LEGACY_PRESET`` on the payload's
+        ``resolved_calibration``. ``GENERIC`` / ``STRICT`` /
+        ``DIAGNOSTIC`` are accepted but their full enforcement
+        semantics land in Chunk 17+, once the calibration dataclass
+        gains explicit ``UNRESOLVED`` sentinels.
     """
 
     name = "xrmmap_h5"
     supported_extensions = (".h5", ".hdf5")
 
-    def __init__(self, config: XRMMapH5Config | None = None) -> None:
+    def __init__(
+        self,
+        config: XRMMapH5Config | None = None,
+        *,
+        mode: ConversionMode = ConversionMode.LEGACY,
+    ) -> None:
         self.config = config or XRMMapH5Config()
+        self.mode = mode
 
     # -- Reader protocol ----------------------------------------------------
 
@@ -382,15 +404,25 @@ class XRMMapH5Reader:
 
         # --- navigation scale ---------------------------------------------
         from axiomm.io.converters.readers.hdf5_helpers import (
+            resolve_energy_scale,
             resolve_navigation_scale,
+            resolve_navigation_scale_calibration,
+            resolve_roi_limit_interpretation,
         )
 
-        nav_scale_um, scale_diag, scale_source = resolve_navigation_scale(
+        nav_scale_resolved, scale_diag = resolve_navigation_scale_calibration(
             environ,
             beam_size_key=self.config.beam_size_key,
             fallback_field_width_um=self.config.fallback_field_width_um,
             xdim=xdim,
+            mode=self.mode,
         )
+        nav_scale_um = nav_scale_resolved.value
+        scale_source = {
+            CalibrationSource.SOURCE_METADATA: "beam_size",
+            CalibrationSource.LEGACY_PRESET: "fallback",
+            CalibrationSource.UNKNOWN: "unit",
+        }[nav_scale_resolved.source]
         diagnostics.extend(scale_diag)
         nav_scale_bucket = {
             "beam_size": "observed",
@@ -460,6 +492,75 @@ class XRMMapH5Reader:
             ),
         )
 
+        # --- calibration provenance (Phase 4, Chunk 16) -------------------
+        # Stamp each scientific calibration value with its
+        # CalibrationSource. The legacy-mode behaviour is unchanged; the
+        # provenance annotation is additive on the payload.
+        resolved_calibration: dict[str, ResolvedValue] = {
+            "navigation_scale": nav_scale_resolved,
+            "energy_scale": resolve_energy_scale(
+                self.config.energy_scale, mode=self.mode,
+            ),
+            "roi_limit_units": resolve_roi_limit_interpretation(
+                self.config.roi_limit_scale, mode=self.mode,
+            ),
+        }
+        preset_names = sorted(
+            name for name, rv in resolved_calibration.items()
+            if rv.source is CalibrationSource.LEGACY_PRESET
+        )
+        if preset_names:
+            diagnostics.append(
+                Diagnostic(
+                    severity="info",
+                    code="calibration_resolved_from_preset",
+                    message=(
+                        f"Resolved {', '.join(preset_names)} from the "
+                        f"legacy XRMMapH5Config preset (mode="
+                        f"{self.mode.value}). Pass an explicit calibration "
+                        f"or switch to a different mode to override."
+                    ),
+                    context={"keys": preset_names, "mode": self.mode.value},
+                )
+            )
+        metadata_resolved_names = sorted(
+            name for name, rv in resolved_calibration.items()
+            if rv.source is CalibrationSource.SOURCE_METADATA
+        )
+        if metadata_resolved_names:
+            diagnostics.append(
+                Diagnostic(
+                    severity="info",
+                    code="calibration_resolved_from_metadata",
+                    message=(
+                        f"Resolved {', '.join(metadata_resolved_names)} "
+                        f"from source-file metadata (mode={self.mode.value})."
+                    ),
+                    context={
+                        "keys": metadata_resolved_names,
+                        "mode": self.mode.value,
+                    },
+                )
+            )
+        inferred_names = sorted(
+            name for name, rv in resolved_calibration.items()
+            if rv.source is CalibrationSource.INFERRED
+        )
+        if inferred_names:
+            diagnostics.append(
+                Diagnostic(
+                    severity="info",
+                    code="calibration_inferred",
+                    message=(
+                        f"Inferred {', '.join(inferred_names)} from numeric "
+                        f"config values (mode={self.mode.value}); see each "
+                        f"resolved_calibration entry's note for the rule. "
+                        f"Supply explicit calibration to override."
+                    ),
+                    context={"keys": inferred_names, "mode": self.mode.value},
+                )
+            )
+
         # The reader populates the parts of the AXIOMM namespace it owns:
         # the "converter" subsection (reader name/version + full config)
         # and the provenance classification. The builder will compose the
@@ -492,6 +593,7 @@ class XRMMapH5Reader:
             provenance=provenance,
             diagnostics=diagnostics,
             title=source_path.stem,
+            resolved_calibration=resolved_calibration,
         )
 
 

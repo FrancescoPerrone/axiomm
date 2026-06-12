@@ -213,14 +213,15 @@ convert_file("input.h5", output_path="out.hspy", reader=reader)
 The manifest sidecar records the `config_used`, so any conversion
 done with non-default values is auditable after the fact.
 
-## Calibration provenance primitives (Chunk 15)
+## Calibration provenance (Chunks 15–16)
 
 Phase 4 of the converter introduces **per-value calibration
-provenance**. Chunk 15 lays the *types and plumbing* for it; the
-ladder behaviour itself lands in Chunk 16 and the user-facing
-precedence rewrite in Chunk 19. **No reader behaviour has changed
-yet** — the three constants on the previous section are still
-applied exactly as they were before.
+provenance**. Chunks 15–16 lay the types and the reader plumbing;
+the user-facing precedence rewrite lands in Chunk 19. **Reader
+behaviour in legacy mode is byte-identical to pre-Phase-4** — the
+three constants from the previous section are still applied
+exactly as they were before; the only change is that each value
+is now stamped with its source on the payload and in the manifest.
 
 What's new are three importable types in
 `axiomm.io.converters.calibration` (re-exported at the package
@@ -240,33 +241,60 @@ top-level):
 * `ResolvedValue(value, source, note=None)` — frozen dataclass
   pairing a value with its provenance.
 
-Readers can attach a per-value provenance dict to the neutral
-payload:
+As of Chunk 16, both `XRMMapH5Reader` and `GenericHDF5MapReader`
+accept a `mode` keyword and populate `resolved_calibration` on the
+payload with three entries — `energy_scale`, `navigation_scale`,
+and `roi_limit_units`:
 
 ```python
 from axiomm.io.converters import (
-    AxiommSignalPayload, AxisSpec,
-    CalibrationSource, ResolvedValue,
+    ConversionMode, XRMMapH5Reader, convert_file,
 )
 
-payload = AxiommSignalPayload(
-    data=...,
-    axes=(AxisSpec("Energy", "signal", 4096, units="keV",
-                   scale=0.01, index_in_array=2),),
-    signal_kind="signal1d",
-    resolved_calibration={
-        "energy_scale": ResolvedValue(
-            value=0.01,
-            source=CalibrationSource.LEGACY_PRESET,
-            note="APS 13-ID-E preset v1",
-        ),
-    },
-)
+# Default: ConversionMode.LEGACY — behaviour unchanged, provenance added.
+result = convert_file("A21_054_map.h5", reader="xrmmap_h5")
+
+# Opt in to a stricter mode (full enforcement lands in Chunks 17–18):
+reader = XRMMapH5Reader(mode=ConversionMode.STRICT)
 ```
 
+The four available modes are described in the **Calibration
+provenance primitives** types above. Today the meaningful
+behavioural difference is in `roi_limit_units`: in `legacy`,
+`generic`, and `diagnostic` modes the reader infers
+`"channel_index"` when `roi_limit_scale ≈ 0.01` (per the
+2026-06-12 metadata audit of `/xrmmap/config/rois/limits`, which
+stores MCA channel indices in this dataset); in `strict` mode
+the value is marked `UNKNOWN` rather than inferred. The
+remaining mode-driven enforcement (refusing legacy presets in
+`generic`, raising `CalibrationUnresolvedError` in `strict`) is
+plumbed but not yet wired — that lands in Chunks 17–18 alongside
+the calibration/schema split and the explicit-units fields.
+
+A typical legacy-mode payload now carries:
+
+```python
+payload.resolved_calibration
+# {
+#   "energy_scale":     ResolvedValue(0.01, LEGACY_PRESET, "reader config…"),
+#   "navigation_scale": ResolvedValue(2.0,  SOURCE_METADATA, "parsed from environ…"),
+#   "roi_limit_units":  ResolvedValue("channel_index", INFERRED, "audit…"),
+# }
+```
+
+and three new info diagnostics surface what was resolved:
+
+* `calibration_resolved_from_preset` — keys taken from the
+  reader's config defaults (legacy preset).
+* `calibration_resolved_from_metadata` — keys read from the
+  source file (e.g. navigation scale from the environ table).
+* `calibration_inferred` — keys inferred heuristically from
+  numeric config values (e.g. ROI-limit units from
+  `roi_limit_scale`).
+
 When `resolved_calibration` is populated, the AXIOMM metadata
-namespace and the manifest sidecar gain a new `calibration`
-subkey alongside the existing `converter` / `axes` / `source` /
+namespace and the manifest sidecar gain a `calibration` subkey
+alongside the existing `converter` / `axes` / `source` /
 `provenance_classification` / `diagnostics` sections. The subkey
 is **additive**: when `resolved_calibration` is `None` or empty,
 the namespace byte-shape is identical to the pre-Chunk-15

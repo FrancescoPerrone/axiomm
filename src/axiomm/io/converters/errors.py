@@ -51,8 +51,26 @@ class ConversionWorkflowError(AxiommConverterError):
     """
 
 
+class CalibrationUnresolvedError(AxiommConverterError):
+    """Raised by the calibration resolution ladder in
+    :class:`~axiomm.io.converters.calibration.ConversionMode.STRICT`
+    when a required calibration value cannot be resolved from either
+    source metadata or explicit user configuration.
+
+    The message names the missing calibration and how to provide it
+    (e.g. ``calibration={"energy_scale": ResolvedValue(...)}`` or the
+    relevant config field).
+
+    Declared in Phase 4, Chunk 16 alongside the resolution-ladder
+    helpers; raised from Chunk 17 onwards once ``XRMMapH5Calibration``
+    defaults become ``UNRESOLVED`` sentinels rather than concrete
+    legacy values.
+    """
+
+
 __all__ = [
     "AxiommConverterError",
+    "CalibrationUnresolvedError",
     "ConversionWorkflowError",
     "DatasetNotFoundError",
     "InputDiscoveryError",

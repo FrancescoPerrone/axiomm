@@ -35,6 +35,11 @@ from typing import Any
 
 import numpy as np
 
+from axiomm.io.converters.calibration import (
+    CalibrationSource,
+    ConversionMode,
+    ResolvedValue,
+)
 from axiomm.io.converters.errors import MetadataParseError
 from axiomm.io.converters.models import Diagnostic
 # Pure data-decoding helpers — defined in xrmmap_h5 because that
@@ -306,8 +311,177 @@ def resolve_navigation_scale(
     return float(fallback_field_width_um) / xdim, diagnostics, "fallback"
 
 
+# ---------------------------------------------------------------------------
+# Resolution-ladder helpers (Phase 4, Chunk 16)
+# ---------------------------------------------------------------------------
+#
+# These three helpers stamp calibration values with their
+# :class:`CalibrationSource` so downstream code can tell what came from
+# the source file's metadata, what came from a recognised legacy
+# preset, and what remains unresolved. Chunk 16 keeps the *values*
+# unchanged (legacy-equivalent behaviour for the AXIOMM author's
+# inherited dataset); only the provenance annotation is new.
+#
+# Strict-mode enforcement and source-metadata extraction for the
+# energy + ROI-units paths land in later chunks once the calibration
+# dataclasses gain explicit-units / explicit-geometry fields. For now,
+# helpers receive the configured value and the active mode, and
+# return a :class:`ResolvedValue` whose ``source`` reflects what the
+# reader *actually did* on this conversion.
+
+def resolve_energy_scale(
+    config_value: float,
+    *,
+    mode: ConversionMode,
+) -> ResolvedValue:
+    """Resolve the per-channel energy width for the spectral axis.
+
+    Chunk 16 scope: the configured value is taken as a recognised
+    legacy preset and stamped ``CalibrationSource.LEGACY_PRESET``.
+    Source-metadata extraction (e.g. from an HDF5 calibration block)
+    and strict-mode enforcement are introduced in later Phase 4
+    chunks once the calibration dataclass gains an explicit
+    ``UNRESOLVED`` sentinel distinct from a concrete legacy value.
+    """
+    return ResolvedValue(
+        value=float(config_value),
+        source=CalibrationSource.LEGACY_PRESET,
+        note=f"reader config default (mode={mode.value})",
+    )
+
+
+def resolve_roi_limit_interpretation(
+    roi_limit_scale: float,
+    *,
+    mode: ConversionMode,
+) -> ResolvedValue:
+    """Resolve the unit interpretation of ROI limits.
+
+    The historical reader scales raw integer ROI limits at
+    ``/xrmmap/config/rois/limits`` by a configured
+    ``roi_limit_scale``; the prototype used ``0.01``. The AXIOMM
+    metadata audit (2026-06-12, ``melts/data/metadata_audit_report
+    .md``) confirms that for the inherited APS 13-ID-E dataset the
+    integer limits at ``/xrmmap/config/rois/limits`` are **MCA
+    channel indices** (shape ``(n_rois, n_variants, 2)``, dtype
+    ``int32``/``int64``, values like ``[10, 4090]``, no ``keV``
+    or ``type`` attrs), and the ``0.01`` multiplier numerically
+    coincides with the MCA ``slope`` calibration — so the
+    operation is a channel→keV conversion via the energy
+    calibration, **not** a centi-keV unit scaling. The audit also
+    notes that this dataset additionally stores explicit keV-form
+    ROI windows at ``/xrmmap/roimap/mcasum/<ROI>/limits`` with
+    ``attrs.type='energy'`` and ``attrs.units='keV'``, which the
+    converter should prefer once Chunk 18 lands.
+
+    For Chunk 16 the helper records what the reader *currently
+    does* (multiply integer limits by ``roi_limit_scale``) and
+    stamps the unit interpretation as :attr:`CalibrationSource
+    .INFERRED` — not :attr:`LEGACY_PRESET` — because the unit
+    token is inferred from the numeric scale, not from a recognised
+    named preset. When the scale equals the historic ``0.01`` the
+    inferred token is ``"channel_index"`` (audit-supported);
+    otherwise ``"unknown"``. Chunk 18 will introduce an explicit
+    ``roi_limit_units`` literal (``centi_keV`` / ``keV`` /
+    ``channel_index``) that disambiguates and switches the source
+    to :attr:`USER_CONFIG` when supplied.
+
+    In :class:`ConversionMode.STRICT` the helper reports
+    :attr:`CalibrationSource.UNKNOWN` so downstream Chunk-17 code
+    can raise :class:`CalibrationUnresolvedError`; the actual
+    raise is not wired in Chunk 16.
+    """
+    if mode is ConversionMode.STRICT:
+        return ResolvedValue(
+            value="unknown",
+            source=CalibrationSource.UNKNOWN,
+            note=(
+                "strict mode: ROI limit units must be supplied "
+                "explicitly via the calibration dataclass field "
+                "introduced in Chunk 18."
+            ),
+        )
+    inferred = (
+        "channel_index" if abs(roi_limit_scale - 0.01) < 1e-9 else "unknown"
+    )
+    return ResolvedValue(
+        value=inferred,
+        source=CalibrationSource.INFERRED,
+        note=(
+            f"roi_limit_scale={roi_limit_scale} inferred as "
+            f"{inferred!r} (mode={mode.value}); per 2026-06-12 "
+            f"audit of /xrmmap/config/rois/limits on the inherited "
+            f"APS 13-ID-E dataset, integer ROI limits are channel "
+            f"indices and the 0.01 multiplier matches mca_calib/slope. "
+            f"Prefer /xrmmap/roimap/mcasum/<ROI>/limits when reading "
+            f"keV-labelled ROIs (planned for Chunk 18)."
+        ),
+    )
+
+
+def resolve_navigation_scale_calibration(
+    environ: dict[str, str],
+    *,
+    beam_size_key: str | None,
+    fallback_field_width_um: float | None,
+    xdim: int,
+    mode: ConversionMode,
+) -> tuple[ResolvedValue, list[Diagnostic]]:
+    """Resolve the navigation pixel scale with provenance.
+
+    Thin wrapper over :func:`resolve_navigation_scale` that maps the
+    legacy ``source_tag`` string into a :class:`CalibrationSource`:
+
+    * ``beam_size`` → :attr:`CalibrationSource.SOURCE_METADATA` —
+      the value was read from the file's environ table.
+    * ``fallback`` → :attr:`CalibrationSource.LEGACY_PRESET` —
+      ``fallback_field_width_um / xdim`` was applied; the geology
+      team flagged this fallback as *not beam size*, more likely a
+      scan-field width legacy.
+    * ``unit`` → :attr:`CalibrationSource.UNKNOWN` — no environ
+      beam size, no fallback, scale defaulted to ``1.0``.
+
+    The existing :func:`resolve_navigation_scale` remains as-is so
+    callers that don't need provenance continue to work unchanged.
+    """
+    value, diagnostics, source_tag = resolve_navigation_scale(
+        environ,
+        beam_size_key=beam_size_key,
+        fallback_field_width_um=fallback_field_width_um,
+        xdim=xdim,
+    )
+    source_map = {
+        "beam_size": CalibrationSource.SOURCE_METADATA,
+        "fallback": CalibrationSource.LEGACY_PRESET,
+        "unit": CalibrationSource.UNKNOWN,
+    }
+    note_map = {
+        "beam_size": (
+            f"parsed from environ {beam_size_key!r} (mode={mode.value})"
+        ),
+        "fallback": (
+            f"fallback_field_width_um={fallback_field_width_um} / "
+            f"xdim={xdim} (mode={mode.value})"
+        ),
+        "unit": (
+            f"no beam size, no fallback: scale 1.0 (mode={mode.value})"
+        ),
+    }
+    return (
+        ResolvedValue(
+            value=value,
+            source=source_map[source_tag],
+            note=note_map[source_tag],
+        ),
+        diagnostics,
+    )
+
+
 __all__ = [
     "read_environ_table",
     "read_roi_table",
+    "resolve_energy_scale",
     "resolve_navigation_scale",
+    "resolve_navigation_scale_calibration",
+    "resolve_roi_limit_interpretation",
 ]

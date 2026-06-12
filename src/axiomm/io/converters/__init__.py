@@ -27,6 +27,7 @@ from axiomm.io.converters.calibration import (
 from axiomm.io.converters.discovery import discover_inputs
 from axiomm.io.converters.errors import (
     AxiommConverterError,
+    CalibrationUnresolvedError,
     ConversionWorkflowError,
     DatasetNotFoundError,
     InputDiscoveryError,
@@ -57,6 +58,7 @@ __all__ = [
     "ResolvedValue",
     # exception hierarchy
     "AxiommConverterError",
+    "CalibrationUnresolvedError",
     "ConversionWorkflowError",
     "DatasetNotFoundError",
     "InputDiscoveryError",

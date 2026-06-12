@@ -27,6 +27,11 @@ from typing import Any
 import numpy as np
 
 from axiomm import __version__ as _axiomm_version
+from axiomm.io.converters.calibration import (
+    CalibrationSource,
+    ConversionMode,
+    ResolvedValue,
+)
 from axiomm.io.converters.errors import DatasetNotFoundError
 from axiomm.io.converters.metadata import (
     nest_classification,
@@ -41,7 +46,10 @@ from axiomm.io.converters.models import (
 from axiomm.io.converters.readers.hdf5_helpers import (
     read_environ_table,
     read_roi_table,
+    resolve_energy_scale,
     resolve_navigation_scale,
+    resolve_navigation_scale_calibration,
+    resolve_roi_limit_interpretation,
 )
 from axiomm.io.converters.readers.hdf5_schema import HDF5MapSchema
 
@@ -127,10 +135,12 @@ class GenericHDF5MapReader:
         schema: HDF5MapSchema,
         config: HDF5MapConfig | None = None,
         name: str = "generic_hdf5_map",
+        mode: ConversionMode = ConversionMode.LEGACY,
     ) -> None:
         self.schema = schema
         self.config = config or HDF5MapConfig()
         self.name = name
+        self.mode = mode
 
     # -- Reader protocol ----------------------------------------------------
 
@@ -237,12 +247,19 @@ class GenericHDF5MapReader:
                     f"{self.config.roi_limit_scale} applied to raw integer limits)"
                 )
 
-        nav_scale_um, scale_diag, scale_source = resolve_navigation_scale(
+        nav_scale_resolved, scale_diag = resolve_navigation_scale_calibration(
             environ,
             beam_size_key=self.schema.beam_size_key,
             fallback_field_width_um=self.config.fallback_field_width_um,
             xdim=xdim,
+            mode=self.mode,
         )
+        nav_scale_um = nav_scale_resolved.value
+        scale_source = {
+            CalibrationSource.SOURCE_METADATA: "beam_size",
+            CalibrationSource.LEGACY_PRESET: "fallback",
+            CalibrationSource.UNKNOWN: "unit",
+        }[nav_scale_resolved.source]
         diagnostics.extend(scale_diag)
         nav_scale_bucket = {
             "beam_size": "observed",
@@ -309,6 +326,72 @@ class GenericHDF5MapReader:
             ),
         )
 
+        # --- calibration provenance (Phase 4, Chunk 16) -------------------
+        resolved_calibration: dict[str, ResolvedValue] = {
+            "navigation_scale": nav_scale_resolved,
+            "energy_scale": resolve_energy_scale(
+                self.config.energy_scale, mode=self.mode,
+            ),
+            "roi_limit_units": resolve_roi_limit_interpretation(
+                self.config.roi_limit_scale, mode=self.mode,
+            ),
+        }
+        preset_names = sorted(
+            name for name, rv in resolved_calibration.items()
+            if rv.source is CalibrationSource.LEGACY_PRESET
+        )
+        if preset_names:
+            diagnostics.append(
+                Diagnostic(
+                    severity="info",
+                    code="calibration_resolved_from_preset",
+                    message=(
+                        f"Resolved {', '.join(preset_names)} from the "
+                        f"generic HDF5MapConfig preset (mode="
+                        f"{self.mode.value}). Pass an explicit calibration "
+                        f"or switch to a different mode to override."
+                    ),
+                    context={"keys": preset_names, "mode": self.mode.value},
+                )
+            )
+        metadata_resolved_names = sorted(
+            name for name, rv in resolved_calibration.items()
+            if rv.source is CalibrationSource.SOURCE_METADATA
+        )
+        if metadata_resolved_names:
+            diagnostics.append(
+                Diagnostic(
+                    severity="info",
+                    code="calibration_resolved_from_metadata",
+                    message=(
+                        f"Resolved {', '.join(metadata_resolved_names)} "
+                        f"from source-file metadata (mode={self.mode.value})."
+                    ),
+                    context={
+                        "keys": metadata_resolved_names,
+                        "mode": self.mode.value,
+                    },
+                )
+            )
+        inferred_names = sorted(
+            name for name, rv in resolved_calibration.items()
+            if rv.source is CalibrationSource.INFERRED
+        )
+        if inferred_names:
+            diagnostics.append(
+                Diagnostic(
+                    severity="info",
+                    code="calibration_inferred",
+                    message=(
+                        f"Inferred {', '.join(inferred_names)} from numeric "
+                        f"config values (mode={self.mode.value}); see each "
+                        f"resolved_calibration entry's note for the rule. "
+                        f"Supply explicit calibration to override."
+                    ),
+                    context={"keys": inferred_names, "mode": self.mode.value},
+                )
+            )
+
         # Manifest / signal metadata carries the schema and the
         # scientific config together — the manifest writer doesn't need
         # to know which reader produced the payload; it just serialises
@@ -344,6 +427,7 @@ class GenericHDF5MapReader:
             provenance=provenance,
             diagnostics=diagnostics,
             title=source_path.stem,
+            resolved_calibration=resolved_calibration,
         )
 
 

@@ -110,7 +110,7 @@ The five decisions locked in 2026-06-12 with Francesco:
 | #  | Chunk                                                                  | Status     |
 |----|------------------------------------------------------------------------|------------|
 | 15 | Calibration provenance primitives (`CalibrationSource`, `ConversionMode`, `ResolvedValue`); extend `AxiommSignalPayload`; propagate through metadata + manifest | ✅ done    |
-| 16 | Resolution ladder + mode plumbing in `XRMMapH5Reader` and `GenericHDF5MapReader`; new diagnostic codes | ⬜ pending |
+| 16 | Resolution ladder + mode plumbing in `XRMMapH5Reader` and `GenericHDF5MapReader`; new diagnostic codes | ✅ done    |
 | 17 | Legacy preset extraction (`presets.py`, `XRMMAP_LEGACY_APS_13_ID_E_PRESET_V1`); split `XRMMapH5Config` into calibration + schema | ⬜ pending |
 | 18 | Explicit-units ROI (`roi_limit_units`) + explicit-geometry spatial (`field_width_um`, `pixel_size_um`); rename `fallback_field_width_um` → `legacy_field_width_um`; **flip default mode to `generic`** | ⬜ pending |
 | 19 | Documentation + status closure: rewrite "Scientific assumptions" section → "Calibration resolution: precedence, modes, presets"; wiki Known-Issues entry; wiki Home status row ✅ | ⬜ pending |
