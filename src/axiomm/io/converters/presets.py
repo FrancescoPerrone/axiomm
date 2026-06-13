@@ -28,6 +28,23 @@ from __future__ import annotations
 
 import importlib
 from dataclasses import dataclass
+from typing import Literal
+
+
+#: Token type for the ``roi_limit_units`` field. Three documented
+#: tokens disambiguate how integer ROI limits at
+#: ``/xrmmap/config/rois/limits`` should be interpreted:
+#:
+#: * ``"centi_keV"`` — limits are integers in centi-keV; multiply
+#:   by ``0.01`` to recover keV.
+#: * ``"keV"`` — limits are already in keV; no conversion.
+#: * ``"channel_index"`` — limits are MCA channel indices; multiply
+#:   by the resolved ``energy_scale`` to recover keV.
+#:
+#: The 2026-06-12 metadata audit on the inherited APS 13-ID-E
+#: dataset confirmed ``channel_index`` for that data — see
+#: :data:`XRMMAP_LEGACY_APS_13_ID_E_PRESET_V1`.
+RoiLimitUnits = Literal["centi_keV", "keV", "channel_index"]
 
 
 @dataclass(frozen=True)
@@ -37,11 +54,11 @@ class XRMMapH5Calibration:
 
     Every field defaults to ``None``. The reader's resolution ladder
     treats ``None`` as **"not user-supplied"** and falls back to the
-    active preset (legacy mode), emits a warning (generic mode), or
-    raises :class:`~axiomm.io.converters.errors
-    .CalibrationUnresolvedError` (strict mode). A non-``None`` value
-    is treated as ``CalibrationSource.USER_CONFIG`` and always wins
-    over the preset.
+    active preset (legacy / generic / diagnostic modes), or raises
+    :class:`~axiomm.io.converters.errors.CalibrationUnresolvedError`
+    (strict mode). A non-``None`` value is treated as
+    :attr:`CalibrationSource.USER_CONFIG` and always wins over the
+    preset.
 
     The class is intentionally separate from
     :class:`~axiomm.io.converters.readers.hdf5_schema.HDF5MapSchema`,
@@ -54,22 +71,34 @@ class XRMMapH5Calibration:
     ----------
     energy_scale
         Per-MCA-channel energy width in keV. The AXIOMM legacy
-        dataset stores `0.01 keV/channel` at
+        dataset stores ``0.01 keV/channel`` at
         ``/xrmmap/config/mca_calib/slope``; the preset reproduces
-        that value as ``40.96 / 4096``. Chunk 18 reads this directly
-        from the source HDF5 metadata when available.
-    roi_limit_scale
-        Multiplier applied to integer ROI limits at
-        ``/xrmmap/config/rois/limits``. For the legacy dataset this
-        is ``0.01`` and converts MCA channel indices to keV (it
-        numerically coincides with ``mca_calib/slope``).
-    fallback_field_width_um
-        Total map field width in µm used when no beam-size value is
-        present in the environ table. Audit-confirmed as scan-field
-        extent, **not** beam size; ``500.0`` is the legacy fallback
-        for the inherited ``ISE_500sqaures_…`` files. Chunk 18
-        replaces this with an explicit ``field_width_um`` /
-        ``pixel_size_um`` pair.
+        that value as ``40.96 / 4096``.
+    roi_limit_units
+        Explicit unit interpretation of the integer ROI limits at
+        ``/xrmmap/config/rois/limits``. One of
+        :data:`RoiLimitUnits`. Replaces the previous numeric
+        ``roi_limit_scale`` field — the scale is now derived from
+        the resolved ``energy_scale`` when units are
+        ``"channel_index"``, fixed at ``0.01`` for ``"centi_keV"``,
+        and identity for ``"keV"``.
+    field_width_um, field_height_um
+        Total map extent in µm along the navigation X / Y axes.
+        When set, the reader uses ``field_width_um / xdim`` as the
+        navigation pixel scale rather than consulting the environ
+        beam-size key. Either may be omitted independently.
+    pixel_size_um
+        Direct navigation pixel scale in µm. If set, takes priority
+        over ``field_width_um`` / ``field_height_um`` / environ-table
+        ``beam_size`` for the reported axis scale.
+    legacy_field_width_um
+        Total map width in µm used as the legacy fallback when no
+        beam size is in the environ table and no explicit
+        ``field_width_um`` / ``pixel_size_um`` is supplied. Audit-
+        confirmed as **scan-field extent**, not beam size; ``500.0``
+        is the legacy value for the inherited ``ISE_500sqaures_…``
+        files. Renamed in Chunk 18 from the misleading
+        ``fallback_field_width_um``.
     roi_variant_index
         Variant axis index for ROI limits stored as
         ``(n_rois, n_variants, 2)`` (per-detector or per-fit-pass).
@@ -77,8 +106,11 @@ class XRMMapH5Calibration:
     """
 
     energy_scale: float | None = None
-    roi_limit_scale: float | None = None
-    fallback_field_width_um: float | None = None
+    roi_limit_units: RoiLimitUnits | None = None
+    field_width_um: float | None = None
+    field_height_um: float | None = None
+    pixel_size_um: float | None = None
+    legacy_field_width_um: float | None = None
     roi_variant_index: int | None = None
 
 
@@ -87,20 +119,22 @@ class XRMMapH5Calibration:
 #: audit on ``~/Desktop/research/melts/data/Maps-HDF5/`` —
 #: ``/xrmmap`` attribute ``Beamline = 'GSECARS, 13-IDE / APS'``,
 #: ``mca_calib/slope = 0.01`` per channel, 4096-channel MCA,
+#: integer ROI limits at ``/xrmmap/config/rois/limits`` are
+#: channel indices (so ``roi_limit_units = "channel_index"``), and
 #: scan-field width 500 µm for the ``500sqaures`` family.
 #:
 #: This preset is consulted by
 #: :class:`~axiomm.io.converters.readers.xrmmap_h5.XRMMapH5Reader`
 #: only when :class:`~axiomm.io.converters.calibration
 #: .ConversionMode` is ``LEGACY`` / ``GENERIC`` / ``DIAGNOSTIC``;
-#: ``STRICT`` mode refuses to apply it. The preset value still
-#: shows up under ``signal.metadata.AXIOMM.calibration.*.value``
-#: with ``source = "legacy_preset"`` so post-hoc inspection can
-#: tell every preset-derived value apart from user-supplied ones.
+#: ``STRICT`` mode refuses to apply it. Every preset-derived value
+#: shows up under ``signal.metadata.AXIOMM.calibration.*`` with
+#: ``source = "legacy_preset"`` so post-hoc inspection can tell
+#: every preset-derived value apart from user-supplied ones.
 XRMMAP_LEGACY_APS_13_ID_E_PRESET_V1: XRMMapH5Calibration = XRMMapH5Calibration(
     energy_scale=40.96 / 4096,
-    roi_limit_scale=0.01,
-    fallback_field_width_um=500.0,
+    roi_limit_units="channel_index",
+    legacy_field_width_um=500.0,
     roi_variant_index=0,
 )
 
@@ -154,6 +188,7 @@ def register_preset(name: str, target: str) -> None:
 
 
 __all__ = [
+    "RoiLimitUnits",
     "XRMMapH5Calibration",
     "XRMMAP_LEGACY_APS_13_ID_E_PRESET_V1",
     "get_preset",

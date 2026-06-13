@@ -40,8 +40,12 @@ from axiomm.io.converters.calibration import (
     ConversionMode,
     ResolvedValue,
 )
-from axiomm.io.converters.errors import MetadataParseError
+from axiomm.io.converters.errors import (
+    CalibrationUnresolvedError,
+    MetadataParseError,
+)
 from axiomm.io.converters.models import Diagnostic
+from axiomm.io.converters.presets import RoiLimitUnits
 # Pure data-decoding helpers — defined in xrmmap_h5 because that
 # module landed first; importable from either location.
 from axiomm.io.converters.readers.xrmmap_h5 import (
@@ -389,172 +393,271 @@ def resolve_energy_scale(
 
 
 def resolve_roi_limit_interpretation(
-    user_value: float | None,
-    preset_value: float | None,
+    user_units: RoiLimitUnits | None,
+    preset_units: RoiLimitUnits | None,
     *,
     mode: ConversionMode,
 ) -> ResolvedValue:
     """Resolve the unit interpretation of integer ROI limits.
 
-    Resolution ladder (Chunk 17): walk ``USER_CONFIG`` →
-    ``LEGACY_PRESET`` to pick the underlying ``roi_limit_scale``,
-    then infer the unit token from that scale. The returned
-    :class:`ResolvedValue` always has source :attr:`INFERRED` (when
-    a scale was found) or :attr:`UNKNOWN` (when no scale survives
-    the ladder) — the unit token is by definition an inference
-    from the numeric scale, regardless of whether the scale came
-    from the user or the preset. The note text records *where the
-    scale came from* so the manifest sidecar still tells the full
-    story.
+    Phase 4, Chunk 18: the helper now takes **explicit unit tokens**
+    rather than a numeric scale. Three tokens are documented in
+    :data:`~axiomm.io.converters.presets.RoiLimitUnits`:
 
-    The 2026-06-12 metadata audit on
-    ``~/Desktop/research/melts/data/Maps-HDF5/`` confirms that
-    integer limits at ``/xrmmap/config/rois/limits`` are MCA channel
-    indices and the historic ``0.01`` multiplier numerically
-    coincides with ``mca_calib/slope`` — making the operation a
-    channel→keV conversion via the energy calibration, *not* a
-    centi-keV unit scaling. The audit also records that this
-    dataset stores explicit keV-form ROI windows at
-    ``/xrmmap/roimap/mcasum/<ROI>/limits`` with ``attrs.type='energy'``
-    / ``attrs.units='keV'``; Chunk 18 will prefer those when
-    available.
+    * ``"centi_keV"`` — limits are integers in centi-keV.
+    * ``"keV"`` — limits are already in keV.
+    * ``"channel_index"`` — limits are MCA channel indices; the
+      reader scales them by the resolved ``energy_scale``.
+
+    The token is the *meaning* of the integer limits. The numeric
+    multiplier the reader actually applies is derived by
+    :func:`compute_roi_scale_from_units` after both the unit and the
+    ``energy_scale`` have been resolved — this removes the
+    centi-keV ↔ channel-index degeneracy that motivated the rewrite.
+
+    Resolution order: ``USER_CONFIG`` (non-``None`` user token) →
+    :attr:`CalibrationSource.LEGACY_PRESET` (non-``None`` preset token
+    in non-strict modes) → :attr:`CalibrationSource.UNKNOWN`.
     """
+    if user_units is not None:
+        return ResolvedValue(
+            value=user_units,
+            source=CalibrationSource.USER_CONFIG,
+            note=(
+                f"user-supplied roi_limit_units={user_units!r} "
+                f"(mode={mode.value})"
+            ),
+        )
     if mode is ConversionMode.STRICT:
         return ResolvedValue(
             value="unknown",
             source=CalibrationSource.UNKNOWN,
             note=(
-                "strict mode: roi_limit_scale must be supplied "
-                "explicitly via XRMMapH5Calibration(roi_limit_scale=...)."
+                "strict mode: roi_limit_units must be supplied "
+                "explicitly via the calibration's `roi_limit_units` "
+                "field."
             ),
         )
-    if user_value is not None:
-        scale = float(user_value)
-        scale_origin = "user-supplied via calibration field"
-    elif preset_value is not None:
-        scale = float(preset_value)
-        scale_origin = "from legacy preset"
-    else:
+    if preset_units is None:
         return ResolvedValue(
             value="unknown",
             source=CalibrationSource.UNKNOWN,
             note=f"no user value, no preset (mode={mode.value})",
         )
-    inferred = "channel_index" if abs(scale - 0.01) < 1e-9 else "unknown"
     return ResolvedValue(
-        value=inferred,
-        source=CalibrationSource.INFERRED,
+        value=preset_units,
+        source=CalibrationSource.LEGACY_PRESET,
         note=(
-            f"roi_limit_scale={scale} ({scale_origin}, mode="
-            f"{mode.value}) inferred as {inferred!r}; per 2026-06-12 "
-            f"audit on /xrmmap/config/rois/limits the inherited APS "
-            f"13-ID-E dataset stores channel indices and 0.01 matches "
-            f"mca_calib/slope. Prefer /xrmmap/roimap/mcasum/<ROI>/limits "
-            f"when reading keV-labelled ROIs (planned for Chunk 18)."
+            f"applied roi_limit_units={preset_units!r} from legacy "
+            f"preset (mode={mode.value})"
         ),
     )
+
+
+def compute_roi_scale_from_units(
+    units: RoiLimitUnits | str,
+    energy_scale: float | None,
+) -> float | None:
+    """Map a resolved :data:`RoiLimitUnits` token to a numeric
+    multiplier for integer ROI limits.
+
+    Returns ``None`` when the multiplier can't be derived (token is
+    ``"channel_index"`` but no ``energy_scale`` resolved, or the
+    token is unrecognised — e.g. ``"unknown"``). Callers fall back
+    to ``1.0`` and emit a diagnostic, or raise in strict mode.
+    """
+    if units == "centi_keV":
+        return 0.01
+    if units == "keV":
+        return 1.0
+    if units == "channel_index":
+        if energy_scale is None:
+            return None
+        return float(energy_scale)
+    return None
 
 
 def resolve_navigation_scale_calibration(
     environ: dict[str, str],
     *,
     beam_size_key: str | None,
-    user_fallback_um: float | None,
-    preset_fallback_um: float | None,
+    user_pixel_size_um: float | None = None,
+    user_field_width_um: float | None = None,
+    preset_legacy_field_width_um: float | None = None,
     xdim: int,
     mode: ConversionMode,
 ) -> tuple[ResolvedValue, list[Diagnostic]]:
-    """Resolve the navigation pixel scale with full ladder + provenance.
+    """Resolve the navigation pixel scale with the full ladder.
 
-    Resolution order (Chunk 17):
+    Phase 4, Chunk 18: the ladder now consumes the explicit-geometry
+    fields introduced on :class:`XRMMapH5Calibration` /
+    :class:`HDF5MapCalibration`. Resolution order:
 
-    1. Environ table ``beam_size_key`` →
-       :attr:`CalibrationSource.SOURCE_METADATA`. Outranks user
-       config because the file's own metadata is the most
-       authoritative source for a beamline-set scale.
-    2. ``user_fallback_um`` (non-``None``) →
-       :attr:`CalibrationSource.USER_CONFIG`.
-    3. ``preset_fallback_um`` (non-``None``, only if mode is not
-       :attr:`ConversionMode.STRICT`) →
-       :attr:`CalibrationSource.LEGACY_PRESET`. The geology team
-       flagged this fallback as *not beam size* — most likely a
-       scan-field width legacy. The 2026-06-12 audit confirmed
-       that interpretation.
-    4. Otherwise → :attr:`CalibrationSource.UNKNOWN` with scale
+    1. **Environ table** ``beam_size_key`` →
+       :attr:`CalibrationSource.SOURCE_METADATA`. The file's own
+       beam-size metadata wins.
+    2. ``user_pixel_size_um`` (non-``None``) →
+       :attr:`CalibrationSource.USER_CONFIG`. Direct scale, no
+       division.
+    3. ``user_field_width_um`` (non-``None``) →
+       :attr:`CalibrationSource.USER_CONFIG`. Scale =
+       ``user_field_width_um / xdim``.
+    4. ``preset_legacy_field_width_um`` (non-``None``, only in
+       non-strict modes) → :attr:`CalibrationSource.LEGACY_PRESET`.
+       Scale = ``preset_legacy_field_width_um / xdim``. The
+       2026-06-12 audit confirmed this is scan-field extent, not
+       beam size — hence the explicit ``legacy_field_width_um``
+       naming (renamed from ``fallback_field_width_um``).
+    5. Otherwise → :attr:`CalibrationSource.UNKNOWN` with scale
        ``1.0``; the reader raises in strict mode.
-
-    The lower-level :func:`resolve_navigation_scale` is reused
-    unchanged for the environ-vs-fallback decision; this wrapper
-    layers the user/preset choice on top.
     """
-    if user_fallback_um is not None:
-        effective_fallback = user_fallback_um
-        fallback_origin = "user"
-    elif mode is not ConversionMode.STRICT and preset_fallback_um is not None:
-        effective_fallback = preset_fallback_um
-        fallback_origin = "preset"
-    else:
-        effective_fallback = None
-        fallback_origin = "none"
-
-    value, diagnostics, source_tag = resolve_navigation_scale(
-        environ,
-        beam_size_key=beam_size_key,
-        fallback_field_width_um=effective_fallback,
-        xdim=xdim,
+    # Environ beam_size wins outright (when present and parseable).
+    diagnostics: list[Diagnostic] = []
+    beam_size_str = (
+        environ.get(beam_size_key) if beam_size_key is not None else None
     )
+    if beam_size_str is not None:
+        try:
+            parsed = parse_micrometre_value(beam_size_str)
+            return (
+                ResolvedValue(
+                    value=parsed,
+                    source=CalibrationSource.SOURCE_METADATA,
+                    note=(
+                        f"parsed from environ {beam_size_key!r} "
+                        f"(mode={mode.value})"
+                    ),
+                ),
+                diagnostics,
+            )
+        except MetadataParseError as exc:
+            diagnostics.append(
+                Diagnostic(
+                    severity="warning",
+                    code="beam_size_unparseable",
+                    message=(
+                        f"Could not parse beam size {beam_size_str!r}: "
+                        f"{exc}. Falling through the resolution ladder."
+                    ),
+                )
+            )
+    elif beam_size_key is not None:
+        diagnostics.append(
+            Diagnostic(
+                severity="warning",
+                code="beam_size_missing",
+                message=(
+                    f"Beam-size key {beam_size_key!r} not found in the "
+                    f"configuration table; falling through the "
+                    f"resolution ladder."
+                ),
+            )
+        )
 
-    if source_tag == "beam_size":
+    # User-supplied pixel size — direct scale.
+    if user_pixel_size_um is not None:
         return (
             ResolvedValue(
-                value=value,
-                source=CalibrationSource.SOURCE_METADATA,
+                value=float(user_pixel_size_um),
+                source=CalibrationSource.USER_CONFIG,
                 note=(
-                    f"parsed from environ {beam_size_key!r} "
+                    f"user-supplied pixel_size_um="
+                    f"{user_pixel_size_um} (mode={mode.value})"
+                ),
+            ),
+            diagnostics,
+        )
+
+    # User-supplied field width — derived scale.
+    if user_field_width_um is not None:
+        return (
+            ResolvedValue(
+                value=float(user_field_width_um) / xdim,
+                source=CalibrationSource.USER_CONFIG,
+                note=(
+                    f"user-supplied field_width_um="
+                    f"{user_field_width_um} / xdim={xdim} "
                     f"(mode={mode.value})"
                 ),
             ),
             diagnostics,
         )
-    if source_tag == "fallback" and fallback_origin == "user":
+
+    # Legacy preset (only in non-strict modes).
+    if (
+        mode is not ConversionMode.STRICT
+        and preset_legacy_field_width_um is not None
+    ):
         return (
             ResolvedValue(
-                value=value,
-                source=CalibrationSource.USER_CONFIG,
-                note=(
-                    f"user-supplied fallback_field_width_um="
-                    f"{user_fallback_um} / xdim={xdim} (mode={mode.value})"
-                ),
-            ),
-            diagnostics,
-        )
-    if source_tag == "fallback" and fallback_origin == "preset":
-        return (
-            ResolvedValue(
-                value=value,
+                value=float(preset_legacy_field_width_um) / xdim,
                 source=CalibrationSource.LEGACY_PRESET,
                 note=(
-                    f"preset fallback_field_width_um="
-                    f"{preset_fallback_um} / xdim={xdim} (mode={mode.value})"
+                    f"applied legacy_field_width_um="
+                    f"{preset_legacy_field_width_um} / xdim={xdim} "
+                    f"from legacy preset (mode={mode.value})"
                 ),
             ),
             diagnostics,
         )
-    # source_tag == "unit": no environ beam size and no usable fallback
+
+    # Nothing resolved.
+    diagnostics.append(
+        Diagnostic(
+            severity="warning",
+            code="navigation_scale_unknown",
+            message=(
+                f"No beam size in environ, no user pixel_size_um / "
+                f"field_width_um, no preset legacy_field_width_um "
+                f"applicable (mode={mode.value}); navigation scale "
+                f"set to 1.0."
+            ),
+        )
+    )
     return (
         ResolvedValue(
-            value=value,
+            value=1.0,
             source=CalibrationSource.UNKNOWN,
             note=(
-                f"no beam size in environ, no fallback applicable "
-                f"(mode={mode.value}): scale defaulted to 1.0"
+                f"no resolved scale (mode={mode.value}); scale "
+                f"defaulted to 1.0"
             ),
         ),
         diagnostics,
     )
 
 
+def raise_if_strict_unresolved(
+    mode: ConversionMode,
+    resolved_calibration: dict[str, ResolvedValue],
+) -> None:
+    """Raise :class:`CalibrationUnresolvedError` when any calibration
+    value remains :attr:`CalibrationSource.UNKNOWN` under strict mode.
+
+    Shared by both readers (Chunk 18) so the strict-mode policy is
+    enforced from one canonical place.
+    """
+    if mode is not ConversionMode.STRICT:
+        return
+    unresolved = sorted(
+        name for name, rv in resolved_calibration.items()
+        if rv.source is CalibrationSource.UNKNOWN
+    )
+    if not unresolved:
+        return
+    raise CalibrationUnresolvedError(
+        f"strict mode: the following calibration values could not be "
+        f"resolved from user-supplied configuration: "
+        f"{', '.join(unresolved)}. Pass an explicit calibration "
+        f"(XRMMapH5Calibration / HDF5MapCalibration) with those fields "
+        f"set, or switch to ConversionMode.LEGACY / GENERIC to allow "
+        f"preset fallbacks."
+    )
+
+
 __all__ = [
+    "compute_roi_scale_from_units",
+    "raise_if_strict_unresolved",
     "read_environ_table",
     "read_roi_table",
     "resolve_energy_scale",

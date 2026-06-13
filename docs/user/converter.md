@@ -141,18 +141,38 @@ from axiomm.io.converters import XRMMapH5Calibration, XRMMapH5Reader
 
 reader = XRMMapH5Reader(
     calibration=XRMMapH5Calibration(
-        energy_scale=0.005,       # your instrument's keV/channel
-        roi_limit_scale=0.01,
-        fallback_field_width_um=300.0,
+        energy_scale=0.005,                   # keV per MCA channel
+        roi_limit_units="channel_index",      # one of centi_keV/keV/channel_index
+        pixel_size_um=2.0,                    # direct navigation pixel scale
+        # or, equivalently:
+        # field_width_um=200.0,               # for a 100-pixel-wide map
     ),
 )
 ```
 
-Any field left as `None` falls back to the named legacy preset
-`XRMMAP_LEGACY_APS_13_ID_E_PRESET_V1` when the conversion mode is
-`LEGACY` (the default) — `GENERIC` / `DIAGNOSTIC` still consult the
-preset but escalate the diagnostic, and `STRICT` raises
-`CalibrationUnresolvedError`.
+The new fields (Phase 4, Chunk 18):
+
+* `roi_limit_units` — explicit unit interpretation of integer ROI
+  limits. `"centi_keV"` divides by 100, `"keV"` is identity, and
+  `"channel_index"` multiplies by the resolved `energy_scale`. The
+  audit-supported default for the inherited APS 13-ID-E dataset is
+  `"channel_index"`.
+* `pixel_size_um` — direct navigation pixel scale; wins over
+  `field_width_um` / `field_height_um` and the legacy fallback.
+* `field_width_um` / `field_height_um` — total map extent in µm;
+  the reader derives the navigation scale as `width / xdim`.
+* `legacy_field_width_um` — rename of the misleading
+  `fallback_field_width_um`. Audit-confirmed as **scan-field
+  extent**, not beam size.
+
+Any field left as `None` enters the resolution ladder as
+"not user-supplied". The reader's default `ConversionMode.GENERIC`
+(also new in Chunk 18) emits a **warning** when it falls back to the
+named legacy preset `XRMMAP_LEGACY_APS_13_ID_E_PRESET_V1`. Switch
+to `ConversionMode.LEGACY` to silence the warning on inherited
+files, or `ConversionMode.STRICT` to refuse preset fallback
+altogether and raise `CalibrationUnresolvedError` if anything goes
+unresolved.
 
 ### Picking a ROI variant on real files
 

@@ -216,13 +216,12 @@ class XRMMapH5Reader:
         ``XRMMapH5Calibration()`` are all ``None``.
     mode
         :class:`~axiomm.io.converters.calibration.ConversionMode`
-        controlling the resolution ladder. Defaults to
-        :attr:`~axiomm.io.converters.calibration.ConversionMode.LEGACY`,
-        which falls back to
-        :data:`~axiomm.io.converters.presets
-        .XRMMAP_LEGACY_APS_13_ID_E_PRESET_V1` when a calibration
-        field is unset — preserving the AXIOMM prototype's behaviour
-        on inherited files.
+        controlling the resolution ladder. **Defaults to**
+        :attr:`~axiomm.io.converters.calibration.ConversionMode.GENERIC`
+        since Phase 4, Chunk 18 — the public-release default. Preset
+        fallback still applies but at warning severity. Switch to
+        ``LEGACY`` to silence the warnings on inherited files, or
+        ``STRICT`` to refuse preset fallbacks entirely.
 
     The ladder, per field:
 
@@ -234,8 +233,14 @@ class XRMMapH5Reader:
        .CalibrationUnresolvedError` in strict mode; otherwise marks
        the value unresolved with a diagnostic.
 
-    Source-metadata extraction
-    (e.g. ``/xrmmap/config/mca_calib/slope``) lands in Chunk 18.
+    For ROI limits the calibration carries a ``roi_limit_units``
+    token (Chunk 18; one of ``"centi_keV"`` / ``"keV"`` /
+    ``"channel_index"``); the numeric scale is derived from the
+    resolved unit + ``energy_scale``. For spatial calibration the
+    Chunk-18 ladder consults, in order: environ ``beam_size``
+    (source metadata) → ``pixel_size_um`` (user config) →
+    ``field_width_um / xdim`` (user config) →
+    ``legacy_field_width_um / xdim`` (legacy preset).
     """
 
     name = "xrmmap_h5"
@@ -246,7 +251,7 @@ class XRMMapH5Reader:
         *,
         schema: HDF5MapSchema | None = None,
         calibration: XRMMapH5Calibration | None = None,
-        mode: ConversionMode = ConversionMode.LEGACY,
+        mode: ConversionMode = ConversionMode.GENERIC,
     ) -> None:
         self.schema = schema if schema is not None else XRMMAP_H5_SCHEMA
         self.calibration = (
@@ -329,9 +334,11 @@ class XRMMapH5Reader:
             )
 
         # Resolve the underlying scalar values via the ladder *before*
-        # touching the HDF5 file, so we can pass the resolved
+        # touching the HDF5 file, so we can pass the effective
         # roi_limit_scale into read_roi_table.
         from axiomm.io.converters.readers.hdf5_helpers import (
+            compute_roi_scale_from_units,
+            raise_if_strict_unresolved,
             read_environ_table,
             read_roi_table,
             resolve_energy_scale,
@@ -345,17 +352,19 @@ class XRMMapH5Reader:
             mode=self.mode,
         )
         roi_units_resolved = resolve_roi_limit_interpretation(
-            user_value=self.calibration.roi_limit_scale,
-            preset_value=_LEGACY_PRESET.roi_limit_scale,
+            user_units=self.calibration.roi_limit_units,
+            preset_units=_LEGACY_PRESET.roi_limit_units,
             mode=self.mode,
         )
-        # Effective roi_limit_scale for the integer→keV multiplication
-        # below. Walks the same ladder; uses 1.0 as a no-scale default
-        # when the value is unresolved.
-        effective_roi_scale = self._effective_scalar(
-            user_value=self.calibration.roi_limit_scale,
-            preset_value=_LEGACY_PRESET.roi_limit_scale,
-            default=1.0,
+        # Effective scale for the integer→keV multiplication; derived
+        # from the resolved unit token + energy_scale.
+        effective_roi_scale = (
+            compute_roi_scale_from_units(
+                roi_units_resolved.value,
+                energy_scale_resolved.value,
+            )
+            if roi_units_resolved.source is not CalibrationSource.UNKNOWN
+            else None
         )
         effective_roi_variant_index = self._effective_scalar(
             user_value=self.calibration.roi_variant_index,
@@ -412,17 +421,21 @@ class XRMMapH5Reader:
                 name_path=self.schema.roi_name_path,
                 limits_path=self.schema.roi_limits_path,
                 roi_variant_index=effective_roi_variant_index,
-                roi_limit_scale=effective_roi_scale,
+                roi_limit_scale=(
+                    effective_roi_scale if effective_roi_scale is not None
+                    else 1.0
+                ),
             )
             diagnostics.extend(roi_diag)
             if rois:
                 original_metadata["rois"] = rois
                 classification["observed"].append(
                     f"metadata.rois ({len(rois)} entries from HDF5; "
-                    f"limits scaled by resolved roi_limit_scale)"
+                    f"limits scaled per resolved roi_limit_units="
+                    f"{roi_units_resolved.value!r})"
                 )
                 classification["assumed"].append(
-                    f"metadata.rois.*.start/end (roi_limit_scale="
+                    f"metadata.rois.*.start/end (effective scale="
                     f"{effective_roi_scale} applied to raw integer limits)"
                 )
 
@@ -430,8 +443,11 @@ class XRMMapH5Reader:
         nav_scale_resolved, scale_diag = resolve_navigation_scale_calibration(
             environ,
             beam_size_key=self.schema.beam_size_key,
-            user_fallback_um=self.calibration.fallback_field_width_um,
-            preset_fallback_um=_LEGACY_PRESET.fallback_field_width_um,
+            user_pixel_size_um=self.calibration.pixel_size_um,
+            user_field_width_um=self.calibration.field_width_um,
+            preset_legacy_field_width_um=(
+                _LEGACY_PRESET.legacy_field_width_um
+            ),
             xdim=xdim,
             mode=self.mode,
         )
@@ -473,7 +489,7 @@ class XRMMapH5Reader:
         # Strict-mode enforcement: any UNKNOWN means we couldn't resolve
         # the value from user config or source metadata. Raise with a
         # message that names what's missing and how to supply it.
-        _raise_if_strict_unresolved(self.mode, resolved_calibration)
+        raise_if_strict_unresolved(self.mode, resolved_calibration)
 
         # Mode-driven diagnostic emission. Severity escalates from info
         # (legacy / diagnostic) to warning (generic) because generic mode
@@ -655,28 +671,6 @@ class XRMMapH5Reader:
         return default
 
 
-def _raise_if_strict_unresolved(
-    mode: ConversionMode,
-    resolved_calibration: dict[str, ResolvedValue],
-) -> None:
-    """Raise :class:`CalibrationUnresolvedError` when any calibration
-    value remains :attr:`CalibrationSource.UNKNOWN` under strict mode."""
-    if mode is not ConversionMode.STRICT:
-        return
-    unresolved = sorted(
-        name for name, rv in resolved_calibration.items()
-        if rv.source is CalibrationSource.UNKNOWN
-    )
-    if not unresolved:
-        return
-    raise CalibrationUnresolvedError(
-        f"strict mode: the following calibration values could not be "
-        f"resolved from user-supplied configuration: "
-        f"{', '.join(unresolved)}. Pass an explicit "
-        f"XRMMapH5Calibration to XRMMapH5Reader(calibration=...) "
-        f"with those fields set, or switch to ConversionMode.LEGACY / "
-        f"GENERIC to allow preset fallbacks."
-    )
 
 
 

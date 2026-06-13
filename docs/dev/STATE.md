@@ -112,7 +112,7 @@ The five decisions locked in 2026-06-12 with Francesco:
 | 15 | Calibration provenance primitives (`CalibrationSource`, `ConversionMode`, `ResolvedValue`); extend `AxiommSignalPayload`; propagate through metadata + manifest | ✅ done    |
 | 16 | Resolution ladder + mode plumbing in `XRMMapH5Reader` and `GenericHDF5MapReader`; new diagnostic codes | ✅ done    |
 | 17 | Legacy preset extraction (`presets.py`, `XRMMAP_LEGACY_APS_13_ID_E_PRESET_V1`); split `XRMMapH5Config` → `HDF5MapSchema` + `XRMMapH5Calibration`; resolution-ladder enforcement (`USER_CONFIG` > preset > `STRICT` raise) | ✅ done    |
-| 18 | Explicit-units ROI (`roi_limit_units`) + explicit-geometry spatial (`field_width_um`, `pixel_size_um`); rename `fallback_field_width_um` → `legacy_field_width_um`; **flip default mode to `generic`** | ⬜ pending |
+| 18 | Explicit-units ROI (`roi_limit_units`) + explicit-geometry spatial (`field_width_um`, `field_height_um`, `pixel_size_um`); rename `HDF5MapConfig` → `HDF5MapCalibration` + `fallback_field_width_um` → `legacy_field_width_um`; **flipped default mode to `generic`**; shared `raise_if_strict_unresolved` helper applied to both readers | ✅ done    |
 | 19 | Documentation + status closure: rewrite "Scientific assumptions" section → "Calibration resolution: precedence, modes, presets"; wiki Known-Issues entry; wiki Home status row ✅ | ⬜ pending |
 
 ### Chunk 15 — acceptance criteria

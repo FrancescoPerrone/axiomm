@@ -27,7 +27,7 @@ from axiomm.io.converters import (
     CalibrationUnresolvedError,
     ConversionMode,
     GenericHDF5MapReader,
-    HDF5MapConfig,
+    HDF5MapCalibration,
     XRMMAP_H5_SCHEMA,
     XRMMAP_LEGACY_APS_13_ID_E_PRESET_V1,
     XRMMapH5Calibration,
@@ -77,29 +77,30 @@ def test_resolve_energy_scale_user_wins_over_preset_even_in_strict():
     assert rv.source is CalibrationSource.USER_CONFIG
 
 
-def test_resolve_roi_limit_interpretation_infers_channel_index_for_0_01():
-    """Audit-supported interpretation: 0.01 multiplier on integer
-    /xrmmap/config/rois/limits is a channel→keV conversion using
-    the same slope as mca_calib, not a centi-keV unit scaling."""
+def test_resolve_roi_limit_interpretation_returns_user_config_when_set():
     rv = resolve_roi_limit_interpretation(
-        user_value=None, preset_value=0.01, mode=ConversionMode.LEGACY,
+        user_units="channel_index", preset_units=None,
+        mode=ConversionMode.GENERIC,
     )
     assert rv.value == "channel_index"
-    assert rv.source is CalibrationSource.INFERRED
+    assert rv.source is CalibrationSource.USER_CONFIG
 
 
-def test_resolve_roi_limit_interpretation_marks_unknown_for_unfamiliar_scale():
+def test_resolve_roi_limit_interpretation_falls_back_to_preset():
+    """Per the audit, the legacy preset carries channel_index."""
     rv = resolve_roi_limit_interpretation(
-        user_value=None, preset_value=1.5, mode=ConversionMode.LEGACY,
+        user_units=None, preset_units="channel_index",
+        mode=ConversionMode.LEGACY,
     )
-    assert rv.value == "unknown"
-    assert rv.source is CalibrationSource.INFERRED
+    assert rv.value == "channel_index"
+    assert rv.source is CalibrationSource.LEGACY_PRESET
 
 
 def test_resolve_roi_limit_interpretation_returns_unknown_in_strict_mode():
-    """Strict mode refuses inference."""
+    """Strict mode refuses preset fallback."""
     rv = resolve_roi_limit_interpretation(
-        user_value=None, preset_value=0.01, mode=ConversionMode.STRICT,
+        user_units=None, preset_units="channel_index",
+        mode=ConversionMode.STRICT,
     )
     assert rv.value == "unknown"
     assert rv.source is CalibrationSource.UNKNOWN
@@ -109,8 +110,9 @@ def test_resolve_navigation_scale_marks_source_metadata_when_environ_has_beam_si
     rv, _ = resolve_navigation_scale_calibration(
         {"Experiment.Beam_Size__Nominal": "2 um"},
         beam_size_key="Experiment.Beam_Size__Nominal",
-        user_fallback_um=None,
-        preset_fallback_um=500.0,
+        user_pixel_size_um=None,
+        user_field_width_um=None,
+        preset_legacy_field_width_um=500.0,
         xdim=10,
         mode=ConversionMode.LEGACY,
     )
@@ -120,10 +122,11 @@ def test_resolve_navigation_scale_marks_source_metadata_when_environ_has_beam_si
 
 def test_resolve_navigation_scale_marks_legacy_preset_when_fallback_applies():
     rv, _ = resolve_navigation_scale_calibration(
-        {},  # no environ → fallback path
+        {},
         beam_size_key="Experiment.Beam_Size__Nominal",
-        user_fallback_um=None,
-        preset_fallback_um=500.0,
+        user_pixel_size_um=None,
+        user_field_width_um=None,
+        preset_legacy_field_width_um=500.0,
         xdim=10,
         mode=ConversionMode.LEGACY,
     )
@@ -131,12 +134,27 @@ def test_resolve_navigation_scale_marks_legacy_preset_when_fallback_applies():
     assert rv.source is CalibrationSource.LEGACY_PRESET
 
 
-def test_resolve_navigation_scale_marks_user_config_when_user_fallback_used():
+def test_resolve_navigation_scale_user_pixel_size_takes_priority_over_preset():
     rv, _ = resolve_navigation_scale_calibration(
         {},
         beam_size_key="Experiment.Beam_Size__Nominal",
-        user_fallback_um=300.0,
-        preset_fallback_um=500.0,
+        user_pixel_size_um=2.5,
+        user_field_width_um=None,
+        preset_legacy_field_width_um=500.0,
+        xdim=10,
+        mode=ConversionMode.LEGACY,
+    )
+    assert rv.value == pytest.approx(2.5)
+    assert rv.source is CalibrationSource.USER_CONFIG
+
+
+def test_resolve_navigation_scale_user_field_width_takes_priority_over_preset():
+    rv, _ = resolve_navigation_scale_calibration(
+        {},
+        beam_size_key="Experiment.Beam_Size__Nominal",
+        user_pixel_size_um=None,
+        user_field_width_um=300.0,
+        preset_legacy_field_width_um=500.0,
         xdim=10,
         mode=ConversionMode.LEGACY,
     )
@@ -148,8 +166,9 @@ def test_resolve_navigation_scale_marks_unknown_when_no_fallback():
     rv, _ = resolve_navigation_scale_calibration(
         {},
         beam_size_key="Experiment.Beam_Size__Nominal",
-        user_fallback_um=None,
-        preset_fallback_um=None,
+        user_pixel_size_um=None,
+        user_field_width_um=None,
+        preset_legacy_field_width_um=None,
         xdim=10,
         mode=ConversionMode.LEGACY,
     )
@@ -162,8 +181,9 @@ def test_resolve_navigation_scale_skips_preset_in_strict_mode():
     rv, _ = resolve_navigation_scale_calibration(
         {},
         beam_size_key="Experiment.Beam_Size__Nominal",
-        user_fallback_um=None,
-        preset_fallback_um=500.0,
+        user_pixel_size_um=None,
+        user_field_width_um=None,
+        preset_legacy_field_width_um=500.0,
         xdim=10,
         mode=ConversionMode.STRICT,
     )
@@ -174,9 +194,10 @@ def test_resolve_navigation_scale_skips_preset_in_strict_mode():
 # XRMMapH5Reader — mode parameter + resolved_calibration on payload
 # ---------------------------------------------------------------------------
 
-def test_xrmmap_reader_default_mode_is_legacy():
+def test_xrmmap_reader_default_mode_is_generic():
+    """Phase 4, Chunk 18: default flipped from LEGACY to GENERIC."""
     reader = XRMMapH5Reader()
-    assert reader.mode is ConversionMode.LEGACY
+    assert reader.mode is ConversionMode.GENERIC
 
 
 def test_xrmmap_reader_accepts_mode_kw_only():
@@ -186,7 +207,8 @@ def test_xrmmap_reader_accepts_mode_kw_only():
 
 def test_xrmmap_reader_attaches_resolved_calibration(synthetic_xrmmap_h5):
     """All three calibration entries land on the payload with the
-    expected provenance — legacy-mode defaults applied."""
+    expected provenance — default mode (GENERIC) still consults the
+    preset, just at warning severity."""
     payload = XRMMapH5Reader().read(synthetic_xrmmap_h5("ok.h5"))
     rc = payload.resolved_calibration
     assert set(rc) == {"energy_scale", "navigation_scale", "roi_limit_units"}
@@ -194,7 +216,9 @@ def test_xrmmap_reader_attaches_resolved_calibration(synthetic_xrmmap_h5):
     # Synthetic fixture's environ table has Experiment.Beam_Size__Nominal,
     # so the navigation scale comes from source metadata.
     assert rc["navigation_scale"].source is CalibrationSource.SOURCE_METADATA
-    assert rc["roi_limit_units"].source is CalibrationSource.INFERRED
+    # Chunk 18: roi_limit_units now comes from the preset directly,
+    # not from numeric inference.
+    assert rc["roi_limit_units"].source is CalibrationSource.LEGACY_PRESET
     assert rc["roi_limit_units"].value == "channel_index"
 
 
@@ -210,12 +234,11 @@ def test_xrmmap_reader_user_calibration_overrides_preset(synthetic_xrmmap_h5):
     assert rc["energy_scale"].value == pytest.approx(0.005)
 
 
-def test_xrmmap_reader_emits_preset_and_inferred_diagnostics(synthetic_xrmmap_h5):
+def test_xrmmap_reader_emits_preset_and_metadata_diagnostics(synthetic_xrmmap_h5):
     payload = XRMMapH5Reader().read(synthetic_xrmmap_h5("ok.h5"))
     codes = {d.code for d in payload.diagnostics}
     assert "calibration_resolved_from_preset" in codes
     assert "calibration_resolved_from_metadata" in codes
-    assert "calibration_inferred" in codes
 
 
 def test_xrmmap_reader_marks_navigation_legacy_preset_when_environ_missing(
@@ -246,16 +269,17 @@ def test_xrmmap_reader_resolved_calibration_propagates_to_manifest(
     cal = manifest["axiomm_metadata"]["calibration"]
     assert set(cal) == {"energy_scale", "navigation_scale", "roi_limit_units"}
     assert cal["energy_scale"]["source"] == "legacy_preset"
-    assert cal["roi_limit_units"]["source"] == "inferred"
+    assert cal["roi_limit_units"]["source"] == "legacy_preset"
 
 
 # ---------------------------------------------------------------------------
 # GenericHDF5MapReader — same shape of plumbing
 # ---------------------------------------------------------------------------
 
-def test_generic_reader_default_mode_is_legacy():
+def test_generic_reader_default_mode_is_generic():
+    """Phase 4, Chunk 18: default flipped from LEGACY to GENERIC."""
     reader = GenericHDF5MapReader(schema=XRMMAP_H5_SCHEMA)
-    assert reader.mode is ConversionMode.LEGACY
+    assert reader.mode is ConversionMode.GENERIC
 
 
 def test_generic_reader_accepts_mode_kw_only():
@@ -267,37 +291,36 @@ def test_generic_reader_accepts_mode_kw_only():
 
 def test_generic_reader_attaches_resolved_calibration(synthetic_xrmmap_h5):
     """Generic reader configured with the XRM-Map schema treats every
-    explicitly-passed HDF5MapConfig field as USER_CONFIG (the generic
-    reader has no named preset of its own — Chunk 17 design)."""
+    explicitly-passed HDF5MapCalibration field as USER_CONFIG (the
+    generic reader has no named preset of its own — Chunks 17–18)."""
     reader = GenericHDF5MapReader(
         schema=XRMMAP_H5_SCHEMA,
-        config=HDF5MapConfig(
+        calibration=HDF5MapCalibration(
             energy_scale=0.01,
-            roi_limit_scale=0.01,
-            fallback_field_width_um=500.0,
+            roi_limit_units="channel_index",
+            legacy_field_width_um=500.0,
         ),
     )
     payload = reader.read(synthetic_xrmmap_h5("ok.h5"))
     rc = payload.resolved_calibration
     assert set(rc) == {"energy_scale", "navigation_scale", "roi_limit_units"}
     assert rc["energy_scale"].source is CalibrationSource.USER_CONFIG
-    assert rc["roi_limit_units"].source is CalibrationSource.INFERRED
+    assert rc["roi_limit_units"].source is CalibrationSource.USER_CONFIG
     assert rc["roi_limit_units"].value == "channel_index"
 
 
-def test_generic_reader_strict_mode_marks_roi_units_unknown(synthetic_xrmmap_h5):
-    """Strict mode short-circuits the channel-index inference and
-    marks roi_limit_units UNKNOWN — the Chunk-17 raise of
-    CalibrationUnresolvedError is not wired yet."""
+def test_generic_reader_strict_mode_raises_on_unresolved(synthetic_xrmmap_h5):
+    """Strict mode raises CalibrationUnresolvedError when the user
+    supplies no roi_limit_units and the generic reader has no preset
+    to fall back to."""
     reader = GenericHDF5MapReader(
         schema=XRMMAP_H5_SCHEMA,
-        config=HDF5MapConfig(roi_limit_scale=0.01),
         mode=ConversionMode.STRICT,
     )
-    payload = reader.read(synthetic_xrmmap_h5("ok.h5"))
-    assert payload.resolved_calibration["roi_limit_units"].source is (
-        CalibrationSource.UNKNOWN
-    )
+    with pytest.raises(
+        CalibrationUnresolvedError, match="roi_limit_units|energy_scale",
+    ):
+        reader.read(synthetic_xrmmap_h5("ok.h5"))
 
 
 # ---------------------------------------------------------------------------

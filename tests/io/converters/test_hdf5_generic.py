@@ -23,11 +23,12 @@ import pytest
 
 h5py = pytest.importorskip("h5py")
 
+from axiomm.io.converters.calibration import ConversionMode
 from axiomm.io.converters.errors import DatasetNotFoundError
 from axiomm.io.converters.models import AxiommSignalPayload
 from axiomm.io.converters.readers.hdf5_generic import (
     GenericHDF5MapReader,
-    HDF5MapConfig,
+    HDF5MapCalibration,
 )
 from axiomm.io.converters.readers.hdf5_schema import (
     HDF5MapSchema,
@@ -51,12 +52,16 @@ def test_generic_reader_accepts_explicit_name():
     assert r.name == "my_format"
 
 
-def test_generic_reader_uses_default_config_when_none_given():
+def test_generic_reader_uses_default_calibration_when_none_given():
+    """Defaults are all None (Chunk 18) — every field enters the
+    ladder as "not user-supplied" rather than as a silent value."""
     r = GenericHDF5MapReader(schema=XRMMAP_H5_SCHEMA)
-    assert isinstance(r.config, HDF5MapConfig)
-    assert r.config.roi_limit_scale == 1.0  # bland default, not XRM's 0.01
-    assert r.config.energy_scale == 1.0
-    assert r.config.fallback_field_width_um is None
+    assert isinstance(r.calibration, HDF5MapCalibration)
+    assert r.calibration.roi_limit_units is None
+    assert r.calibration.energy_scale is None
+    assert r.calibration.legacy_field_width_um is None
+    assert r.calibration.field_width_um is None
+    assert r.calibration.pixel_size_um is None
 
 
 # ---------------------------------------------------------------------------
@@ -64,16 +69,16 @@ def test_generic_reader_uses_default_config_when_none_given():
 # ---------------------------------------------------------------------------
 
 def test_xrm_schema_produces_payload_with_expected_axes(synthetic_xrmmap_h5):
-    """Using the XRM schema + matching scientific defaults on the same
+    """Using the XRM schema + matching scientific calibration on the same
     synthetic fixture should produce axes / data shape identical to
     what the bespoke XRMMapH5Reader produces."""
     p = synthetic_xrmmap_h5("synth.h5", shape=(4, 3, 16))
     reader = GenericHDF5MapReader(
         schema=XRMMAP_H5_SCHEMA,
-        config=HDF5MapConfig(
+        calibration=HDF5MapCalibration(
             energy_scale=40.96 / 4096,
-            roi_limit_scale=0.01,
-            fallback_field_width_um=500.0,
+            roi_limit_units="channel_index",
+            legacy_field_width_um=500.0,
         ),
     )
     payload = reader.read(p)
@@ -93,7 +98,9 @@ def test_xrm_schema_extracts_environ_and_rois(synthetic_xrmmap_h5):
     p = synthetic_xrmmap_h5("synth.h5")
     reader = GenericHDF5MapReader(
         schema=XRMMAP_H5_SCHEMA,
-        config=HDF5MapConfig(roi_limit_scale=0.01),
+        calibration=HDF5MapCalibration(
+            energy_scale=0.01, roi_limit_units="channel_index",
+        ),
     )
     payload = reader.read(p)
     assert "environ" in payload.original_metadata
@@ -137,7 +144,7 @@ def test_custom_schema_drives_path_lookup(tmp_path):
         # no rois in this fixture, so leave roi_* as None
     )
     reader = GenericHDF5MapReader(
-        schema=schema, config=HDF5MapConfig(energy_scale=0.005),
+        schema=schema, calibration=HDF5MapCalibration(energy_scale=0.005),
     )
     payload = reader.read(p)
 
@@ -219,26 +226,30 @@ def test_non_3d_counts_raises_dataset_not_found(tmp_path):
 # AXIOMM namespace records the schema + config used
 # ---------------------------------------------------------------------------
 
-def test_metadata_records_schema_and_config(synthetic_xrmmap_h5):
-    """Manifest reproducibility requires the full schema+config to be in
-    the AXIOMM namespace, so a later reader can reproduce the exact
-    extraction."""
+def test_metadata_records_schema_and_calibration(synthetic_xrmmap_h5):
+    """Manifest reproducibility requires the full schema + calibration
+    + mode to be in the AXIOMM namespace, so a later reader can
+    reproduce the exact extraction."""
     p = synthetic_xrmmap_h5("synth.h5")
     reader = GenericHDF5MapReader(
         schema=XRMMAP_H5_SCHEMA,
-        config=HDF5MapConfig(
-            energy_scale=0.01, roi_limit_scale=0.01,
-            fallback_field_width_um=500.0,
+        calibration=HDF5MapCalibration(
+            energy_scale=0.01,
+            roi_limit_units="channel_index",
+            legacy_field_width_um=500.0,
         ),
     )
     payload = reader.read(p)
     converter = payload.metadata["AXIOMM"]["converter"]
     cfg = converter["config"]
     assert "schema" in cfg
-    assert "config" in cfg
+    assert "calibration" in cfg
+    assert "mode" in cfg
     assert cfg["schema"]["counts_path"] == "/xrmmap/mcasum/counts"
-    assert cfg["config"]["energy_scale"] == 0.01
-    assert cfg["config"]["fallback_field_width_um"] == 500.0
+    assert cfg["calibration"]["energy_scale"] == 0.01
+    assert cfg["calibration"]["roi_limit_units"] == "channel_index"
+    assert cfg["calibration"]["legacy_field_width_um"] == 500.0
+    assert cfg["mode"] == "generic"
 
 
 # ---------------------------------------------------------------------------

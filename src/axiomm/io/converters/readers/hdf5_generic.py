@@ -32,7 +32,11 @@ from axiomm.io.converters.calibration import (
     ConversionMode,
     ResolvedValue,
 )
-from axiomm.io.converters.errors import DatasetNotFoundError
+from axiomm.io.converters.errors import (
+    CalibrationUnresolvedError,
+    DatasetNotFoundError,
+)
+from axiomm.io.converters.presets import RoiLimitUnits
 from axiomm.io.converters.metadata import (
     nest_classification,
     nest_converter_section,
@@ -44,6 +48,8 @@ from axiomm.io.converters.models import (
     SourceProvenance,
 )
 from axiomm.io.converters.readers.hdf5_helpers import (
+    compute_roi_scale_from_units,
+    raise_if_strict_unresolved,
     read_environ_table,
     read_roi_table,
     resolve_energy_scale,
@@ -78,32 +84,58 @@ def _require_h5py() -> None:
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
-class HDF5MapConfig:
-    """Scientific defaults for :class:`GenericHDF5MapReader`.
+class HDF5MapCalibration:
+    """Scientific calibration values for :class:`GenericHDF5MapReader`.
 
     Deliberately separate from :class:`HDF5MapSchema`:
 
     * Schema = *where* data lives in the file (HDF5 paths, axis names).
-    * Config = *what it means* (per-channel energy width, ROI scale,
-      fallback for missing beam size, which ROI variant to pick).
+    * Calibration = *what each value means* (per-channel energy width,
+      ROI unit interpretation, navigation pixel scale, which ROI
+      variant to pick).
 
     Keeping the two apart lets the same schema describe several
     instrument generations whose calibration constants differ.
 
-    The defaults here are deliberately bland (``energy_scale=1.0``,
-    ``roi_limit_scale=1.0``, ``fallback_field_width_um=None``) — the
-    generic reader has no domain knowledge to lean on. Override every
-    field you care about. The XRM-Map-flavoured defaults live on
-    :class:`~axiomm.io.converters.readers.xrmmap_h5.XRMMapH5Config`
-    and are the *historical* values from the prototype, themselves
-    still pending domain confirmation (see ``docs/user/converter.md``
-    -> "Scientific assumptions still requiring owner confirmation").
+    Every field defaults to ``None`` (Phase 4, Chunk 18). The reader's
+    resolution ladder treats ``None`` as "not user-supplied" — the
+    generic reader has **no named preset** of its own, so unresolved
+    fields in non-strict modes are flagged ``UNKNOWN`` with a
+    diagnostic; strict mode raises
+    :class:`~axiomm.io.converters.errors.CalibrationUnresolvedError`.
+
+    Renamed from ``HDF5MapConfig`` in Chunk 18 for naming symmetry
+    with :class:`~axiomm.io.converters.presets.XRMMapH5Calibration`.
+
+    Attributes
+    ----------
+    energy_scale
+        Per-MCA-channel energy width in keV.
+    roi_limit_units
+        Explicit unit interpretation of integer ROI limits. One of
+        :data:`~axiomm.io.converters.presets.RoiLimitUnits`. Replaces
+        the previous numeric ``roi_limit_scale`` field.
+    field_width_um, field_height_um
+        Total map extent in µm. When set, the reader uses
+        ``field_width_um / xdim`` as the navigation pixel scale.
+    pixel_size_um
+        Direct navigation pixel scale in µm. Takes priority over
+        ``field_width_um`` / ``field_height_um`` / environ ``beam_size``.
+    legacy_field_width_um
+        Legacy fallback width in µm. The generic reader doesn't ship
+        a preset, so this is purely user-controlled.
+    roi_variant_index
+        Variant axis index for ROI limits stored as
+        ``(n_rois, n_variants, 2)``.
     """
 
-    energy_scale: float = 1.0
-    roi_limit_scale: float = 1.0
-    fallback_field_width_um: float | None = None
-    roi_variant_index: int = 0
+    energy_scale: float | None = None
+    roi_limit_units: RoiLimitUnits | None = None
+    field_width_um: float | None = None
+    field_height_um: float | None = None
+    pixel_size_um: float | None = None
+    legacy_field_width_um: float | None = None
+    roi_variant_index: int | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -117,14 +149,22 @@ class GenericHDF5MapReader:
     ----------
     schema
         :class:`HDF5MapSchema` naming the HDF5 paths.
-    config
-        :class:`HDF5MapConfig` with scientific defaults. ``None``
-        uses :class:`HDF5MapConfig` field defaults.
+    calibration
+        :class:`HDF5MapCalibration` with scientific defaults. ``None``
+        uses :class:`HDF5MapCalibration` field defaults (all
+        ``None``). Renamed from ``config`` in Chunk 18.
     name
         Stable identifier for the registry / for the ``reader``
         argument to :func:`convert_file`. Defaults to
         ``"generic_hdf5_map"``; pass a more specific name if you
         plan to register several instances under different schemas.
+    mode
+        :class:`~axiomm.io.converters.calibration.ConversionMode`
+        controlling the resolution ladder. **Defaults to**
+        :attr:`~axiomm.io.converters.calibration.ConversionMode
+        .GENERIC` since Chunk 18 — the generic reader is the
+        public-release default and refuses silent legacy fallbacks
+        out of the box.
     """
 
     supported_extensions = (".h5", ".hdf5")
@@ -133,14 +173,21 @@ class GenericHDF5MapReader:
         self,
         *,
         schema: HDF5MapSchema,
-        config: HDF5MapConfig | None = None,
+        calibration: HDF5MapCalibration | None = None,
         name: str = "generic_hdf5_map",
-        mode: ConversionMode = ConversionMode.LEGACY,
+        mode: ConversionMode = ConversionMode.GENERIC,
     ) -> None:
         self.schema = schema
-        self.config = config or HDF5MapConfig()
+        self.calibration = (
+            calibration if calibration is not None else HDF5MapCalibration()
+        )
         self.name = name
         self.mode = mode
+
+    # Backwards-readable alias: some manifest tooling probes ``reader.config``.
+    @property
+    def config(self) -> HDF5MapCalibration:
+        return self.calibration
 
     # -- Reader protocol ----------------------------------------------------
 
@@ -228,75 +275,87 @@ class GenericHDF5MapReader:
                     f"metadata.environ ({len(environ)} keys from HDF5)"
                 )
 
+        # Resolve calibration first so the ROI multiplier can come from
+        # the resolved units + energy_scale (Phase 4, Chunk 18 unification).
+        energy_scale_rv = resolve_energy_scale(
+            user_value=self.calibration.energy_scale,
+            preset_value=None,
+            mode=self.mode,
+        )
+        roi_units_rv = resolve_roi_limit_interpretation(
+            user_units=self.calibration.roi_limit_units,
+            preset_units=None,
+            mode=self.mode,
+        )
+        nav_scale_rv, scale_diag = resolve_navigation_scale_calibration(
+            environ,
+            beam_size_key=self.schema.beam_size_key,
+            user_pixel_size_um=self.calibration.pixel_size_um,
+            user_field_width_um=self.calibration.field_width_um,
+            preset_legacy_field_width_um=self.calibration.legacy_field_width_um,
+            xdim=xdim,
+            mode=self.mode,
+        )
+        diagnostics.extend(scale_diag)
+
+        # Effective scalars for the actual computation paths.
+        effective_roi_scale = (
+            compute_roi_scale_from_units(
+                roi_units_rv.value,
+                energy_scale_rv.value,
+            )
+            if roi_units_rv.source is not CalibrationSource.UNKNOWN
+            else None
+        )
+        effective_roi_variant_index = (
+            self.calibration.roi_variant_index
+            if self.calibration.roi_variant_index is not None
+            else 0
+        )
+
+        # ROI table reading still happens inside the file context above —
+        # re-open the file for the second pass.
+        with h5py.File(source_path, "r") as f:
             rois, roi_diag = read_roi_table(
                 f,
                 name_path=self.schema.roi_name_path,
                 limits_path=self.schema.roi_limits_path,
-                roi_variant_index=self.config.roi_variant_index,
-                roi_limit_scale=self.config.roi_limit_scale,
+                roi_variant_index=effective_roi_variant_index,
+                roi_limit_scale=(
+                    effective_roi_scale if effective_roi_scale is not None
+                    else 1.0
+                ),
             )
-            diagnostics.extend(roi_diag)
-            if rois:
-                original_metadata["rois"] = rois
-                classification["observed"].append(
-                    f"metadata.rois ({len(rois)} entries from HDF5; "
-                    f"limits scaled by configured roi_limit_scale)"
-                )
-                classification["assumed"].append(
-                    f"metadata.rois.*.start/end (roi_limit_scale="
-                    f"{self.config.roi_limit_scale} applied to raw integer limits)"
-                )
+        diagnostics.extend(roi_diag)
+        if rois:
+            original_metadata["rois"] = rois
+            classification["observed"].append(
+                f"metadata.rois ({len(rois)} entries from HDF5; "
+                f"limits scaled by resolved roi_limit_units="
+                f"{roi_units_rv.value!r})"
+            )
+            classification["assumed"].append(
+                f"metadata.rois.*.start/end (effective scale="
+                f"{effective_roi_scale} applied to raw integer limits)"
+            )
 
-        # GenericHDF5MapReader has no named legacy preset (it's meant for
-        # users to configure per-instrument). Every HDF5MapConfig field
-        # the user supplied therefore enters the resolution ladder as
-        # USER_CONFIG; preset_value is left None. Chunk 18 splits
-        # HDF5MapConfig into a schema/calibration pair to match this
-        # reader's role more precisely.
-        nav_scale_resolved, scale_diag = resolve_navigation_scale_calibration(
-            environ,
-            beam_size_key=self.schema.beam_size_key,
-            user_fallback_um=self.config.fallback_field_width_um,
-            preset_fallback_um=None,
-            xdim=xdim,
-            mode=self.mode,
+        # Map nav scale source onto the legacy provenance bucket.
+        nav_scale_um = nav_scale_rv.value
+        nav_scale_bucket = (
+            "observed"
+            if nav_scale_rv.source is CalibrationSource.SOURCE_METADATA
+            else "assumed"
         )
-        nav_scale_um = nav_scale_resolved.value
-        scale_source = {
-            CalibrationSource.SOURCE_METADATA: "beam_size",
-            CalibrationSource.USER_CONFIG: "fallback",
-            CalibrationSource.LEGACY_PRESET: "fallback",
-            CalibrationSource.UNKNOWN: "unit",
-        }[nav_scale_resolved.source]
-        diagnostics.extend(scale_diag)
-        nav_scale_bucket = {
-            "beam_size": "observed",
-            "fallback": "assumed",
-            "unit": "assumed",
-        }[scale_source]
-        nav_scale_descriptor = {
-            "beam_size": (
-                f"axes.{self.schema.navigation_x_name}.scale, "
-                f"axes.{self.schema.navigation_y_name}.scale "
-                f"(parsed from environ {self.schema.beam_size_key!r})"
-            ),
-            "fallback": (
-                f"axes.{self.schema.navigation_x_name}.scale, "
-                f"axes.{self.schema.navigation_y_name}.scale "
-                f"(fallback: fallback_field_width_um="
-                f"{self.config.fallback_field_width_um} / xdim={xdim})"
-            ),
-            "unit": (
-                f"axes.{self.schema.navigation_x_name}.scale, "
-                f"axes.{self.schema.navigation_y_name}.scale "
-                f"(no beam size, no fallback: defaulted to 1.0)"
-            ),
-        }[scale_source]
-        classification[nav_scale_bucket].append(nav_scale_descriptor)
+        classification[nav_scale_bucket].append(
+            f"axes.{self.schema.navigation_x_name}.scale, "
+            f"axes.{self.schema.navigation_y_name}.scale "
+            f"({nav_scale_rv.note})"
+        )
 
         classification["assumed"].extend([
             f"axes.{self.schema.energy_axis_name}.scale "
-            f"(= {self.config.energy_scale}, config default)",
+            f"(= {energy_scale_rv.value}, "
+            f"source={energy_scale_rv.source.value})",
             f"axes.{self.schema.energy_axis_name}.units "
             f"({self.schema.energy_axis_units!r}, schema default)",
             f"axes.{self.schema.navigation_x_name}.units, "
@@ -328,91 +387,82 @@ class GenericHDF5MapReader:
                 role="signal",
                 size=n_channels,
                 units=self.schema.energy_axis_units,
-                scale=self.config.energy_scale,
+                scale=energy_scale_rv.value,
                 offset=0.0,
                 index_in_array=2,
             ),
         )
 
-        # --- calibration provenance (Phase 4, Chunks 16–17) ---------------
+        # --- calibration provenance (Phase 4, Chunks 16–18) ---------------
         resolved_calibration: dict[str, ResolvedValue] = {
-            "navigation_scale": nav_scale_resolved,
-            "energy_scale": resolve_energy_scale(
-                user_value=self.config.energy_scale,
-                preset_value=None,
-                mode=self.mode,
-            ),
-            "roi_limit_units": resolve_roi_limit_interpretation(
-                user_value=self.config.roi_limit_scale,
-                preset_value=None,
-                mode=self.mode,
-            ),
+            "navigation_scale": nav_scale_rv,
+            "energy_scale": energy_scale_rv,
+            "roi_limit_units": roi_units_rv,
         }
-        user_config_names = sorted(
-            name for name, rv in resolved_calibration.items()
-            if rv.source is CalibrationSource.USER_CONFIG
-        )
-        if user_config_names:
-            diagnostics.append(
-                Diagnostic(
-                    severity="info",
-                    code="calibration_resolved_from_user_config",
-                    message=(
-                        f"Resolved {', '.join(user_config_names)} from "
-                        f"the HDF5MapConfig values supplied to "
-                        f"GenericHDF5MapReader (mode={self.mode.value})."
-                    ),
-                    context={
-                        "keys": user_config_names,
-                        "mode": self.mode.value,
-                    },
-                )
-            )
-        metadata_resolved_names = sorted(
-            name for name, rv in resolved_calibration.items()
-            if rv.source is CalibrationSource.SOURCE_METADATA
-        )
-        if metadata_resolved_names:
-            diagnostics.append(
-                Diagnostic(
-                    severity="info",
-                    code="calibration_resolved_from_metadata",
-                    message=(
-                        f"Resolved {', '.join(metadata_resolved_names)} "
-                        f"from source-file metadata (mode={self.mode.value})."
-                    ),
-                    context={
-                        "keys": metadata_resolved_names,
-                        "mode": self.mode.value,
-                    },
-                )
-            )
-        inferred_names = sorted(
-            name for name, rv in resolved_calibration.items()
-            if rv.source is CalibrationSource.INFERRED
-        )
-        if inferred_names:
-            diagnostics.append(
-                Diagnostic(
-                    severity="info",
-                    code="calibration_inferred",
-                    message=(
-                        f"Inferred {', '.join(inferred_names)} from numeric "
-                        f"config values (mode={self.mode.value}); see each "
-                        f"resolved_calibration entry's note for the rule. "
-                        f"Supply explicit calibration to override."
-                    ),
-                    context={"keys": inferred_names, "mode": self.mode.value},
-                )
-            )
 
-        # Manifest / signal metadata carries the schema and the
-        # scientific config together — the manifest writer doesn't need
-        # to know which reader produced the payload; it just serialises
-        # whatever is under metadata['AXIOMM']['converter']['config'].
+        # Strict-mode enforcement: any UNKNOWN source raises.
+        raise_if_strict_unresolved(self.mode, resolved_calibration)
+
+        # Mode-driven diagnostic severity (info in legacy/diagnostic,
+        # warning in generic — generic is the public default after
+        # Chunk 18, and the geology-team policy says preset use should
+        # be loud there).
+        preset_severity: Any = (
+            "warning" if self.mode is ConversionMode.GENERIC else "info"
+        )
+        for source, code, severity, descriptor in (
+            (
+                CalibrationSource.LEGACY_PRESET,
+                "calibration_resolved_from_preset",
+                preset_severity,
+                "the active legacy preset",
+            ),
+            (
+                CalibrationSource.USER_CONFIG,
+                "calibration_resolved_from_user_config",
+                "info",
+                "explicit user-supplied calibration",
+            ),
+            (
+                CalibrationSource.SOURCE_METADATA,
+                "calibration_resolved_from_metadata",
+                "info",
+                "source-file metadata",
+            ),
+            (
+                CalibrationSource.INFERRED,
+                "calibration_inferred",
+                "info",
+                "heuristic inference from numeric values",
+            ),
+        ):
+            names = sorted(
+                n for n, rv in resolved_calibration.items()
+                if rv.source is source
+            )
+            if names:
+                diagnostics.append(
+                    Diagnostic(
+                        severity=severity,
+                        code=code,
+                        message=(
+                            f"Resolved {', '.join(names)} from "
+                            f"{descriptor} (mode={self.mode.value})."
+                        ),
+                        context={
+                            "keys": names,
+                            "mode": self.mode.value,
+                        },
+                    )
+                )
+
+        # Manifest / signal metadata carries the schema, calibration,
+        # and mode together — the manifest writer doesn't need to know
+        # which reader produced the payload.
         combined_config = {
             "schema": asdict(self.schema),
-            "config": asdict(self.config),
+            "calibration": asdict(self.calibration),
+            "mode": self.mode.value,
         }
 
         metadata: dict[str, Any] = {
@@ -447,5 +497,5 @@ class GenericHDF5MapReader:
 
 __all__ = [
     "GenericHDF5MapReader",
-    "HDF5MapConfig",
+    "HDF5MapCalibration",
 ]

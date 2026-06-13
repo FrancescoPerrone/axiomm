@@ -137,20 +137,24 @@ def test_xrmmap_h5_schema_default_matches_legacy_paths():
 
 
 def test_xrmmap_h5_calibration_defaults_are_all_none():
-    """XRMMapH5Calibration() distinguishes user-supplied from preset."""
+    """XRMMapH5Calibration() distinguishes user-supplied from preset.
+    Chunk 18 expanded the field set; see test_presets.py for the full
+    field-by-field enumeration."""
     cal = XRMMapH5Calibration()
     assert cal.energy_scale is None
-    assert cal.roi_limit_scale is None
-    assert cal.fallback_field_width_um is None
-    assert cal.roi_variant_index is None
+    assert cal.roi_limit_units is None
+    assert cal.legacy_field_width_um is None
+    assert cal.field_width_um is None
+    assert cal.pixel_size_um is None
 
 
 def test_xrmmap_h5_legacy_preset_carries_historic_values():
-    """The named preset reproduces the AXIOMM-inherited APS 13-ID-E values."""
+    """The named preset reproduces the AXIOMM-inherited APS 13-ID-E values.
+    Audit-supported: roi_limit_units='channel_index', legacy_field_width_um=500."""
     p = XRMMAP_LEGACY_APS_13_ID_E_PRESET_V1
     assert p.energy_scale == pytest.approx(40.96 / 4096)
-    assert p.roi_limit_scale == pytest.approx(0.01)
-    assert p.fallback_field_width_um == 500.0
+    assert p.roi_limit_units == "channel_index"
+    assert p.legacy_field_width_um == 500.0
     assert p.roi_variant_index == 0
 
 
@@ -304,7 +308,8 @@ def test_read_records_axiomm_namespace_metadata(synthetic_xrmmap_h5):
     # resolution ladder, not via dataclass defaults).
     assert converter["config"]["calibration"]["energy_scale"] is None
     assert converter["config"]["calibration"]["roi_variant_index"] is None
-    assert converter["config"]["mode"] == "legacy"
+    # Phase 4, Chunk 18: default mode flipped to GENERIC.
+    assert converter["config"]["mode"] == "generic"
 
 
 # -- Provenance classification (spec §15) -----------------------------------
@@ -358,13 +363,14 @@ def test_navigation_scale_from_beam_size_is_observed(synthetic_xrmmap_h5):
 
 
 def test_navigation_scale_from_fallback_is_assumed(synthetic_xrmmap_h5):
-    """When the beam size is missing, the nav scale comes from the assumed fallback."""
+    """When the beam size is missing, the nav scale comes from the
+    legacy preset's legacy_field_width_um (Chunk 18 rename)."""
     payload = XRMMapH5Reader().read(
         synthetic_xrmmap_h5("no_beam.h5", environ={"Other.Key": "v"})
     )
     classification = payload.metadata["AXIOMM"]["provenance_classification"]
     joined = "; ".join(classification["assumed"])
-    assert "fallback_field_width_um" in joined
+    assert "legacy_field_width_um" in joined
 
 
 # -- ROI variant extraction (Chunk 9) ---------------------------------------
@@ -578,7 +584,7 @@ def test_strict_mode_raises_when_no_fallback_resolves(synthetic_xrmmap_h5):
     )
     reader = XRMMapH5Reader(
         calibration=XRMMapH5Calibration(
-            energy_scale=0.01, roi_limit_scale=0.01,
+            energy_scale=0.01, roi_limit_units="channel_index",
         ),
         mode=ConversionMode.STRICT,
     )

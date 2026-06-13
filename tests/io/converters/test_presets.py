@@ -26,12 +26,17 @@ from axiomm.io.converters import (
 # XRMMapH5Calibration — split off from the old XRMMapH5Config
 # ---------------------------------------------------------------------------
 
-def test_calibration_has_four_documented_fields():
+def test_calibration_has_seven_documented_fields():
+    """Phase 4, Chunk 18: added roi_limit_units, field_width_um,
+    field_height_um, pixel_size_um; renamed fallback → legacy."""
     fields = {f.name for f in dataclasses.fields(XRMMapH5Calibration)}
     assert fields == {
         "energy_scale",
-        "roi_limit_scale",
-        "fallback_field_width_um",
+        "roi_limit_units",
+        "field_width_um",
+        "field_height_um",
+        "pixel_size_um",
+        "legacy_field_width_um",
         "roi_variant_index",
     }
 
@@ -39,8 +44,11 @@ def test_calibration_has_four_documented_fields():
 def test_calibration_defaults_are_all_none():
     cal = XRMMapH5Calibration()
     assert cal.energy_scale is None
-    assert cal.roi_limit_scale is None
-    assert cal.fallback_field_width_um is None
+    assert cal.roi_limit_units is None
+    assert cal.field_width_um is None
+    assert cal.field_height_um is None
+    assert cal.pixel_size_um is None
+    assert cal.legacy_field_width_um is None
     assert cal.roi_variant_index is None
 
 
@@ -53,13 +61,19 @@ def test_calibration_is_frozen():
 def test_calibration_explicit_values_are_preserved():
     cal = XRMMapH5Calibration(
         energy_scale=0.005,
-        roi_limit_scale=0.02,
-        fallback_field_width_um=300.0,
+        roi_limit_units="keV",
+        field_width_um=200.0,
+        field_height_um=150.0,
+        pixel_size_um=1.5,
+        legacy_field_width_um=300.0,
         roi_variant_index=2,
     )
     assert cal.energy_scale == 0.005
-    assert cal.roi_limit_scale == 0.02
-    assert cal.fallback_field_width_um == 300.0
+    assert cal.roi_limit_units == "keV"
+    assert cal.field_width_um == 200.0
+    assert cal.field_height_um == 150.0
+    assert cal.pixel_size_um == 1.5
+    assert cal.legacy_field_width_um == 300.0
     assert cal.roi_variant_index == 2
 
 
@@ -70,9 +84,13 @@ def test_calibration_explicit_values_are_preserved():
 def test_legacy_preset_carries_historic_values():
     p = XRMMAP_LEGACY_APS_13_ID_E_PRESET_V1
     assert p.energy_scale == pytest.approx(40.96 / 4096)
-    assert p.roi_limit_scale == pytest.approx(0.01)
-    assert p.fallback_field_width_um == 500.0
+    assert p.roi_limit_units == "channel_index"
+    assert p.legacy_field_width_um == 500.0
     assert p.roi_variant_index == 0
+    # Chunk 18: the preset doesn't pre-set explicit-geometry fields.
+    assert p.field_width_um is None
+    assert p.field_height_um is None
+    assert p.pixel_size_um is None
 
 
 def test_legacy_preset_is_xrmmap_h5_calibration_instance():

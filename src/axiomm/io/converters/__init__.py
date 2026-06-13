@@ -100,10 +100,11 @@ __all__ = [
     # concrete readers + builders + writers (lazily imported — see __getattr__ below)
     "XRMMapH5Reader",
     "GenericHDF5MapReader",
-    "HDF5MapConfig",
+    "HDF5MapCalibration",
     "HDF5MapSchema",
     "XRMMAP_H5_SCHEMA",
-    # calibration presets (Phase 4, Chunk 17)
+    # calibration presets (Phase 4, Chunks 17–18)
+    "RoiLimitUnits",
     "XRMMapH5Calibration",
     "XRMMAP_LEGACY_APS_13_ID_E_PRESET_V1",
     "get_preset",
@@ -170,9 +171,13 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
         "axiomm.io.converters.readers.hdf5_generic",
         "GenericHDF5MapReader",
     ),
-    "HDF5MapConfig": (
+    "HDF5MapCalibration": (
         "axiomm.io.converters.readers.hdf5_generic",
-        "HDF5MapConfig",
+        "HDF5MapCalibration",
+    ),
+    "RoiLimitUnits": (
+        "axiomm.io.converters.presets",
+        "RoiLimitUnits",
     ),
     "HDF5MapSchema": (
         "axiomm.io.converters.readers.hdf5_schema",

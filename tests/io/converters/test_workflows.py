@@ -143,7 +143,8 @@ def test_manifest_content_includes_required_fields(synthetic_xrmmap_h5, tmp_path
         axiomm["converter"]["config"]["schema"]["counts_path"]
         == "/xrmmap/mcasum/counts"
     )
-    assert axiomm["converter"]["config"]["mode"] == "legacy"
+    # Phase 4, Chunk 18: default mode is now GENERIC.
+    assert axiomm["converter"]["config"]["mode"] == "generic"
     assert isinstance(axiomm["axes"], list)
     assert len(axiomm["axes"]) == 3
     assert isinstance(axiomm["diagnostics"], list)
