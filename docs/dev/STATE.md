@@ -113,7 +113,16 @@ The five decisions locked in 2026-06-12 with Francesco:
 | 16 | Resolution ladder + mode plumbing in `XRMMapH5Reader` and `GenericHDF5MapReader`; new diagnostic codes | ✅ done    |
 | 17 | Legacy preset extraction (`presets.py`, `XRMMAP_LEGACY_APS_13_ID_E_PRESET_V1`); split `XRMMapH5Config` → `HDF5MapSchema` + `XRMMapH5Calibration`; resolution-ladder enforcement (`USER_CONFIG` > preset > `STRICT` raise) | ✅ done    |
 | 18 | Explicit-units ROI (`roi_limit_units`) + explicit-geometry spatial (`field_width_um`, `field_height_um`, `pixel_size_um`); rename `HDF5MapConfig` → `HDF5MapCalibration` + `fallback_field_width_um` → `legacy_field_width_um`; **flipped default mode to `generic`**; shared `raise_if_strict_unresolved` helper applied to both readers | ✅ done    |
-| 19 | Documentation + status closure: rewrite "Scientific assumptions" section → "Calibration resolution: precedence, modes, presets"; wiki Known-Issues entry; wiki Home status row ✅ | ⬜ pending |
+| 19 | Documentation + status closure: rewrite "Scientific assumptions" section → "Calibration resolution: precedence, modes, presets"; wiki Known-Issues entry; wiki Home status row ✅; wiki Roadmap Phase-4 section | ✅ done    |
+
+**Phase 4 complete.** Every scientific calibration value flows
+through the `source_metadata` → `user_config` → `legacy_preset` →
+`inferred` → `unknown` ladder, gated by `ConversionMode`. Default
+mode is `generic` (loud-fallback). Explicit `roi_limit_units` +
+explicit-geometry fields give users a first-class way to supply
+their own experimental calibration. See `docs/user/converter.md`
+→ *Calibration resolution* for the canonical user-facing reference,
+and the wiki Roadmap Phase-4 section for the dev-side narrative.
 
 ### Chunk 15 — acceptance criteria
 

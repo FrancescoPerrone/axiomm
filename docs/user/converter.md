@@ -201,78 +201,157 @@ beam-size key) is non-fatal: the reader attaches a structured
 `Diagnostic` to the payload and continues. This is by design (spec
 §7.8): scientific-data safety, but graceful degradation.
 
-## Scientific assumptions still requiring owner confirmation
+## Calibration resolution: precedence, modes, and presets
 
-Three of `XRMMapH5Config`'s defaults are **assumed scientific
-constants**, not values derived from the input file. They reproduce
-the AXIOMM prototype's behaviour and are exposed as configuration —
-but they have not been independently validated against the package
-owner's instrument data. Per spec §17 they remain an open question
-that must be resolved before public release.
+The converter does **not** silently apply legacy scientific
+constants. Every scientific value the reader needs — the energy
+scale, the navigation pixel scale, the unit interpretation of ROI
+limits — flows through a **resolution ladder**:
 
-```{list-table}
-:header-rows: 1
-:widths: 32 18 50
+1. **`source_metadata`** — values read directly from the source
+   file's metadata (currently the environ table's beam-size key;
+   the MCA-calibration paths at `/xrmmap/config/mca_calib/*` are
+   on the roadmap).
+2. **`user_config`** — values supplied explicitly via
+   `XRMMapH5Calibration(...)` / `HDF5MapCalibration(...)` on the
+   reader.
+3. **`legacy_preset`** — values from a recognised named preset,
+   currently
+   `XRMMAP_LEGACY_APS_13_ID_E_PRESET_V1` for the AXIOMM-inherited
+   APS 13-ID-E XRM-Map dataset.
+4. **`inferred`** — heuristic inference from observed numeric
+   values; always accompanied by a diagnostic.
+5. **`unknown`** — the value could not be resolved. In strict
+   mode this raises `CalibrationUnresolvedError`; in other modes
+   the reader emits a diagnostic and proceeds with a unit-scale
+   default.
 
-* - Constant
-  - Default
-  - What needs confirming
-* - `energy_scale` (keV per MCA channel)
-  - `40.96 / 4096`
-  - The detector / MCA gain. The default encodes the assumption
-    that the full MCA range spans $40.96\ \mathrm{keV}$ over
-    $4096$ channels, giving a per-channel energy width of
-    $E_\text{scale} = \dfrac{40.96\ \mathrm{keV}}{4096\ \mathrm{channels}} \approx 0.01\ \mathrm{keV/channel}$.
-    The channel-$i$ energy is then $E_i = E_\text{scale} \cdot i$
-    (offset = 0). Confirm against your instrument's energy
-    calibration, or — better — extract it from the source file's
-    metadata when available.
-* - `roi_limit_scale`
-  - `0.01`
-  - The scaling applied to the integer ROI limits stored at
-    `/xrmmap/config/rois/limits`. With the default the conversion
-    is $E_\text{ROI} = 0.01 \cdot n_\text{ROI,int}$, i.e. the
-    integers are interpreted as centi-keV (so $640 \to 6.40\ \mathrm{keV}$).
-    Confirm this matches the units your XRM software writes; in
-    particular, this is independent of `energy_scale` only if the
-    file does not store ROI limits as MCA channel indices.
-* - `fallback_field_width_um` (µm)
-  - `500.0`
-  - The assumed total map width in µm when no beam size is in the
-    environ table. The navigation pixel scale is then
-    $s_\text{nav,fallback} = \dfrac{w_\text{fallback}}{x_\text{dim}}$
-    where $w_\text{fallback}$ = `fallback_field_width_um` and
-    $x_\text{dim}$ is the size of the first navigation axis. This
-    is a pure fallback; if your instrument writes a beam size into
-    the environ table the converter uses
-    $s_\text{nav} = b_\text{nominal}$ instead, where
-    $b_\text{nominal}$ is the parsed
-    `Experiment.Beam_Size__Nominal` value.
-```
+The active **`ConversionMode`** controls which steps are
+permitted:
 
-As of Chunk 17 each of these is a field on `XRMMapH5Calibration`,
-so a user with the correct value can pass an explicit calibration
-without subclassing:
+| Mode         | Preset fallback | Inference | Unresolved → raise? |
+|--------------|----------------|-----------|---------------------|
+| `legacy`     | ✅ (info)       | ✅ (info)  | no                  |
+| `generic`    | ✅ (warning)    | ✅ (info)  | no                  |
+| `diagnostic` | ✅ (info)       | ✅ (info)  | no                  |
+| `strict`     | ❌              | ❌        | yes                 |
+
+The default since Phase 4, Chunk 18 is **`generic`** — a
+preset-derived value is honoured but loudly. Inherited-XRM users
+who want a quiet conversion opt into `legacy`. Users producing
+scientific deliverables can opt into `strict` to refuse every
+fallback.
+
+Every resolved calibration shows up as a
+`ResolvedValue(value, source, note)` on
+`signal.metadata.AXIOMM.calibration` and on the manifest
+sidecar's `axiomm_metadata.calibration`, so any post-hoc
+inspection can tell preset-derived from user-supplied from
+metadata-derived values.
+
+### Energy axis: $E_\text{scale}$ and $E_i$
+
+The per-channel energy width is the `energy_scale` calibration.
+The energy of MCA channel $i$ is then
+
+$$E_i = E_\text{scale} \cdot i + E_\text{offset},$$
+
+with $E_\text{offset} = 0$ in the legacy preset (audit-confirmed:
+the inherited dataset stores
+`/xrmmap/config/mca_calib/offset = 0` and
+`/xrmmap/mcasum/energy[0] = 0.00`).
+
+The legacy preset value is
+
+$$E_\text{scale} = \dfrac{40.96\ \mathrm{keV}}{4096\ \mathrm{channels}} = 0.01\ \mathrm{keV/channel},$$
+
+which the 2026-06-12 metadata audit confirmed against
+`/xrmmap/config/mca_calib/slope = 0.01` per channel and the full
+4096-element `/xrmmap/mcasum/energy` axis spanning
+$0.00 \to 40.95\ \mathrm{keV}$.
+
+Override per-experiment with
+`XRMMapH5Calibration(energy_scale=...)`.
+
+### ROI limits: explicit `roi_limit_units`
+
+Phase 4, Chunk 18 replaced the numeric `roi_limit_scale` with an
+explicit unit token `roi_limit_units`, removing a degeneracy the
+audit flagged. Three tokens are documented; the effective scale
+applied to an integer ROI limit $n_\text{ROI,int}$ depends on the
+resolved unit:
+
+| `roi_limit_units` | Effective scale $c$ | Resulting energy |
+|-------------------|--------------------|------------------|
+| `"centi_keV"`     | $0.01$              | $E_\text{ROI} = 0.01 \cdot n_\text{ROI,int}$ |
+| `"keV"`           | $1.0$               | $E_\text{ROI} = n_\text{ROI,int}$ |
+| `"channel_index"` | $E_\text{scale}$    | $E_\text{ROI} = E_\text{scale} \cdot n_\text{ROI,int}$ |
+
+So in general:
+
+$$E_\text{ROI} = c(\texttt{roi\_limit\_units}) \cdot n_\text{ROI,int}.$$
+
+The audit-confirmed value for the inherited dataset is
+`"channel_index"` — `/xrmmap/config/rois/limits` stores MCA
+channel indices, and the historic `0.01` multiplier matches
+`mca_calib/slope` (it was channel→keV via the energy
+calibration, not a centi-keV unit scale). Keep that in mind if
+you have files from a different XRM acquisition that *do* store
+centi-keV integers — pass `roi_limit_units="centi_keV"`
+explicitly. For XRM files that also expose keV-form ROI windows
+at `/xrmmap/roimap/mcasum/<ROI>/limits`, future work will prefer
+those when present (source-metadata branch of the ladder).
+
+### Navigation pixel scale: $s_\text{nav}$
+
+Spatial calibration is resolved by the same ladder. In order:
+
+1. The environ-table beam size $b_\text{nominal}$ (parsed from
+   the schema's `beam_size_key`, default
+   `Experiment.Beam_Size__Nominal`) → $s_\text{nav} = b_\text{nominal}$.
+2. The user-supplied direct scale → $s_\text{nav} = \texttt{pixel\_size\_um}$.
+3. The user-supplied total map width → $s_\text{nav} = \texttt{field\_width\_um} \,/\, x_\text{dim}$.
+4. The preset legacy fallback (non-strict modes only) → $s_\text{nav} = \texttt{legacy\_field\_width\_um} \,/\, x_\text{dim}$.
+
+So in formula form:
+
+$$s_\text{nav} = \begin{cases}
+b_\text{nominal} & \text{environ beam size present} \\
+\texttt{pixel\_size\_um} & \text{else, user-supplied} \\
+\texttt{field\_width\_um} / x_\text{dim} & \text{else, user-supplied} \\
+\texttt{legacy\_field\_width\_um} / x_\text{dim} & \text{else, mode } \ne \text{strict}.
+\end{cases}$$
+
+The legacy preset value `legacy_field_width_um = 500.0` µm
+applies to the inherited `ISE_500sqaures_…` files only. The 2026-06-12
+audit confirmed this is **scan-field extent**, not beam size — the
+draft paper's XRF beam is $2 \times 2$ µm.
+
+### Worked example — overriding the calibration for your instrument
 
 ```python
 from axiomm.io.converters import (
-    XRMMapH5Calibration, XRMMapH5Reader, convert_file,
+    ConversionMode, XRMMapH5Calibration, XRMMapH5Reader,
+    convert_file,
 )
 
-reader = XRMMapH5Reader(calibration=XRMMapH5Calibration(
-    energy_scale=...,     # your confirmed gain
-    roi_limit_scale=...,
-    fallback_field_width_um=...,
-))
+# Your experiment's calibration.
+reader = XRMMapH5Reader(
+    calibration=XRMMapH5Calibration(
+        energy_scale=0.005,              # keV per MCA channel
+        roi_limit_units="keV",           # your XRM stores keV directly
+        pixel_size_um=1.5,               # direct navigation pixel scale
+    ),
+    mode=ConversionMode.STRICT,          # refuse preset fallbacks
+)
 convert_file("input.h5", output_path="out.hspy", reader=reader)
 ```
 
-The manifest sidecar records the resolved `{schema, calibration,
-mode}` bundle plus the per-value `calibration` provenance subkey,
-so any conversion done with non-default values is auditable after
-the fact.
+In `strict` mode an unresolved required value raises
+`CalibrationUnresolvedError` with a message naming exactly which
+field was missing and how to supply it.
 
-## Calibration provenance (Chunks 15–17)
+## Calibration provenance namespace (Chunks 15–18)
 
 Phase 4 of the converter introduces **per-value calibration
 provenance**. Chunks 15–17 lay the types, the reader plumbing, and
