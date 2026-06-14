@@ -83,9 +83,9 @@ implementation.
 per-detector or per-fit-pass), not the `(n_rois, 2)` the prototype
 expected.
 
-**Default behaviour as of Chunk 9.** The reader detects the 3-D shape
-and extracts `limits[:, XRMMapH5Config.roi_variant_index, :]`. The
-default `roi_variant_index = 0` works for the typical "first variant
+**Default behaviour.** The reader detects the 3-D shape and extracts
+`limits[:, XRMMapH5Calibration.roi_variant_index, :]`. The default
+preset's `roi_variant_index = 0` works for the typical "first variant
 is the canonical one" convention. ROIs are extracted normally with
 no warning. Verified end-to-end on the real
 `IE_30s_map__Sep16_15_20_39_A22-043_1_001.h5` file: 35 ROIs
@@ -94,9 +94,13 @@ extracted, e.g. `Si Ka` at 1.64–1.84 keV (Si Kα ≈ 1.74 keV).
 **When you need a different variant.**
 
 ```python
-from axiomm.io.converters import XRMMapH5Config, XRMMapH5Reader, convert_file
+from axiomm.io.converters import (
+    XRMMapH5Calibration, XRMMapH5Reader, convert_file,
+)
 
-reader = XRMMapH5Reader(config=XRMMapH5Config(roi_variant_index=3))
+reader = XRMMapH5Reader(
+    calibration=XRMMapH5Calibration(roi_variant_index=3),
+)
 convert_file("input.h5", output_path="out.hspy", reader=reader)
 ```
 

@@ -8,22 +8,23 @@ explicit user configuration, from a recognised named legacy preset,
 from a heuristic inference, or remains unresolved.
 
 The motivation is the AXIOMM geology team's reply (2026-06-12) on the
-three legacy constants embedded in :class:`~axiomm.io.converters
-.readers.xrmmap_h5.XRMMapH5Config`. The team did not confirm specific
-values; they returned a policy: legacy beamline/sample-specific
-constants must not be silently applied as universal defaults. The
-public converter must instead resolve each calibration value through
-a precedence ladder and stamp it with its source.
+three legacy XRM-Map scientific constants that were previously bundled
+into the reader's monolithic config dataclass. The team did not
+confirm specific values; they returned a policy: legacy
+beamline/sample-specific constants must not be silently applied as
+universal defaults. The public converter must instead resolve each
+calibration value through a precedence ladder and stamp it with its
+source.
 
 This module is intentionally **type-only and backend-neutral**: it
-does not import readers, writers, h5py, or HyperSpy. The actual
-resolution ladder (precedence: explicit user config → source metadata
+does not import readers, writers, h5py, or HyperSpy. The full
+resolution ladder (precedence: source metadata → explicit user config
 → recognised legacy preset → cautious inference → strict-mode error)
-is built on top of these primitives in Chunk 16.
-
-See ``docs/dev/STATE.md`` for the Phase 4 chunk plan and the locked
-decisions; see ``docs/user/converter.md`` for the user-facing
-precedence table once Chunk 19 has rewritten the assumptions section.
+is built on top of these primitives by the resolution helpers in
+:mod:`axiomm.io.converters.readers.hdf5_helpers` and wired into both
+readers; see ``docs/user/converter.md`` → *Calibration resolution*
+for the canonical user-facing reference and ``docs/dev/STATE.md`` for
+the Phase 4 chunk plan.
 """
 
 from __future__ import annotations

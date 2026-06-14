@@ -5,11 +5,13 @@ four core components end-to-end: it resolves a reader, reads the source
 file, builds a HyperSpy signal, writes it as ``.hspy``, and returns a
 :class:`~axiomm.io.converters.models.ConversionResult`.
 
-A full reader/writer plugin registry (spec §12) is a Phase 3 deliverable.
-For now a tiny built-in mapping handles the named lookups (``"xrmmap_h5"``,
-``"hspy"``) and the ``reader="auto"`` dispatch. Adding a new reader or
-writer to the mapping is a single-line change and does not block adding
-the real registry later.
+Reader and writer lookups go through the full
+:mod:`axiomm.io.converters.registry` (Phase 3). Named lookups
+(e.g. ``"xrmmap_h5"``, ``"hspy"``) and the ``reader="auto"`` dispatch
+both query that registry, which also picks up third-party plugins
+registered via the ``axiomm.readers`` / ``axiomm.writers`` Python
+entry points. Adding a new reader or writer is therefore done via the
+registry, not by editing this module.
 """
 
 from __future__ import annotations
@@ -242,9 +244,10 @@ def convert_file(
             manifest_path_for,
         )
 
-        # No need to pass config_used: the reader puts its full
-        # configuration into payload.metadata["AXIOMM"]["converter"]["config"],
-        # and build_manifest_dict reads it from there.
+        # The reader has already populated
+        # payload.metadata["AXIOMM"]["converter"]["config"] with the
+        # combined {schema, calibration, mode} bundle;
+        # build_manifest_dict reads it from there.
         manifest_dict = build_manifest_dict(
             input_path=src,
             output_path=written_path,

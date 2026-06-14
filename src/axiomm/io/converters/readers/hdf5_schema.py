@@ -4,19 +4,26 @@ An :class:`HDF5MapSchema` names the HDF5 paths where a 3-D map file
 keeps its counts dataset, its environ name/value table, its ROI
 name/limits table, and (via a key into the environ table) its
 nominal beam size. The schema is structural metadata only — what's
-*where* in the file. Scientific defaults (per-channel energy width,
-ROI integer-to-keV scale factor, fallback navigation width) live on
-the separate :class:`~axiomm.io.converters.readers.hdf5_generic.HDF5MapConfig`,
-so the same schema can be re-used across instruments that produce
-the same file layout with different physical units.
+*where* in the file. Scientific calibration values (per-channel
+energy width, ROI-limit unit interpretation, spatial geometry) live
+on the separate
+:class:`~axiomm.io.converters.presets.XRMMapH5Calibration` (for the
+bespoke :class:`~axiomm.io.converters.readers.xrmmap_h5.XRMMapH5Reader`)
+and
+:class:`~axiomm.io.converters.readers.hdf5_generic.HDF5MapCalibration`
+(for the schema-driven generic reader), so the same schema can be
+re-used across instruments that produce the same file layout with
+different physical units.
 
 Two consumers ship in the package today:
 
 * :class:`~axiomm.io.converters.readers.xrmmap_h5.XRMMapH5Reader`
-  uses a hard-coded XRM-Map / Larch layout via its
-  :class:`~axiomm.io.converters.readers.xrmmap_h5.XRMMapH5Config`
-  defaults (paths + scientific defaults bundled together for
-  back-compat).
+  defaults to the package-level :data:`XRMMAP_H5_SCHEMA` constant
+  for the canonical XRM-Map / Larch paths, and to a named legacy
+  calibration preset
+  (:data:`~axiomm.io.converters.presets
+  .XRMMAP_LEGACY_APS_13_ID_E_PRESET_V1`) for the historic
+  scientific constants.
 * :class:`~axiomm.io.converters.readers.hdf5_generic.GenericHDF5MapReader`
   takes an :class:`HDF5MapSchema` explicitly so users can read any
   XRM-shaped file at non-standard paths without writing a new

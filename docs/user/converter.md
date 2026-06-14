@@ -64,13 +64,17 @@ options, in order of explicitness:
 | Value                          | Behaviour                                                                 |
 |--------------------------------|---------------------------------------------------------------------------|
 | `Reader` instance              | Used as-is (advanced; lets you configure the reader before passing it in). |
-| Registered name, e.g. `"xrmmap_h5"` | Looked up in a small built-in mapping; instantiated with defaults.    |
+| Registered name, e.g. `"xrmmap_h5"` | Looked up in the converter registry (`axiomm.io.converters.registry`); instantiated with defaults via the lazy `"module:attr"` factory. |
 | `"auto"` *(default)*           | Iterates registered readers; picks the one whose `can_read(path)` is `True`. Raises `ReaderDetectionError` if none or more than one accept. |
 
-Today only `XRMMapH5Reader` is registered, so `"auto"` resolves to it
-for XRM files. As more readers are added, `"auto"` will dispatch
-between them; if it can't decide, it fails *explicitly* — never silently
-guesses.
+The registry covers AXIOMM's built-in readers (`XRMMapH5Reader`,
+`GenericHDF5MapReader`) and **any third-party readers** installed
+alongside AXIOMM that declare an `axiomm.readers` Python
+[entry point](#extending-axiomm-with-custom-readers-and-writers). On
+`reader="auto"` the registry is consulted in registration order and
+the first reader whose `can_read(path)` returns `True` wins; if more
+than one accepts the file or none accept, `"auto"` fails *explicitly*
+with `ReaderDetectionError` — never silently guesses.
 
 ### Output-path resolution
 
@@ -391,46 +395,50 @@ from axiomm.io.converters import (
     ConversionMode, XRMMapH5Reader, convert_file,
 )
 
-# Default: ConversionMode.LEGACY — behaviour unchanged, provenance added.
+# Default mode: ConversionMode.GENERIC (Phase 4, Chunk 18) — preset
+# fallback is still honoured but at warning severity. Use
+# ConversionMode.LEGACY for a quiet conversion on the inherited
+# APS 13-ID-E dataset.
 result = convert_file("A21_054_map.h5", reader="xrmmap_h5")
 
-# Opt in to a stricter mode (full enforcement lands in Chunks 17–18):
+# Strict mode refuses every fallback and raises
+# CalibrationUnresolvedError if any required value can't be
+# resolved from explicit user config or source metadata.
 reader = XRMMapH5Reader(mode=ConversionMode.STRICT)
 ```
 
 The four available modes are described in the **Calibration
-provenance primitives** types above. Today the meaningful
-behavioural difference is in `roi_limit_units`: in `legacy`,
-`generic`, and `diagnostic` modes the reader infers
-`"channel_index"` when `roi_limit_scale ≈ 0.01` (per the
-2026-06-12 metadata audit of `/xrmmap/config/rois/limits`, which
-stores MCA channel indices in this dataset); in `strict` mode
-the value is marked `UNKNOWN` rather than inferred. The
-remaining mode-driven enforcement (refusing legacy presets in
-`generic`, raising `CalibrationUnresolvedError` in `strict`) is
-plumbed but not yet wired — that lands in Chunks 17–18 alongside
-the calibration/schema split and the explicit-units fields.
+provenance primitives** types above. The full ladder is enforced
+by both readers as of Chunk 17 (`XRMMapH5Reader`) and Chunk 18
+(`GenericHDF5MapReader`): user-supplied calibration always wins,
+the named legacy preset is consulted only when the active mode
+permits it, and unresolved values in strict mode raise.
 
-A typical legacy-mode payload now carries:
+A typical default-mode payload now carries:
 
 ```python
 payload.resolved_calibration
 # {
-#   "energy_scale":     ResolvedValue(0.01, LEGACY_PRESET, "reader config…"),
+#   "energy_scale":     ResolvedValue(0.01, LEGACY_PRESET, "applied from legacy preset…"),
 #   "navigation_scale": ResolvedValue(2.0,  SOURCE_METADATA, "parsed from environ…"),
-#   "roi_limit_units":  ResolvedValue("channel_index", INFERRED, "audit…"),
+#   "roi_limit_units":  ResolvedValue("channel_index", LEGACY_PRESET, "applied roi_limit_units…"),
 # }
 ```
 
-and three new info diagnostics surface what was resolved:
+and the corresponding info / warning diagnostics surface what was
+resolved:
 
-* `calibration_resolved_from_preset` — keys taken from the
-  reader's config defaults (legacy preset).
+* `calibration_resolved_from_user_config` — keys taken from
+  explicit `XRMMapH5Calibration(...)` / `HDF5MapCalibration(...)`
+  fields.
 * `calibration_resolved_from_metadata` — keys read from the
   source file (e.g. navigation scale from the environ table).
+* `calibration_resolved_from_preset` — keys taken from the named
+  legacy preset. Emitted at **warning** severity in
+  `ConversionMode.GENERIC` (the default since Chunk 18) and at
+  **info** severity in `LEGACY` / `DIAGNOSTIC`.
 * `calibration_inferred` — keys inferred heuristically from
-  numeric config values (e.g. ROI-limit units from
-  `roi_limit_scale`).
+  resolved numeric values.
 
 When `resolved_calibration` is populated, the AXIOMM metadata
 namespace and the manifest sidecar gain a `calibration` subkey
@@ -452,7 +460,7 @@ AXIOMM
 ├── converter
 │   ├── reader            "xrmmap_h5"
 │   ├── reader_version    "0.1.0.dev0"
-│   └── config            { full XRMMapH5Config dataclass dump }
+│   └── config            { schema: {...}, calibration: {...}, mode: "generic" }
 ├── axes
 │   └── [ {name, role, size, units, scale, offset, index_in_array}, ... ]
 ├── source
@@ -533,10 +541,11 @@ The classification distinguishes:
   when computed from a beam-size value found in the environ table).
 - **inferred** — values derived from observed values (e.g. axis sizes
   from `data.shape`).
-- **assumed** — fallback or config-default values with *no source* in
-  the input file (the Energy axis scale `40.96 / 4096`, the navigation
-  axis units, the navigation scale when it falls back to
-  `fallback_field_width_um / xdim`, the ROI limit rescaling).
+- **assumed** — fallback or preset-default values with *no source*
+  in the input file (the Energy axis scale when resolved from the
+  legacy preset, the navigation axis units, the navigation scale
+  when it falls back to `legacy_field_width_um / xdim`, the ROI
+  limit rescaling applied per the resolved `roi_limit_units`).
 
 This separation is what makes an AXIOMM conversion auditable: a
 downstream consumer can tell what came from the instrument vs. what
@@ -599,7 +608,7 @@ the converter made on your behalf:
 |-----------------------------------|----------|------------------------------------------------------------------------------------------------|
 | `lazy_downgraded_to_eager`        | info     | You passed `lazy=True` (the default); the MVP reader materialised the dataset eagerly.         |
 | `output_skipped_existing`         | info     | `skip_existing=True` matched; no read/build/write was performed.                                |
-| `environ_missing`                 | warning  | The XRM environ config table wasn't found; fell back to `fallback_field_width_um`.             |
+| `environ_missing`                 | warning  | The XRM environ config table wasn't found; the navigation-scale resolution ladder falls through to user `pixel_size_um` / `field_width_um` / the legacy preset.             |
 | `beam_size_missing`               | warning  | The configured beam-size key wasn't in the environ table; fell back.                           |
 | `beam_size_unparseable`           | warning  | The beam-size string couldn't be parsed; fell back.                                            |
 | `roi_missing`                     | warning  | ROI metadata datasets weren't present; ROIs not extracted.                                     |
@@ -623,7 +632,7 @@ not need to write a new `Reader` class. Pass an `HDF5MapSchema` to
 
 ```python
 from axiomm.io.converters import (
-    GenericHDF5MapReader, HDF5MapConfig, HDF5MapSchema, convert_file,
+    GenericHDF5MapReader, HDF5MapCalibration, HDF5MapSchema, convert_file,
 )
 
 schema = HDF5MapSchema(
@@ -636,10 +645,11 @@ schema = HDF5MapSchema(
 
 reader = GenericHDF5MapReader(
     schema=schema,
-    config=HDF5MapConfig(
+    calibration=HDF5MapCalibration(
         energy_scale=0.005,                # keV per channel
-        roi_limit_scale=1.0,               # if you had ROIs in keV already
-        fallback_field_width_um=None,      # no fallback; nav scale must come from environ
+        roi_limit_units="keV",             # ROIs stored in keV already
+        pixel_size_um=2.0,                 # direct navigation scale (or use
+                                           # field_width_um for derived scale)
     ),
 )
 

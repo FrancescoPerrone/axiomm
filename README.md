@@ -101,7 +101,7 @@ Per the AXIOMM convention each tool lives under its own subpackage:
 
 | Tool      | Module                    | Status                                           |
 |-----------|---------------------------|--------------------------------------------------|
-| Converter | `axiomm.io.converters`    | Phases 0–2 complete; reader registry (Phase 3.1) in place. CLI / notebook helpers still blocked on a UX-layout decision. |
+| Converter | `axiomm.io.converters`    | Phases 0–4 complete. End-to-end Python API, registry + plugin-discovery for third-party readers/writers, calibration resolution ladder with per-value provenance (`source_metadata` → `user_config` → `legacy_preset` → `inferred` → `unknown`). CLI / notebook helpers still blocked on a UX-layout decision. |
 
 ## Installation
 

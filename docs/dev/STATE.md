@@ -64,13 +64,13 @@ when the time comes.
 | 10 | Restructure `payload.metadata["AXIOMM"]` per spec §15 nested layout | ✅ done    |
 | 11 | Real-file e2e regression fixture + scientific-constant justification | ✅ done    |
 
-**Phase 2 complete.** The converter now validates axes strictly, exposes
+**Phase 2 complete.** The converter validates axes strictly, exposes
 the ROI-variant choice, uses the nested AXIOMM metadata layout from
 spec §15, ships a manifest schema (v2) that mirrors it, and carries
-realistic-shape regression coverage. Three scientific constants remain
-flagged as open assumptions (`energy_scale`, `roi_limit_scale`,
-`fallback_field_width_um`) — see the user guide for what needs domain
-confirmation before public release.
+realistic-shape regression coverage. The three scientific constants
+(`energy_scale`, `roi_limit_scale`, `fallback_field_width_um`) were
+the Phase-2 residual and were resolved by Phase 4's resolution-ladder
+architecture — see the Phase 4 section below.
 
 ### Phase 3 — extensibility (spec §23)
 
@@ -124,44 +124,6 @@ their own experimental calibration. See `docs/user/converter.md`
 → *Calibration resolution* for the canonical user-facing reference,
 and the wiki Roadmap Phase-4 section for the dev-side narrative.
 
-### Chunk 15 — acceptance criteria
-
-**Goal.** Introduce the *types* and *plumbing* for per-value
-calibration provenance, with **no behavioural change** to any reader.
-Existing 283 tests must remain green; new tests cover the primitives.
-
-* New module `src/axiomm/io/converters/calibration.py` exports:
-  - `CalibrationSource` (StrEnum) — `source_metadata`, `user_config`,
-    `legacy_preset`, `inferred`, `unknown`.
-  - `ConversionMode` (StrEnum) — `legacy`, `generic`, `strict`,
-    `diagnostic`.
-  - `ResolvedValue` (frozen dataclass) — `(value: Any, source:
-    CalibrationSource, note: str | None = None)`.
-* `AxiommSignalPayload` (in `models.py`) gains an optional
-  `resolved_calibration: dict[str, ResolvedValue] | None = None`
-  field. Default `None` keeps existing readers and tests untouched.
-* `metadata.py` gains `nest_calibration_section(resolved)` which
-  serialises the dict to plain JSON-friendly dicts. The
-  `build_axiomm_namespace` orchestrator accepts an optional
-  `resolved_calibration` keyword and inserts a `"calibration"` subkey
-  *only when present*, so existing snapshots and tests stay valid.
-* `writers/manifest.py` propagates `payload.resolved_calibration`
-  into `build_axiomm_namespace`. Manifest schema version stays at
-  `"2"` — the new subkey is additive.
-* New unit tests in `tests/io/converters/test_calibration.py`:
-  enum values, `ResolvedValue` immutability + equality,
-  `nest_calibration_section` shape, payload round-trip with and
-  without `resolved_calibration`, manifest JSON shape with the new
-  subkey.
-* Existing 283 tests green; full suite ≥ ~290 with the new ones.
-* Docs: short "Calibration provenance primitives (Chunk 15)"
-  subsection in `docs/user/converter.md` *after* the existing
-  assumptions section. Math + assumptions section itself is
-  untouched until Chunk 19's rewrite.
-* Memory file `project_calibration_resolution_epic.md` already
-  written so a fresh session can resume Chunks 16–19 without
-  re-reading the geology-team notes.
-
 ### Backlog (no chunk number assigned)
 
 * **Additional output writers.** Was Phase 3's Chunk 15; parked
@@ -175,256 +137,144 @@ Existing 283 tests must remain green; new tests cover the primitives.
   notebook helpers. Still on hold pending Francesco's UX-layout
   decision (`axiomm.io.converters.ux.*` vs `axiomm.ux.*`).
 
-## Current state (as of Chunk 14 — Phase 3.3: generic HDF5 reader)
+## Current state (Phase 4 complete)
 
-What exists in this repository:
+The per-chunk timeline is captured by the chunk-plan tables above
+plus the git log. This section is the **current snapshot** of what
+exists today; the chunk-by-chunk implementation diary that used to
+live here has been retired (stale claims like a v1 manifest schema,
+a "tiny built-in mapping" for reader lookup, a still-monolithic
+`XRMMapH5Config`, and an unimplemented manifest writer were
+accumulating without being pruned). Historical findings worth
+preserving — the legacy x/y swap, the in-process module-drop test
+gotcha, the real-file ROI shape — live in *Historical findings* at
+the bottom of this file.
 
-* Package skeleton under `src/axiomm/io/converters/` with sub-packages for
-  `readers/`, `signals/`, `writers/`.
-* `errors.py` — full exception hierarchy from spec §13.
+### Module map
+
+* `errors.py` — exception hierarchy (`AxiommConverterError` and
+  subclasses). Includes `CalibrationUnresolvedError` (Chunk 16,
+  raised in strict mode from Chunk 17).
 * `models.py` — `AxisSpec`, `Diagnostic`, `SourceProvenance`,
-  `AxiommSignalPayload`, `ConversionResult` plus the `AxisRole`,
-  `SignalKind`, `Severity` type aliases (spec §8.3, §9.6).
-* `readers/base.py`, `signals/base.py`, `writers/base.py` — runtime-checkable
-  `Protocol`s for `Reader`, `SignalBuilder`, `Writer`. Generality is built in
-  from the start: HyperSpy is one possible builder, not an assumption.
-* **`discovery.py` — `discover_inputs(...)`** implementing spec §6: file or
-  directory input, optional extension filter (case-insensitive), optional
-  sample-substring filter on file names, optional recursion, deterministic
-  ordering, `InputDiscoveryError` on missing path / non-file-non-dir input
-  / no matches with `require_non_empty=True`. Pure pathlib, no HDF5, no GUI.
-* `tests/io/converters/test_import_has_no_side_effects.py` — guards spec
-  §24.1 (silent import) plus a "models stay backend-neutral" check.
-* **`tests/io/converters/test_discovery.py`** — 18 tests covering every
-  spec §6 behavioural requirement plus determinism and a "no h5py / no
-  tkinter import" check specific to `discover_inputs`.
-* **`readers/xrmmap_h5.py` — first concrete reader.** `XRMMapH5Reader`
-  implements the `Reader` protocol; every HDF5 path is a field of the
-  frozen `XRMMapH5Config` (spec §7.5) so XRM-style files with different
-  paths can be read by passing a configured reader. Missing optional
-  metadata becomes structured `Diagnostic`s on the payload; only a
-  missing primary counts dataset raises (`DatasetNotFoundError`, with an
-  actionable message naming the path and the config field to override).
-  Includes spec §7.6 string-decoding helpers (`decode_hdf5_string`,
-  `decode_hdf5_string_array`) and the spec §7.7 beam-size parser
-  (`parse_micrometre_value`). MVP reads eagerly; `lazy=True` is accepted
-  and produces a `lazy_downgraded_to_eager` diagnostic.
-* **`tests/io/converters/conftest.py`** — `synthetic_xrmmap_h5` factory
-  fixture (spec §20.1): builds minimal valid XRM-map HDF5 files in
-  `tmp_path` with switches to omit each dataset group so the reader's
-  missing-metadata branches can be exercised.
-* **`tests/io/converters/test_xrmmap_h5_reader.py`** — 59 tests covering
-  `XRMMapH5Config` defaults (spec §17), the protocol attributes,
-  `can_read` (extension + signature peek), happy-path `read`, every
-  missing-metadata branch, the `lazy` flag, the config-override
-  "different paths" use case, and an `import` hygiene check.
-* `axiomm.io.converters.__init__` re-exports `XRMMapH5Reader` and
-  `XRMMapH5Config` lazily via PEP 562 `__getattr__`, so package import
-  still does not pull in `h5py`.
-* **`signals/validation.py` — `validate_axes`**: structural-then-semantic
-  checks per spec §8.6 (axis count vs. `data.ndim`; every axis declares
-  a valid in-bounds `index_in_array`; the indices form a complete
-  permutation of `[0, ndim)`; axis sizes match the data shape;
-  signal-axis count matches the requested `SignalKind`). Eagerly
-  re-exported from the converters package — it has no heavy deps.
-* **`signals/hyperspy_builder.py` — first concrete `SignalBuilder`.**
-  `HyperSpyBuilder.build(payload)` validates the payload, resolves
-  `signal_kind="auto"` from the count of signal axes, optionally
-  transposes the data so signal axes are trailing (HyperSpy's
-  expectation), constructs the right `hs.signals.*` class, and assigns
-  axis name/units/scale/offset by matching `AxisSpec.index_in_array` to
-  HyperSpy's `axis.index_in_array` — *not* by tuple position, which is
-  how the prototype's axis-labelling bug came in (HyperSpy reverses
-  `navigation_axes` order relative to numpy). Metadata is copied into
-  `signal.metadata.AXIOMM`, including provenance and diagnostics;
-  `payload.title` becomes `signal.metadata.General.title`;
-  `payload.original_metadata` carries over verbatim.
-  `build_hyperspy_signal(payload)` is a convenience wrapper.
-  Lazily re-exported from the converters package via `__getattr__`.
-* **`tests/io/converters/test_hyperspy_builder.py`** — 26 tests covering
-  signal-kind resolution (signal1d/signal2d/base/auto), every
-  `validate_axes` failure mode, axis-name correctness (the test that
-  catches the prototype bug), non-canonical axis order (signal axis at
-  numpy index 0 → transparently transposed), every metadata-propagation
-  branch, the convenience function, an end-to-end synthetic-fixture
-  round trip, and the no-tkinter-on-import check. Module-level
-  `pytest.importorskip("hyperspy.api")` so the suite still passes
-  cleanly in environments without HyperSpy.
-* **`writers/hspy.py` — first concrete writer.** `HSpyWriter` writes a
-  HyperSpy signal to disk via `signal.save(...)`. Enforces the AXIOMM
-  safety rule: by default an existing target raises
-  `OutputExistsError` (the error message names the path and the flag to
-  pass for replacement); `overwrite=True` replaces. Creates parent
-  directories automatically.
-* **`workflows.py` — `convert_file`.** End-to-end orchestrator: resolves
-  a reader (instance, registered name, or `"auto"` via `can_read`
-  dispatch), reads, builds the HyperSpy signal, writes the output, and
-  returns a `ConversionResult`. Output-path resolution per spec §11.2:
-  explicit `output_path` wins → otherwise `output_dir/<stem>.<ext>` →
-  otherwise `input_path.with_suffix(default_ext)`. `skip_existing=True`
-  short-circuits before reading and emits a diagnostic; `manifest=True`
-  is accepted for forward compatibility but emits a
-  `manifest_not_yet_implemented` diagnostic until Chunk 7 lands. A tiny
-  built-in `_BUILTIN_READERS` / `_BUILTIN_WRITERS` mapping handles
-  string-name dispatch without depending on the full registry (Phase 3).
-* `axiomm.io.converters.__init__` now eagerly re-exports `convert_file`
-  alongside `validate_axes`, and lazily exposes `HSpyWriter` via the
-  PEP 562 `__getattr__`. Package import still does not pull in `h5py`,
-  `hyperspy`, or `tkinter`.
-* **`tests/io/converters/test_hspy_writer.py`** — 10 tests covering
-  protocol attributes, write happy path, parent-directory creation,
-  round-trip metadata preservation, the overwrite policy (refuses by
-  default, replaces with `overwrite=True`), the actionable error
-  message, and import hygiene.
-* **`tests/io/converters/test_workflows.py`** — 22 tests covering the
-  happy path end-to-end (synthetic-fixture round trip producing a
-  loadable `.hspy`), the axis-labels-end-to-end guard against the
-  prototype's x/y swap, every output-path resolution rule, reader
-  dispatch (named, `auto`, instance, unknown, multiple, none),
-  writer dispatch (named, instance, unknown), the overwrite policy at
-  workflow level, `skip_existing` behaviour, the manifest diagnostic,
-  top-level import path, and import hygiene.
-* The `test_import_has_no_side_effects.py` "no side effects" tests now
-  run in **subprocesses** for true isolation, because earlier in-process
-  module-drop patterns broke class identity for `OutputExistsError` and
-  friends once enough downstream code held references to them.
-* **`writers/manifest.py` — manifest writer + builder** (spec §9.5).
-  `ManifestWriter` serialises a manifest dict to a JSON sidecar at
-  `<output>.axiomm.json`. `build_manifest_dict(...)` composes the
-  manifest from a payload; `extract_reader_config(reader)` pulls a
-  reader's dataclass config into a JSON-friendly dict (generic over
-  any reader with a dataclass `.config`). The manifest schema carries
-  a `manifest_schema_version` (`"1"` today), `axiomm_version`,
-  `created_at` (ISO 8601 UTC), `input_path`, `output_path`,
-  `reader_name`, `writer_name`, `source_shape`, `axes_summary`,
-  `diagnostics`, `config_used`, and the three-bucket
-  `provenance_classification`.
-* **`readers/xrmmap_h5.py` — provenance classification** (spec §15).
-  The reader now populates `payload.metadata["AXIOMM"]["provenance_classification"]`
-  with three buckets:
-  - **observed**: counts dataset, environ table, ROI table when
-    present; navigation scale when it came from the beam-size key.
-  - **inferred**: all three axis sizes (derived from `data.shape`).
-  - **assumed**: Energy axis scale + units (config defaults with no
-    file source), navigation axis units, navigation scale when it
-    came from `fallback_field_width_um / xdim`, ROI start/end values
-    (since `roi_limit_scale` is applied).
-  The classification flows through the existing `HyperSpyBuilder`
-  metadata copy without modification (it sits inside the AXIOMM
-  namespace dict that the builder already preserves).
-* **`workflows.py` — `convert_file` now writes the manifest.** When
-  `manifest=True` (the default), the workflow assembles a manifest
-  via `build_manifest_dict(...)` and writes it to
-  `manifest_path_for(written_path)`. `ConversionResult.manifest_path`
-  is set accordingly; `manifest=False` keeps it `None`. The old
-  `manifest_not_yet_implemented` diagnostic is removed.
-* **Logging (spec §14).** Each module now has
-  `logger = logging.getLogger(__name__)` and emits a single `INFO`
-  message at the entry point (`discover_inputs`, `XRMMapH5Reader.read`,
-  `HyperSpyBuilder.build`, `HSpyWriter.write`, `ManifestWriter.write`,
-  `convert_file`). No `print(...)` calls anywhere in the converter
-  package; Python's default `WARNING` level keeps the package quiet by
-  default but lets users opt into AXIOMM logs with one
-  `logging.basicConfig(level=logging.INFO)` call.
-* **Tests added:**
-  - `tests/io/converters/test_manifest_writer.py` — 21 tests covering
-    `MANIFEST_SUFFIX` / schema version constants, `manifest_path_for`,
-    every field `build_manifest_dict` must populate, the three-bucket
-    `provenance_classification` defaulting when a reader doesn't
-    classify, the `extract_reader_config` dataclass-aware helper,
-    `ManifestWriter` happy-path / overwrite-policy / sorted-keys
-    diff-friendliness, and the import-hygiene check.
-  - `tests/io/converters/test_workflows.py` — flipped the two former
-    "manifest_not_yet_implemented" tests to verify the new
-    write-sidecar behaviour; added tests asserting the manifest
-    contains every required field, that the manifest's path follows
-    the `<output>.axiomm.json` convention with the full output name
-    preserved, and that reader diagnostics carry through into the
-    manifest.
-  - `tests/io/converters/test_xrmmap_h5_reader.py` — 6 new tests on
-    the three-bucket classification: structure, observed includes
-    counts + environ, inferred includes axis sizes, assumed includes
-    Energy scale + units, the beam-size vs. fallback path for nav
-    scale classification.
-* **`signals/validation.py` — stricter `validate_axes` checks (Chunk 9).**
-  Per-axis leaf-level integrity: every `AxisSpec.name` must be a
-  non-empty string, `size` must be a positive int, `scale` (if not
-  `None`) must be finite, `offset` must be finite. Cross-axis: names
-  within each role group (navigation / signal) must be unique
-  (HyperSpy's `axes_manager` looks axes up by name; duplicates are
-  silently lossy). Existing checks unchanged.
-* **`readers/xrmmap_h5.py` — ROI variant extraction (Chunk 9).**
-  `XRMMapH5Config` gained `roi_variant_index: int = 0`. The reader
-  now detects 3-D ROI limits arrays of shape
-  `(n_rois, n_variants, 2)` (the real-file shape) and slices
-  `limits[:, roi_variant_index, :]` — turning the previous
-  `roi_limits_unexpected_shape` warning into a configurable extraction.
-  Out-of-bounds `roi_variant_index` emits a new
-  `roi_variant_out_of_bounds` warning and skips extraction with a
-  message naming the available range. The 2-D `(n_rois, 2)` path
-  stays working as a regression.
-* **`tests/io/converters/conftest.py`** — synthetic fixture gained a
-  `roi_limits_override: np.ndarray | None` parameter so tests can
-  write any-shape ROI limits arrays.
-* **`tests/io/converters/test_hyperspy_builder.py`** — 6 new tests
-  on the stricter validation: empty name, non-positive size, NaN
-  scale, inf offset, duplicate navigation names, duplicate signal
-  names.
-* **`tests/io/converters/test_xrmmap_h5_reader.py`** — 5 new tests
-  on ROI variant handling: default `roi_variant_index=0` on a
-  `(2, 7, 2)` fixture; non-default variant index extracting that
-  slice; out-of-bounds index emitting the diagnostic; 2-D regression.
-* `pyproject.toml` with src-layout, `requires-python = ">=3.10"`, optional
-  extras for `hdf5`, `hyperspy`, `all`, `notebook`, `dev`. Pytest configured
-  with `pythonpath = ["src"]` so tests run without an install.
+  `AxiommSignalPayload`, `ConversionResult`. Payload carries an
+  optional `resolved_calibration: dict[str, ResolvedValue] | None`
+  (Chunk 15).
+* `calibration.py` — `CalibrationSource` / `ConversionMode` /
+  `ResolvedValue` primitives (Chunk 15).
+* `presets.py` — `XRMMapH5Calibration` dataclass +
+  `XRMMAP_LEGACY_APS_13_ID_E_PRESET_V1` + minimal preset registry
+  (`get_preset` / `iter_presets` / `register_preset`) — Chunk 17,
+  audit-grounded Chunk 18 update.
+* `metadata.py` — `build_axiomm_namespace` composer + the per-section
+  transformers. The namespace gains an additive `calibration` subkey
+  when the payload's `resolved_calibration` is populated (Chunk 15).
+* `discovery.py` — `discover_inputs(...)` (spec §6).
+* `registry.py` — full `Registry` class + `register_reader` /
+  `get_reader` / `iter_readers` / `register_writer` / `get_writer` /
+  `iter_writers` helpers + plugin discovery via `importlib.metadata`
+  entry-points (`axiomm.readers` / `axiomm.writers`, Chunks 12–13).
+  `convert_file` goes through this registry; the lookup is no longer
+  a hand-rolled mapping.
+* `readers/base.py`, `signals/base.py`, `writers/base.py` — runtime-
+  checkable `Reader` / `SignalBuilder` / `Writer` protocols.
+* `readers/hdf5_schema.py` — `HDF5MapSchema` + canonical
+  `XRMMAP_H5_SCHEMA` constant (Chunk 14).
+* `readers/hdf5_helpers.py` — shared HDF5 primitives
+  (`read_environ_table`, `read_roi_table`, `resolve_navigation_scale`)
+  plus the Phase-4 resolution helpers (`resolve_energy_scale`,
+  `resolve_roi_limit_interpretation`,
+  `resolve_navigation_scale_calibration`,
+  `compute_roi_scale_from_units`, `raise_if_strict_unresolved`).
+* `readers/xrmmap_h5.py` — `XRMMapH5Reader`. Kw-only constructor
+  takes `schema: HDF5MapSchema | None`, `calibration:
+  XRMMapH5Calibration | None`, and `mode: ConversionMode =
+  GENERIC` (default flipped in Chunk 18). Walks the resolution
+  ladder for `energy_scale`, `roi_limit_units`, and
+  `navigation_scale`; raises `CalibrationUnresolvedError` in
+  strict mode.
+* `readers/hdf5_generic.py` — `GenericHDF5MapReader` +
+  `HDF5MapCalibration` (renamed from `HDF5MapConfig` at Chunk 18).
+  Same ladder, no named preset; same default mode (`GENERIC`).
+* `signals/validation.py` — `validate_axes` (Chunks 4 + 9).
+* `signals/hyperspy_builder.py` — `HyperSpyBuilder` +
+  `build_hyperspy_signal`. Defends against the HyperSpy
+  reverse-order navigation-axes gotcha by matching
+  `AxisSpec.index_in_array` rather than tuple position (Chunk 4).
+* `writers/hspy.py` — `HSpyWriter` (refuses to silently overwrite).
+* `writers/manifest.py` — `ManifestWriter` + `build_manifest_dict`.
+  Manifest schema **v2** (Chunk 10) — `axiomm_metadata` subkey
+  mirrors `signal.metadata.AXIOMM` exactly. Carries the additive
+  `calibration` subkey since Chunk 15.
+* `workflows.py` — `convert_file`. Uses the full registry for
+  named / `"auto"` reader dispatch. Writes the manifest sidecar by
+  default (`manifest=True`). Output-path resolution per spec §11.2.
+* `axiomm.io.converters.__init__` — eager exports
+  (`convert_file`, `validate_axes`, registry helpers, calibration
+  primitives, presets) + PEP 562 lazy attribute imports for the
+  HDF5/HyperSpy-bearing concrete classes.
+
+### Tests (current count)
+
+**360 pass** with `[dev,all]` extras installed (Python 3.11,
+hyperspy 2.4.0, h5py 3.16.0, pytest 9.0.3). Without hyperspy: 208
+pass + 5 skipped (the hspy_writer, hyperspy_builder, workflows,
+and realistic-fixture regression modules skip as one unit each;
+`test_lazy_concrete_builder_exports` skips individually).
+
+### What does **not** yet exist
+
+* `convert_many` — Chunk 6 (UX-blocked).
+* CLI entry point `axiomm-convert` — Chunk 6 (UX-blocked).
+* `ux/` subpackage (CLI, notebook helpers, Tk dialogs) — Chunks
+  6 / 8 (UX-blocked).
+* True lazy execution beyond the accepted-but-downgraded
+  `lazy=True` flag (a `lazy_downgraded_to_eager` diagnostic
+  records every downgrade). Future work.
+* Source-metadata extraction from `/xrmmap/config/mca_calib/*` /
+  `/xrmmap/mcasum/energy` / `/xrmmap/config/scan/*` /
+  `/xrmmap/roimap/mcasum/<ROI>/limits` — the audit-confirmed
+  paths exist in the inherited files; the resolution ladder's
+  `SOURCE_METADATA` branch currently consults only the environ
+  table's beam-size key. Reading the other paths is the natural
+  follow-up to Phase 4 when the need surfaces.
+* Additional output writers — parked in Backlog above.
+* `CITATION.cff` and `ACKNOWLEDGEMENTS.md`.
+
+### Repository surface (non-source)
+
+* `pyproject.toml` — src-layout, `requires-python = ">=3.10"`,
+  optional extras for `hdf5`, `hyperspy`, `all`, `notebook`,
+  `dev`, `docs`. Pytest configured with `pythonpath = ["src"]`.
 * `LICENSE` — PolyForm Noncommercial 1.0.0.
-* `README.md` — short package summary (with AXIOMM acronym expansion),
-  Tools section, dev install, wiki link, licence note.
-* `CLAUDE.md` at repo root — hard constraints and working agreement;
-  spells out the AXIOMM acronym and warns the M's are *Mineral Mapping*,
-  not Microscopy.
-* `docs/specs/converter_tool_spec.md` — the authoritative spec (copy of the
-  original from `docs_refactoring/`).
-* `docs/specs/_legacy/converter_prototype.py` — the original converter
-  prototype, reference-only. **Do not import or extend it from package code.**
-* `.gitignore` tuned for Python + scientific scratch outputs.
+* `README.md` — short package summary, Tools section, install
+  instructions, wiki link, licence note.
+* `docs/specs/converter_tool_spec.md` — the authoritative spec.
+* `docs/specs/_legacy/converter_prototype.py` — the original
+  prototype, reference-only. **Do not import or extend from
+  package code.**
+* `docs/user/converter.md` — comprehensive user guide
+  (canonical, repo-shipped version; the wiki *Converter* page is
+  the GitHub-side landing).
+* `docs/user/known_issues.md` — comprehensive known-issues page.
+* `docs/conf.py` + `docs/Makefile` — Sphinx project (furo theme,
+  myst-parser, sphinx-autoapi, sphinx-copybutton, mathjax,
+  intersphinx).
+* `docs/dev/STATE.md` (this file) — single source of truth for
+  *what AXIOMM has and what's next*.
+* `.gitignore` — Python/scientific scratch outputs, the design
+  identity working folder rules. Workflow-specific local
+  ignores live in `.git/info/exclude` (per-clone, untracked).
 * Public wiki at <https://github.com/FrancescoPerrone/axiomm/wiki>
   (Home, Tools, Converter, Converter-Architecture, Known-Issues,
-  Roadmap, Development, Specification, Glossary, plus `_Sidebar` /
-  `_Footer`).
-* `docs/` is now a Sphinx project (post-Phase-0 doc infrastructure):
-  - `docs/conf.py` — Sphinx config (furo theme, myst-parser for
-    Markdown source, sphinx-autoapi for auto-generated API reference
-    from `src/axiomm`, intersphinx to Python/NumPy/h5py/HyperSpy,
-    mathjax for formulae, sphinx-copybutton).
-  - `docs/index.md` — landing page.
-  - `docs/user/converter.md` — comprehensive user guide for the
-    converter (canonical, repo-shipped version; the wiki Converter
-    page is the GitHub-side landing).
-  - `docs/user/known_issues.md` — comprehensive known-issues page.
-  - `docs/Makefile` — `make html` builds to `docs/_build/html`.
-  - `pyproject.toml` `[docs]` extra installs sphinx + ecosystem.
-  - `.gitignore` excludes `docs/_build/` and `docs/autoapi/`.
-  Build verified: `cd docs && /tmp/axiomm-venv/bin/sphinx-build -b html
-  . _build/html` succeeds with 2 cosmetic warnings (docutils inline-
-  literal interpretation of nested-paren strings in autoapi-rendered
-  docstrings — purely visual, fixable when needed).
+  Roadmap, Development, Specification, Glossary; `_Sidebar` /
+  `_Footer` shells).
 
-What does **not** yet exist (deferred to later chunks):
+## Historical findings (recorded by chunk)
 
-* `convert_many` — Chunk 6 (blocked on UX-layout decision).
-* The CLI entry point — Chunk 6 (blocked on UX-layout decision).
-* The `ux/` subpackage (CLI, notebook helpers, Tk dialogs) — Chunks 6/8
-  (both blocked on UX-layout decision).
-* True lazy execution beyond an accepted-but-downgraded `lazy=True` flag.
-* The fully nested `payload.metadata["AXIOMM"]` structure suggested by
-  spec §15's example (`converter` / `axes` / `source` nesting). The
-  current flat `{reader, reader_version, config, provenance_classification,
-  provenance, diagnostics}` layout is functionally equivalent and avoids
-  a breaking change; a Phase-2 restructure can fold it into the spec's
-  nested form when the public API is being broken anyway.
-* The full reader/writer registry with plugin entry points — Phase 3.
-* `CITATION.cff` and `ACKNOWLEDGEMENTS.md`.
+> These notes captured one-off discoveries during specific chunks
+> that are still useful long-term reference. They describe state
+> **at the time of the chunk** — read with that disclaimer in mind
+> if anything reads as out of date.
 
 ### Real-file findings from Chunk 3 (recorded for later chunks)
 
@@ -439,13 +289,12 @@ The reader was smoke-tested against the smallest real XRM file at
 - **65 environ entries** were extracted without issue.
 - **ROI limits shape** is `(35, 7, 2)`, *not* `(n_rois, 2)`. The real
   file stores multiple ROI variants per element (likely per-detector
-  or per-fit-pass). The reader currently emits the
-  `roi_limits_unexpected_shape` diagnostic and skips ROI extraction — a
-  safe MVP behaviour but a real schema-conformance issue. To recover
-  ROI metadata from real files, one of:
-  1. Add a `roi_variant_index: int = 0` (or similar) to
-     `XRMMapH5Config` in Phase 2 and use `limits[:, roi_variant_index, :]`.
-  2. Use the generic HDF5 schema-driven reader (Phase 3, spec §23).
+  or per-fit-pass). The reader at the time emitted the
+  `roi_limits_unexpected_shape` diagnostic and skipped ROI extraction.
+  *Resolved in Chunk 9*: a `roi_variant_index` field on the
+  calibration dataclass (originally on `XRMMapH5Config`, now on
+  `XRMMapH5Calibration` after the Chunk 17 split) plus the
+  `read_roi_table` helper accept both 2-D and 3-D limits arrays.
 
 ### Chunk 5 finding (recorded for future contributors)
 
@@ -552,38 +401,39 @@ cosmetic docutils warnings; the HTML output is unaffected. Local
 builds still surface them so the underlying docstring formatting
 can be cleaned up when convenient.
 
-## Next chunk: Phase 4 / Chunk 15
+## Next chunk
 
-Phase 3 closed at Chunk 14. **Phase 4 (calibration provenance &
-resolution) is open**, opened by the geology team's policy reply on
-2026-06-12. See the Phase 4 table above for the chunk plan and the
-Chunk 15 acceptance criteria. Five chunks total (15 → 19); Chunk 15
-is *types and plumbing only*, no reader behaviour change yet.
+**Phase 4 closed.** Phases 0 → 4 are all complete; the converter
+tool has reached the scope captured in `docs/specs/converter_tool_spec.md`
+modulo the items listed under *Backlog* above (additional output
+writers, true lazy execution) and the *UX-blocked chunks* (CLI,
+`convert_many`, Tk dialogs, notebook helpers) waiting on Francesco's
+UX-layout decision.
 
-**Resolved former blocker.** The "domain-confirm the three scientific
-constants" item is no longer a block. The geology team returned a
-*policy* (resolution layer with named modes) rather than values; that
-policy *is* the Phase 4 epic. The three constants stay flagged in
-`XRMMapH5Config`'s docstring and in `docs/user/converter.md` until
-Chunk 19's rewrite.
+There is no single next chunk decided in this file. Plausible
+moves, in no particular order:
 
-**Other concurrent moves available:**
+* **Unblock the UX-layout decision** so former Chunks 6 / 8 can
+  proceed (CLI = a meaningful step toward a pre-alpha PyPI
+  release).
+* **Source-metadata extraction** in the resolution ladder
+  (`/xrmmap/config/mca_calib/*`, `/xrmmap/mcasum/energy`,
+  `/xrmmap/config/scan/*`, `/xrmmap/roimap/mcasum/<ROI>/limits`)
+  so `GENERIC` mode prefers file metadata over the legacy preset
+  on inherited XRM files. Audit-confirmed paths exist; the work
+  is bounded.
+* **Begin the wider AXIOMM surface** (`axiomm.signal`,
+  `axiomm.analysis`, …) — the converter is one small tool inside
+  the broader spectroscopy package; Francesco will decide when /
+  what to add next.
+* **PyPI rehearsal** on TestPyPI (name claim, classifiers,
+  `py.typed`, README banner) — see the discussion in the Phase 4
+  closure session for the full readiness checklist.
 
-* A second post-progress wiki sweep — overdue per the doc-quality
-  commitment. Best done as part of Chunk 19's status-closure pass
-  so Known-Issues, Home, and Roadmap update in one go.
-* ✅ Publish the Sphinx docs — set up via
-  `.github/workflows/docs.yml` (GitHub Pages) and
-  `.readthedocs.yaml` (Read the Docs). One manual activation step
-  remains on each platform; see *Documentation publishing* above.
-
-**Still UX-blocked.** Former Chunks 6 and 8 (CLI + Tk + notebook).
-Decision still deferred. Listed in *Backlog* above.
-
-## Verifying the current state (after Chunk 10)
+## Verifying the current state (Phase 4 complete)
 
 In an environment with Python ≥ 3.10 and the dev extras installed, the
-canonical chunk-verification commands are:
+canonical verification commands are:
 
 ```bash
 cd /home/francesco/Desktop/research/axiomm
@@ -591,7 +441,7 @@ python -m pip install -e ".[dev,all]"
 pytest -q
 ```
 
-Expected result: **283 tests pass**, 0 fail. With only h5py installed
+Expected result: **360 tests pass**, 0 fail. With only h5py installed
 (no hyperspy): 208 pass, 5 skipped (the hspy_writer, hyperspy_builder,
 workflows, and realistic-fixture regression modules skip as one unit
 each; the lazy-export `test_lazy_concrete_builder_exports` skips
@@ -656,13 +506,23 @@ works.
 
 ## Notes for resuming work
 
-* If `pyproject.toml` was edited to add the CLI entry point earlier than
-  Chunk 6, revert — the chunk plan keeps things working in order.
-* The synthetic HDF5 fixture in Chunk 3 should live at
-  `tests/io/converters/fixtures.py` and produce a `(4, 3, 16)` array per
-  spec §20.1.
-* When implementing Chunk 4 (HyperSpy builder), use the real
-  `IE_30s_map__Sep16_15_20_39_A22-043_1_001.h5` at
-  `/home/francesco/Desktop/research/melts/data/Maps-HDF5/` (≈ 950 KB,
-  smallest available) to verify axis order matches the prototype's output.
-  Do **not** commit that file or any other real `.h5` to the repo.
+* Real XRM test data lives at
+  `/home/francesco/Desktop/research/melts/data/Maps-HDF5/` (~900 MB,
+  267 files). The smallest single file
+  (`IE_30s_map__Sep16_15_20_39_A22-043_1_001.h5`, ~950 KB) is the
+  canonical out-of-band smoke-test target for the readers. **Do
+  not commit** any real `.h5` file (the `*.h5` rule in
+  `.gitignore` already excludes them; the `!tests/**/*.h5`
+  exception is reserved for tiny test fixtures generated under
+  `tmp_path`).
+* The 2026-06-12 metadata audit on that folder produced
+  `metadata_audit_report.md` (alongside an HTML version) at the
+  Maps-HDF5 directory's parent. That report confirms the
+  source-metadata paths the resolution ladder's `SOURCE_METADATA`
+  branch will eventually read from (see Phase 4 → *Next chunk*).
+* The author's ephemeral verification venv is at
+  `/tmp/axiomm-venv` (Python 3.11, hyperspy 2.4.0, h5py 3.16.0,
+  pytest 9.0.3, sphinx 9.0.4 + furo + myst-parser + sphinx-autoapi
+  + sphinx-copybutton). Recreate with
+  `python3.11 -m venv /tmp/axiomm-venv && /tmp/axiomm-venv/bin/pip
+  install -e ".[dev,all,docs]"` if `/tmp/` was cleared.
