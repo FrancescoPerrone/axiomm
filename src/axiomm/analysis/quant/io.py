@@ -118,4 +118,47 @@ def read_quant(directory, stem: str):
     )
 
 
-__all__ = ["SCHEMA_VERSION", "read_kfactors", "read_quant", "write_kfactors", "write_quant"]
+def write_reliability(report, directory, stem: str, *, overwrite: bool = False) -> Path:
+    """Write a ReliabilityReport to ``<stem>_reliability.json``."""
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{stem}_reliability.json"
+    if path.exists() and not overwrite:
+        raise OutputExistsError(f"{path} already exists; pass overwrite=True.")
+    doc = {
+        "schema_version": SCHEMA_VERSION,
+        "cluster_status": report.cluster_status,
+        "element_status": dict(report.element_status),
+        "reasons": list(report.reasons),
+        "provenance": _prov_to_dict(report.provenance),
+        "diagnostics": [
+            {"severity": d.severity, "code": d.code, "message": d.message,
+             "context": dict(d.context)}
+            for d in report.diagnostics
+        ],
+    }
+    path.write_text(json.dumps(doc, indent=2))
+    return path
+
+
+def read_reliability(directory, stem: str):
+    """Read a ReliabilityReport written by :func:`write_reliability`."""
+    from axiomm.analysis.quant.reliability import ReliabilityReport
+    path = Path(directory) / f"{stem}_reliability.json"
+    doc = json.loads(path.read_text())
+    diagnostics = [
+        Diagnostic(severity=d["severity"], code=d["code"], message=d["message"],
+                   context=d["context"])
+        for d in doc["diagnostics"]
+    ]
+    return ReliabilityReport(
+        cluster_status=doc["cluster_status"],
+        element_status=doc["element_status"],
+        reasons=tuple(doc["reasons"]),
+        provenance=_prov_from_dict(doc["provenance"]),
+        diagnostics=diagnostics,
+    )
+
+
+__all__ = ["SCHEMA_VERSION", "read_kfactors", "read_quant", "read_reliability",
+           "write_kfactors", "write_quant", "write_reliability"]

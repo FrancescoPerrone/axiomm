@@ -66,3 +66,21 @@ def test_quant_roundtrip(tmp_path):
     assert back.reference_element == "Si"
     assert back.provenance.backend == "cliff_lorimer"
     assert back.diagnostics[0].code == "element_not_measured"
+
+
+def test_reliability_roundtrip(tmp_path):
+    from axiomm.analysis.quant.reliability import ReliabilityReport
+    from axiomm.analysis.quant.io import read_reliability, write_reliability
+    r = ReliabilityReport(
+        cluster_status="exploratory_only",
+        element_status={"Si": "valid", "K": "below_quantification_limit"},
+        reasons=("heterogeneity 0.34 > 0.15",),
+        provenance=AnalysisProvenance(tool="quant", backend="reliability", params={"min_net_counts": 50.0}),
+        diagnostics=[Diagnostic("warning", "exploratory_cluster", "x")],
+    )
+    write_reliability(r, tmp_path, "sample")
+    back = read_reliability(tmp_path, "sample")
+    assert back.cluster_status == "exploratory_only"
+    assert back.element_status["K"] == "below_quantification_limit"
+    assert tuple(back.reasons) == ("heterogeneity 0.34 > 0.15",)
+    assert back.diagnostics[0].code == "exploratory_cluster"
