@@ -12,11 +12,21 @@ from __future__ import annotations
 from axiomm.analysis.quant.kfactors import compute_k_factors
 from axiomm.analysis.quant.cliff_lorimer import quantify, quantify_cluster_means
 from axiomm.analysis.quant.models import KFactorSet, QuantResult
+from axiomm.analysis.quant.reliability import (
+    ReliabilityConfig,
+    ReliabilityReport,
+    assess_cluster_reliability,
+    assess_reliability,
+)
 from axiomm.analysis.quant.io import read_kfactors, write_kfactors
 
 __all__ = [
     "KFactorSet",
     "QuantResult",
+    "ReliabilityConfig",
+    "ReliabilityReport",
+    "assess_cluster_reliability",
+    "assess_reliability",
     "compute_k_factors",
     "quantify",
     "quantify_cluster_means",

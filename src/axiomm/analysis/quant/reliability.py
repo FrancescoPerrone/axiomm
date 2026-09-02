@@ -88,5 +88,32 @@ def assess_reliability(quant, *, pixel_count, heterogeneity, total_counts,
     )
 
 
+def assess_cluster_reliability(quant_results, cluster_means,
+                               config: ReliabilityConfig = ReliabilityConfig()) -> tuple[ReliabilityReport, ...]:
+    """Assess each cluster's quantification against its cluster-quality."""
+    if cluster_means.heterogeneity is None or cluster_means.total_counts is None:
+        raise PayloadValidationError(
+            "cluster_means is not enriched with heterogeneity/total_counts; "
+            "recompute with compute_cluster_means."
+        )
+    n = len(quant_results)
+    if not (len(cluster_means.pixel_counts) == n
+            and len(cluster_means.heterogeneity) == n
+            and len(cluster_means.total_counts) == n):
+        raise PayloadValidationError(
+            "quant_results length does not match cluster_means arrays."
+        )
+    return tuple(
+        assess_reliability(
+            quant_results[i],
+            pixel_count=int(cluster_means.pixel_counts[i]),
+            heterogeneity=float(cluster_means.heterogeneity[i]),
+            total_counts=float(cluster_means.total_counts[i]),
+            config=config,
+        )
+        for i in range(n)
+    )
+
+
 __all__ = ["ClusterStatus", "ElementStatus", "ReliabilityConfig",
-           "ReliabilityReport", "assess_reliability"]
+           "ReliabilityReport", "assess_cluster_reliability", "assess_reliability"]
