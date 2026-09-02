@@ -74,4 +74,48 @@ def read_kfactors(directory, stem: str) -> KFactorSet:
     )
 
 
-__all__ = ["SCHEMA_VERSION", "read_kfactors", "write_kfactors"]
+def write_quant(qr, directory, stem: str, *, overwrite: bool = False) -> Path:
+    """Write a QuantResult to ``<stem>_quant.json``."""
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{stem}_quant.json"
+    if path.exists() and not overwrite:
+        raise OutputExistsError(f"{path} already exists; pass overwrite=True.")
+    doc = {
+        "schema_version": SCHEMA_VERSION,
+        "net_intensities": dict(qr.net_intensities),
+        "wt_percent_element": dict(qr.wt_percent_element),
+        "wt_percent_oxide": dict(qr.wt_percent_oxide),
+        "reference_element": qr.reference_element,
+        "provenance": _prov_to_dict(qr.provenance),
+        "diagnostics": [
+            {"severity": d.severity, "code": d.code, "message": d.message,
+             "context": dict(d.context)}
+            for d in qr.diagnostics
+        ],
+    }
+    path.write_text(json.dumps(doc, indent=2))
+    return path
+
+
+def read_quant(directory, stem: str):
+    """Read a QuantResult written by :func:`write_quant`."""
+    from axiomm.analysis.quant.models import QuantResult
+    path = Path(directory) / f"{stem}_quant.json"
+    doc = json.loads(path.read_text())
+    diagnostics = [
+        Diagnostic(severity=d["severity"], code=d["code"], message=d["message"],
+                   context=d["context"])
+        for d in doc["diagnostics"]
+    ]
+    return QuantResult(
+        net_intensities=doc["net_intensities"],
+        wt_percent_element=doc["wt_percent_element"],
+        wt_percent_oxide=doc["wt_percent_oxide"],
+        reference_element=doc["reference_element"],
+        provenance=_prov_from_dict(doc["provenance"]),
+        diagnostics=diagnostics,
+    )
+
+
+__all__ = ["SCHEMA_VERSION", "read_kfactors", "read_quant", "write_kfactors", "write_quant"]

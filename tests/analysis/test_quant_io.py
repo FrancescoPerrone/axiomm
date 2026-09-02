@@ -46,3 +46,23 @@ def test_refuses_silent_overwrite(tmp_path):
     with pytest.raises(OutputExistsError):
         write_kfactors(_ks(), tmp_path, "sample")
     write_kfactors(_ks(), tmp_path, "sample", overwrite=True)
+
+
+def test_quant_roundtrip(tmp_path):
+    from axiomm.analysis.quant.models import QuantResult
+    from axiomm.analysis.quant.io import read_quant, write_quant
+    qr = QuantResult(
+        net_intensities={"Si": 100.0, "Fe": 50.0},
+        wt_percent_element={"Si": 50.0, "Fe": 50.0},
+        wt_percent_oxide={"SiO2": 60.0, "FeO": 40.0},
+        reference_element="Si",
+        provenance=AnalysisProvenance(tool="quant", backend="cliff_lorimer",
+                                      params={"reference": "Si"}),
+        diagnostics=[Diagnostic("info", "element_not_measured", "x")],
+    )
+    write_quant(qr, tmp_path, "sample")
+    back = read_quant(tmp_path, "sample")
+    assert back.wt_percent_oxide == {"SiO2": 60.0, "FeO": 40.0}
+    assert back.reference_element == "Si"
+    assert back.provenance.backend == "cliff_lorimer"
+    assert back.diagnostics[0].code == "element_not_measured"
