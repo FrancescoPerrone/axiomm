@@ -80,3 +80,11 @@ def test_missing_oxygen_raises():
     els = [e for e in _elements() if e.symbol != "O"]
     with pytest.raises(PayloadValidationError, match="O"):
         quantify(_peaks({"Si": 100.0}), _kf({"Si": 1.0}), els)
+
+
+def test_batch_quantify_cluster_means():
+    from axiomm.analysis.quant import quantify_cluster_means
+    sets = [_peaks({"Si": 100.0, "Fe": 50.0}), _peaks({"Si": 100.0, "Fe": 0.0})]
+    out = quantify_cluster_means(sets, _kf({"Si": 1.0, "Fe": 2.0}), _elements())
+    assert len(out) == 2
+    assert out[1].wt_percent_element["Fe"] == pytest.approx(0.0)

@@ -87,4 +87,9 @@ def quantify(peaks, kfactors, elements) -> QuantResult:
     )
 
 
-__all__ = ["quantify"]
+def quantify_cluster_means(peak_sets, kfactors, elements) -> tuple[QuantResult, ...]:
+    """Quantify each per-cluster peak set, preserving order (cluster_ids)."""
+    return tuple(quantify(ps, kfactors, elements) for ps in peak_sets)
+
+
+__all__ = ["quantify", "quantify_cluster_means"]
