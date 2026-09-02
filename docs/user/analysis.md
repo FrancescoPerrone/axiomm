@@ -268,6 +268,52 @@ Persist with `write_quant` / `read_quant`.
 
 ---
 
+## 7. Reliability gate — `axiomm.analysis.quant`
+
+A GMM cluster mean averages over pixels that may mix phases or sit on
+boundaries, so it is not automatically a valid quantitative spectrum. The
+reliability gate is an **overlay** on a `QuantResult`: it flags elements
+below a reliable count and marks a cluster `exploratory_only` when it looks
+mixed or undercounted. It never rewrites the numbers and never asserts a
+physical cause. All thresholds are yours to set (`ReliabilityConfig`).
+
+`compute_cluster_means` now also reports per-cluster `heterogeneity`
+(median cosine distance of member spectra to the mean) and `total_counts`;
+`assess_cluster_reliability(quant_results, cluster_means, config)` batches
+the check over an enriched `ClusterMeanSpectra`. Here is the single-cluster
+form:
+
+```python
+from axiomm.analysis.quant.models import QuantResult
+from axiomm.analysis.quant import assess_reliability, ReliabilityConfig
+
+# a cluster whose K is barely above background and whose mean pools mixed pixels
+quant = QuantResult(
+    net_intensities={"Si": 2490.0, "K": 6.0, "Ca": 120.0},
+    wt_percent_element={"Si": 71.0, "K": 0.02, "Ca": 3.0},
+    wt_percent_oxide={"SiO2": 74.0, "K2O": 0.02, "CaO": 3.0},
+    reference_element="Si",
+)
+report = assess_reliability(
+    quant, pixel_count=140, heterogeneity=0.32, total_counts=8.5e3,
+    config=ReliabilityConfig(min_net_counts=50, max_heterogeneity=0.15, min_total_counts=1e4),
+)
+print("cluster_status =", report.cluster_status)
+print("element_status =", dict(report.element_status))
+print("reasons        =", list(report.reasons))
+```
+
+```text
+cluster_status = exploratory_only
+element_status = {'Si': 'valid', 'K': 'below_quantification_limit', 'Ca': 'valid'}
+reasons        = ['heterogeneity 0.320 > 0.15', 'total_counts 8500 < 10000']
+```
+
+**`ReliabilityReport`**: `cluster_status`
+(`"quantitative"`/`"exploratory_only"`), `element_status`
+(`sym → "valid"`/`"below_quantification_limit"`), and `reasons` (which
+thresholds tripped). Persist with `write_reliability` / `read_reliability`.
+
 ## Composing the tools
 
 The examples above already chain: a payload flows through
