@@ -177,6 +177,9 @@ pytest
 - **Converter specification**:
   `docs/specs/converter_tool_spec.md` — the authoritative design
   document for the converter tool.
+- **Analysis tools usage**: `docs/user/analysis.md` — runnable examples
+  and expected output for each standalone analysis tool (decomposition,
+  clustering, peaks, mineralogy, k-factors, quantification).
 
 ## Licence
 
