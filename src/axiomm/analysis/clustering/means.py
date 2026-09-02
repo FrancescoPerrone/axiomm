@@ -46,6 +46,22 @@ def compute_cluster_means(result: ClusteringResult, source) -> ClusterMeanSpectr
             continue
         means[i] = X[mask].mean(axis=0)
 
+    heterogeneity = np.full(cluster_ids.size, np.nan, dtype=float)
+    total_counts = np.zeros(cluster_ids.size, dtype=float)
+    for i, cid in enumerate(cluster_ids):
+        total_counts[i] = float(means[i].sum())
+        if counts[i] == 0:
+            continue
+        member = X[labels == cid]
+        mean_i = means[i]
+        mean_norm = float(np.linalg.norm(mean_i))
+        row_norms = np.linalg.norm(member, axis=1)
+        denom = row_norms * mean_norm
+        dots = member @ mean_i
+        with np.errstate(invalid="ignore", divide="ignore"):
+            cos = np.where(denom > 0, dots / denom, 1.0)
+        heterogeneity[i] = float(np.median(1.0 - cos))
+
     src_backend = result.provenance.backend if result.provenance else "unknown"
     provenance = AnalysisProvenance(
         tool="clustering",
@@ -57,6 +73,8 @@ def compute_cluster_means(result: ClusteringResult, source) -> ClusterMeanSpectr
         pixel_counts=counts,
         cluster_ids=cluster_ids.copy(),
         n_clusters=int(result.n_clusters),
+        heterogeneity=heterogeneity,
+        total_counts=total_counts,
         provenance=provenance,
         diagnostics=diagnostics,
     )

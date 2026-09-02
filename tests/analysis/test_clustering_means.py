@@ -68,3 +68,14 @@ def test_pixel_count_mismatch_raises():
     result = _clustering([0, 1, 0], (3, 1), [0, 1])  # 3 labels
     with pytest.raises(PayloadValidationError, match="pixels"):
         compute_cluster_means(result, _source(data))
+
+
+def test_cluster_means_emit_heterogeneity_and_total_counts():
+    # cluster 0: two identical spectra (homogeneous); cluster 1: two different shapes (mixed)
+    data = np.array([[[1.0, 1, 1], [1, 1, 1]], [[1, 0, 0], [0, 0, 1]]])  # (2,2,3)
+    result = _clustering([0, 0, 1, 1], (2, 2), [0, 1])
+    cms = compute_cluster_means(result, _source(data))
+    assert cms.heterogeneity[0] == pytest.approx(0.0, abs=1e-9)
+    assert cms.heterogeneity[1] > 0.2
+    assert cms.total_counts[0] == pytest.approx(3.0)   # mean [1,1,1]
+    assert cms.total_counts[1] == pytest.approx(1.0)   # mean [0.5,0,0.5]

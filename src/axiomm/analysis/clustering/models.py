@@ -49,6 +49,8 @@ class ClusterMeanSpectra:
     pixel_counts: np.ndarray
     cluster_ids: np.ndarray
     n_clusters: int
+    heterogeneity: np.ndarray | None = None   # per cluster; median cosine distance to mean
+    total_counts: np.ndarray | None = None    # per cluster; mean-spectrum total counts
     provenance: AnalysisProvenance | None = None
     diagnostics: list[Diagnostic] = field(default_factory=list)
 

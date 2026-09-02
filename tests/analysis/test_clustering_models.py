@@ -37,3 +37,11 @@ def test_cluster_mean_spectra_holds_aligned_arrays():
     assert cms.pixel_counts.tolist() == [5, 0, 7]
     assert cms.cluster_ids.tolist() == [0, 1, 2]
     assert cms.diagnostics[0].code == "empty_cluster"
+
+
+def test_cluster_mean_spectra_quality_fields_default_none():
+    import numpy as np
+    from axiomm.analysis.clustering.models import ClusterMeanSpectra
+    cms = ClusterMeanSpectra(means=np.zeros((2, 3)), pixel_counts=np.array([1, 1]),
+                             cluster_ids=np.array([0, 1]), n_clusters=2)
+    assert cms.heterogeneity is None and cms.total_counts is None
