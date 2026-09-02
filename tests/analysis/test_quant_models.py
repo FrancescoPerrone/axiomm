@@ -23,3 +23,16 @@ def test_kfactor_set_holds_fields():
     assert ks.reference_element == "Si"
     assert ks.excitation_kev == 18.0
     assert ks.diagnostics == []
+
+
+def test_quant_result_holds_fields():
+    from axiomm.analysis.quant.models import QuantResult
+    qr = QuantResult(
+        net_intensities={"Si": 100.0},
+        wt_percent_element={"Si": 100.0},
+        wt_percent_oxide={"SiO2": 100.0},
+        reference_element="Si",
+    )
+    assert qr.wt_percent_oxide["SiO2"] == 100.0
+    assert qr.reference_element == "Si"
+    assert qr.diagnostics == []

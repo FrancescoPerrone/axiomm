@@ -20,4 +20,16 @@ class KFactorSet:
     diagnostics: list[Diagnostic] = field(default_factory=list)
 
 
-__all__ = ["KFactorSet"]
+@dataclass
+class QuantResult:
+    """Cliff-Lorimer element + oxide weight percents for one spectrum."""
+
+    net_intensities: Mapping[str, float]
+    wt_percent_element: Mapping[str, float]   # metals / cation basis
+    wt_percent_oxide: Mapping[str, float]
+    reference_element: str
+    provenance: AnalysisProvenance | None = None
+    diagnostics: list[Diagnostic] = field(default_factory=list)
+
+
+__all__ = ["KFactorSet", "QuantResult"]
