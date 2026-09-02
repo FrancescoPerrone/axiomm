@@ -1,0 +1,83 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "axiomm"
+version = "0.1.0.dev0"
+description = "AXIOMM (Automated X-ray Intelligence for Organising Mineral Mapping): a Python package for spectroscopy."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+authors = [
+    { name = "Francesco Perrone" },
+]
+keywords = [
+    "spectroscopy",
+    "x-ray",
+    "mineral-mapping",
+    "mineralogy",
+]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: Other/Proprietary License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+dependencies = [
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+hdf5 = ["h5py>=3.8"]
+hyperspy = ["hyperspy>=2.0"]
+analysis = ["scikit-learn>=1.3"]
+quant = ["xraylib"]
+all = ["h5py>=3.8", "hyperspy>=2.0", "scikit-learn>=1.3"]
+notebook = ["ipywidgets", "jupyter"]
+dev = [
+    "pytest>=7",
+    "pytest-cov",
+    "ruff",
+]
+docs = [
+    "sphinx>=7",
+    "furo>=2024",
+    "myst-parser>=2",
+    "sphinx-autoapi>=3",
+    "sphinx-copybutton",
+]
+
+# The CLI entry point will be wired up in a later chunk, once
+# axiomm.io.converters.ux.cli exists.
+# [project.scripts]
+# axiomm-convert = "axiomm.io.converters.ux.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/FrancescoPerrone/axiomm"
+Source = "https://github.com/FrancescoPerrone/axiomm"
+Issues = "https://github.com/FrancescoPerrone/axiomm/issues"
+Documentation = "https://github.com/FrancescoPerrone/axiomm/wiki"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-ra --strict-markers"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
+ignore = ["E501"]  # line length handled by formatter

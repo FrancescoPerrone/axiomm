@@ -1,0 +1,95 @@
+name: docs
+
+# Always builds the docs on push to `main`, pull requests, and manual
+# dispatch — so doc regressions get caught even when nobody intends
+# to publish. Deployment to GitHub Pages is **opt-in via manual
+# dispatch only**: the deploy job runs exclusively when you click
+# `Actions → docs → Run workflow` on the main branch. This stops the
+# push-to-main builds from emitting "deploy failed" emails when Pages
+# isn't configured for the repo.
+#
+# To actually publish to Pages:
+#   1. Enable Pages in `Settings → Pages → Source: GitHub Actions`.
+#      Private repos need a GitHub plan that supports Pages (Pro,
+#      Team, or Enterprise).
+#   2. Trigger the workflow from `Actions → docs → Run workflow → main`.
+#   3. The deploy job lifts `pages: write` and `id-token: write` only
+#      for itself; the build job stays on minimal `contents: read`.
+#
+# Read the Docs is configured independently in `.readthedocs.yaml`
+# and uses the same `docs/` Sphinx project; the two paths don't
+# interfere.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Workflow-level permissions are minimal; the deploy job lifts what
+# it needs for the Pages API on its own.
+permissions:
+  contents: read
+
+# One Pages deployment at a time; never cancel a deploy already in
+# flight (canceling can leave the live site half-updated).
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install docs dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[docs]"
+
+      - name: Build HTML
+        # Not using `-W` (warnings-as-errors): sphinx-autoapi's
+        # rendering of XRMMapH5 docstrings trips 2 cosmetic docutils
+        # warnings about nested-quote inline literals; the HTML output
+        # is fine. Local devs see the warnings; CI doesn't fail on them.
+        run: |
+          sphinx-build -b html docs docs/_build/html
+
+      - name: Upload Pages artefact
+        # Only when we're going to deploy. Push and PR builds still
+        # verify the docs compile; they just don't bother uploading
+        # the Pages artefact (which would otherwise need `pages: write`).
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/_build/html
+
+  deploy:
+    # Opt-in via manual dispatch only. Push-to-main builds verify the
+    # docs but do not attempt a deploy — so emails about failed
+    # deploys stop until you intentionally publish.
+    if: github.event_name == 'workflow_dispatch'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      # Pages API capabilities lifted only on the deploy job, scoped
+      # as narrowly as the deploy action accepts.
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="200" viewBox="0 0 800 200" aria-label="AXIOMM">
+  <title>AXIOMM — horizontal lockup</title>
+  <defs>
+    <linearGradient id="wg" x1="28%" y1="0%" x2="72%" y2="100%">
+      <stop offset="0%" stop-color="#C8326A"></stop>
+      <stop offset="100%" stop-color="#F07850"></stop>
+    </linearGradient>
+  </defs>
+  
+  <path fill="url(#wg)" fill-rule="evenodd" d="M 93,40 Q 100,26 107,40 L 174,178 L 26,178 Z&#xA;       M 100,70 L 58,178 L 142,178 Z"></path>
+  
+  <g transform="translate(228,50)" fill="none" stroke="#7A2448" stroke-width="8.5" stroke-linecap="butt" stroke-linejoin="miter">
+    <path d="M0,94 L35,10 L70,94"></path>
+    <path d="M98,10 L160,94 M160,10 L98,94"></path>
+    <path d="M194,10 L194,94"></path>
+    <circle cx="272" cy="52" r="42"></circle>
+    <path d="M344,94 L344,10 L383,58 L422,10 L422,94"></path>
+    <path d="M448,94 L448,10 L487,58 L526,10 L526,94"></path>
+  </g>
+</svg>

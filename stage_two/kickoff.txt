@@ -1,0 +1,24 @@
+REFACTORING: Specifications and documents.
+
+REFACTORING DOCUMENTS — PHASE PIPELINE
+Base path: /home/francesco/Desktop/melt_data_explorer/refactoring/
+
+Pre-existing:
+  MELTS_PIPELINE_PACKAGE_SPEC_BASIS.md
+  CONTEXT_LOSS_POSTMORTEM_2026-06-07.md
+  docs_refactoring/specs/OPENCLAW_AXIOMM_MELTS_FIX_SPEC.md
+  docs_refactoring/specs/README.md
+  docs_refactoring/MELTS_Pipeline_Methodology_Report_v2.docx
+
+New:
+  REFACTORING_EXTRA_SPEC_findings_and_fixes.md
+  refactoring_meta/CHANGES_VS_REFACTORING_SRC.md
+  refactoring_meta/tests/README.md
+
+Each file in refactoring/src contains the code that at this phase can, could, or should be considered a tool in its own right. The goal—similar to what we did with the conversion tool—is to extrapolate from each file the component that can become a new tool candidate and add it to the list of tools in AXIOMM after refactioring and specification matching.
+
+The pipeline, as it currently exists, will be in AXIOMM the set of tools a user chooses to enable at a given time, and the chronological order in which they decide to run those tools (the execution order). Hence, the pipeline could be an object in itself (also relevant for the UX), created by the user according to the tools they pick and how they choose to execute them. On the other hand, each individual tool should remain executable in isolation.
+
+For example, eventually a user should be able to decide whether to use GMM or HDBSCAN, just to name one choice, or whether to use PCA or UMAP, depending on their data and assumptions.
+
+Some decisions need to be made between the two of us regarding the style of the HTML reports we generate. We need to reconsider the style to increase their flexibility, and this can be done at a later stage. In any case, the files that generate the HTML reports also contain code that can be extracted and transformed into stand‑alone tools. Therefore, we need a multi‑step approach, giving priority to tool extraction and packaging into AXIOMM.

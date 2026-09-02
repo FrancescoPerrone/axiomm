@@ -1,0 +1,70 @@
+"""Tests for compute_cluster_means (Stage two, S2)."""
+
+from __future__ import annotations
+
+import numpy as np
+import pytest
+
+from axiomm.analysis.errors import PayloadValidationError
+from axiomm.analysis.models import AnalysisProvenance
+from axiomm.analysis.clustering.models import ClusteringResult
+from axiomm.analysis.clustering.means import compute_cluster_means
+from axiomm.io.converters.models import AxisSpec, AxiommSignalPayload
+
+
+def _source(data):
+    axes = (
+        AxisSpec("x", "navigation", data.shape[0], index_in_array=0),
+        AxisSpec("y", "navigation", data.shape[1], index_in_array=1),
+        AxisSpec("Energy", "signal", data.shape[2], index_in_array=2),
+    )
+    return AxiommSignalPayload(data=data, axes=axes, signal_kind="signal1d")
+
+
+def _clustering(labels, nav_shape, cluster_ids):
+    labels = np.asarray(labels)
+    return ClusteringResult(
+        labels=labels,
+        label_map=labels.reshape(nav_shape),
+        cluster_ids=np.asarray(cluster_ids),
+        n_clusters=len(cluster_ids),
+        provenance=AnalysisProvenance(tool="clustering", backend="gmm"),
+    )
+
+
+def test_means_match_hand_computation_aligned_to_cluster_ids():
+    # 4 pixels (2x2), 3 channels. labels: pixels 0,3 -> cluster 0; 1,2 -> cluster 1.
+    data = np.array(
+        [[[1.0, 1, 1], [3, 3, 3]], [[3, 3, 3], [1, 1, 1]]]
+    )  # shape (2, 2, 3)
+    result = _clustering([0, 1, 1, 0], (2, 2), [0, 1])
+    cms = compute_cluster_means(result, _source(data))
+    assert cms.means.shape == (2, 3)
+    assert cms.pixel_counts.tolist() == [2, 2]
+    np.testing.assert_allclose(cms.means[0], [1, 1, 1])
+    np.testing.assert_allclose(cms.means[1], [3, 3, 3])
+    assert cms.cluster_ids.tolist() == [0, 1]
+
+
+def test_empty_cluster_yields_nan_and_diagnostic():
+    data = np.ones((2, 2, 3))
+    result = _clustering([0, 0, 0, 0], (2, 2), [0, 1])  # cluster 1 empty
+    cms = compute_cluster_means(result, _source(data))
+    assert cms.pixel_counts.tolist() == [4, 0]
+    assert np.all(np.isnan(cms.means[1]))
+    assert any(d.code == "empty_cluster" for d in cms.diagnostics)
+
+
+def test_one_pixel_cluster_mean_is_that_pixel():
+    data = np.arange(2 * 2 * 3, dtype=float).reshape(2, 2, 3)
+    result = _clustering([0, 1, 1, 1], (2, 2), [0, 1])  # cluster 0 == pixel 0
+    cms = compute_cluster_means(result, _source(data))
+    np.testing.assert_allclose(cms.means[0], data.reshape(4, 3)[0])
+    assert cms.pixel_counts.tolist() == [1, 3]
+
+
+def test_pixel_count_mismatch_raises():
+    data = np.ones((2, 2, 3))  # 4 pixels
+    result = _clustering([0, 1, 0], (3, 1), [0, 1])  # 3 labels
+    with pytest.raises(PayloadValidationError, match="pixels"):
+        compute_cluster_means(result, _source(data))

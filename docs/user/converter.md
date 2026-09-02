@@ -1,0 +1,826 @@
+# Converter user guide
+
+The **converter** is AXIOMM's tool for turning instrument-specific data
+files into analysis-ready signal objects. It lives at
+`axiomm.io.converters` and is the first tool delivered as part of
+AXIOMM.
+
+This page is a task-oriented user guide. For the architectural
+breakdown, see the **Architecture** section of the
+[wiki](https://github.com/FrancescoPerrone/axiomm/wiki/Converter-Architecture).
+For the authoritative specification, see
+[`docs/specs/converter_tool_spec.md`](https://github.com/FrancescoPerrone/axiomm/blob/main/docs/specs/converter_tool_spec.md)
+in the repository.
+
+```{contents}
+:local:
+:depth: 2
+```
+
+## Quick start — one-call conversion
+
+The shortest path from an XRM-style HDF5 file to a HyperSpy `.hspy`:
+
+```python
+from axiomm.io.converters import convert_file
+
+result = convert_file(
+    input_path="A21_054_map.h5",
+    output_path="A21_054_map.hspy",
+    reader="xrmmap_h5",
+)
+
+print(result.output_path)      # PosixPath('A21_054_map.hspy')
+print(result.reader_name)      # 'xrmmap_h5'
+print(result.writer_name)      # 'hspy'
+for d in result.diagnostics:
+    print(f"[{d.severity}] {d.code}: {d.message}")
+```
+
+The output file is a standard HyperSpy `.hspy`:
+
+```python
+import hyperspy.api as hs
+
+signal = hs.load("A21_054_map.hspy")
+print(signal)                                          # <Signal1D, …>
+print(signal.metadata.AXIOMM.converter.reader)         # 'xrmmap_h5'
+print(signal.metadata.AXIOMM.source.path)              # original .h5 path
+print(signal.metadata.General.title)                   # 'A21_054_map'
+print(signal.axes_manager)                             # x, y in µm; Energy in keV
+```
+
+The `AXIOMM` namespace is nested per spec §15 — see the
+[AXIOMM metadata layout](#axiomm-metadata-layout) section below for
+the full structure.
+
+## How AXIOMM decides what to read and where to write
+
+### Reader resolution
+
+The `reader` argument controls which `Reader` handles the input. The
+options, in order of explicitness:
+
+| Value                          | Behaviour                                                                 |
+|--------------------------------|---------------------------------------------------------------------------|
+| `Reader` instance              | Used as-is (advanced; lets you configure the reader before passing it in). |
+| Registered name, e.g. `"xrmmap_h5"` | Looked up in the converter registry (`axiomm.io.converters.registry`); instantiated with defaults via the lazy `"module:attr"` factory. |
+| `"auto"` *(default)*           | Iterates registered readers; picks the one whose `can_read(path)` is `True`. Raises `ReaderDetectionError` if none or more than one accept. |
+
+The registry covers AXIOMM's built-in readers (`XRMMapH5Reader`,
+`GenericHDF5MapReader`) and **any third-party readers** installed
+alongside AXIOMM that declare an `axiomm.readers` Python
+[entry point](#extending-axiomm-with-custom-readers-and-writers). On
+`reader="auto"` the registry is consulted in registration order and
+the first reader whose `can_read(path)` returns `True` wins; if more
+than one accepts the file or none accept, `"auto"` fails *explicitly*
+with `ReaderDetectionError` — never silently guesses.
+
+### Output-path resolution
+
+The output destination follows this precedence (spec §11.2):
+
+1. Explicit `output_path=...` wins.
+2. Otherwise `output_dir / (input_path.stem + writer_extension)`.
+3. Otherwise `input_path.with_suffix(".hspy")` — alongside the input.
+
+```python
+convert_file("a.h5", output_path="out/here.hspy")  # → out/here.hspy
+convert_file("a.h5", output_dir="out/")            # → out/a.hspy
+convert_file("a.h5")                                # → ./a.hspy
+```
+
+### Overwrite vs skip-existing
+
+AXIOMM never silently replaces existing outputs (spec §9.7). When the
+target file already exists:
+
+| Flags                                | Behaviour                                                                |
+|--------------------------------------|--------------------------------------------------------------------------|
+| *(neither)*                          | Raises `OutputExistsError`. The message names the path and how to override. |
+| `overwrite=True`                     | Replaces the existing file.                                              |
+| `skip_existing=True`                 | Short-circuits **before** reading; returns a result pointing at the existing file with an `output_skipped_existing` diagnostic. Useful for resuming batch runs. |
+
+If both are set, `skip_existing` wins (no work is done).
+
+## Configuring `XRMMapH5Reader` (Phase 4, Chunk 17)
+
+As of Chunk 17 the reader's configuration is split in two:
+
+* **Schema** — an
+  [`HDF5MapSchema`](https://github.com/FrancescoPerrone/axiomm/blob/main/src/axiomm/io/converters/readers/hdf5_schema.py)
+  naming the HDF5 paths to read. The package-level
+  `XRMMAP_H5_SCHEMA` constant carries the canonical XRM-Map /
+  Larch layout and is the reader's default.
+* **Calibration** — an `XRMMapH5Calibration` with the explicit
+  scientific values. Every field defaults to `None` so the
+  resolution ladder can tell user-supplied calibration from
+  preset/unresolved values.
+
+### Different HDF5 paths via the schema
+
+```python
+from dataclasses import replace
+from axiomm.io.converters import (
+    XRMMAP_H5_SCHEMA, XRMMapH5Reader, convert_file,
+)
+
+schema = replace(
+    XRMMAP_H5_SCHEMA,
+    counts_path="/some/other/path/counts",
+    environ_name_path="/some/other/config/name",
+    # override only what changed; the rest stay at the XRM-Map defaults.
+)
+convert_file(
+    input_path="alternative.h5",
+    output_path="alternative.hspy",
+    reader=XRMMapH5Reader(schema=schema),
+)
+```
+
+### Different scientific values via the calibration
+
+```python
+from axiomm.io.converters import XRMMapH5Calibration, XRMMapH5Reader
+
+reader = XRMMapH5Reader(
+    calibration=XRMMapH5Calibration(
+        energy_scale=0.005,                   # keV per MCA channel
+        roi_limit_units="channel_index",      # one of centi_keV/keV/channel_index
+        pixel_size_um=2.0,                    # direct navigation pixel scale
+        # or, equivalently:
+        # field_width_um=200.0,               # for a 100-pixel-wide map
+    ),
+)
+```
+
+The new fields (Phase 4, Chunk 18):
+
+* `roi_limit_units` — explicit unit interpretation of integer ROI
+  limits. `"centi_keV"` divides by 100, `"keV"` is identity, and
+  `"channel_index"` multiplies by the resolved `energy_scale`. The
+  audit-supported default for the inherited APS 13-ID-E dataset is
+  `"channel_index"`.
+* `pixel_size_um` — direct navigation pixel scale; wins over
+  `field_width_um` / `field_height_um` and the legacy fallback.
+* `field_width_um` / `field_height_um` — total map extent in µm;
+  the reader derives the navigation scale as `width / xdim`.
+* `legacy_field_width_um` — rename of the misleading
+  `fallback_field_width_um`. Audit-confirmed as **scan-field
+  extent**, not beam size.
+
+Any field left as `None` enters the resolution ladder as
+"not user-supplied". The reader's default `ConversionMode.GENERIC`
+(also new in Chunk 18) emits a **warning** when it falls back to the
+named legacy preset `XRMMAP_LEGACY_APS_13_ID_E_PRESET_V1`. Switch
+to `ConversionMode.LEGACY` to silence the warning on inherited
+files, or `ConversionMode.STRICT` to refuse preset fallback
+altogether and raise `CalibrationUnresolvedError` if anything goes
+unresolved.
+
+### Picking a ROI variant on real files
+
+Real instrument files store ROI limits as `(n_rois, n_variants, 2)`,
+not `(n_rois, 2)`. The reader handles both shapes; on the 3-D shape
+it extracts `limits[:, roi_variant_index, :]`. Set
+`XRMMapH5Calibration(roi_variant_index=...)` to override the legacy
+preset's default of `0`:
+
+```python
+reader = XRMMapH5Reader(
+    calibration=XRMMapH5Calibration(roi_variant_index=3),
+)
+```
+
+An out-of-bounds index emits the `roi_variant_out_of_bounds`
+diagnostic with a message naming the available range.
+
+If the configured `counts_path` is missing from the file, the reader
+raises `DatasetNotFoundError` with a message that names both the path
+it looked at *and* the config field to override — so you don't have to
+read the source to know what to change.
+
+Missing **optional** metadata (the environ table, the ROI table, the
+beam-size key) is non-fatal: the reader attaches a structured
+`Diagnostic` to the payload and continues. This is by design (spec
+§7.8): scientific-data safety, but graceful degradation.
+
+## Calibration resolution: precedence, modes, and presets
+
+The converter does **not** silently apply legacy scientific
+constants. Every scientific value the reader needs — the energy
+scale, the navigation pixel scale, the unit interpretation of ROI
+limits — flows through a **resolution ladder**:
+
+1. **`source_metadata`** — values read directly from the source
+   file's metadata (currently the environ table's beam-size key;
+   the MCA-calibration paths at `/xrmmap/config/mca_calib/*` are
+   on the roadmap).
+2. **`user_config`** — values supplied explicitly via
+   `XRMMapH5Calibration(...)` / `HDF5MapCalibration(...)` on the
+   reader.
+3. **`legacy_preset`** — values from a recognised named preset,
+   currently
+   `XRMMAP_LEGACY_APS_13_ID_E_PRESET_V1` for the AXIOMM-inherited
+   APS 13-ID-E XRM-Map dataset.
+4. **`inferred`** — heuristic inference from observed numeric
+   values; always accompanied by a diagnostic.
+5. **`unknown`** — the value could not be resolved. In strict
+   mode this raises `CalibrationUnresolvedError`; in other modes
+   the reader emits a diagnostic and proceeds with a unit-scale
+   default.
+
+The active **`ConversionMode`** controls which steps are
+permitted:
+
+| Mode         | Preset fallback | Inference | Unresolved → raise? |
+|--------------|----------------|-----------|---------------------|
+| `legacy`     | ✅ (info)       | ✅ (info)  | no                  |
+| `generic`    | ✅ (warning)    | ✅ (info)  | no                  |
+| `diagnostic` | ✅ (info)       | ✅ (info)  | no                  |
+| `strict`     | ❌              | ❌        | yes                 |
+
+The default since Phase 4, Chunk 18 is **`generic`** — a
+preset-derived value is honoured but loudly. Inherited-XRM users
+who want a quiet conversion opt into `legacy`. Users producing
+scientific deliverables can opt into `strict` to refuse every
+fallback.
+
+Every resolved calibration shows up as a
+`ResolvedValue(value, source, note)` on
+`signal.metadata.AXIOMM.calibration` and on the manifest
+sidecar's `axiomm_metadata.calibration`, so any post-hoc
+inspection can tell preset-derived from user-supplied from
+metadata-derived values.
+
+### Energy axis: $E_\text{scale}$ and $E_i$
+
+The per-channel energy width is the `energy_scale` calibration.
+The energy of MCA channel $i$ is then
+
+$$E_i = E_\text{scale} \cdot i + E_\text{offset},$$
+
+with $E_\text{offset} = 0$ in the legacy preset (audit-confirmed:
+the inherited dataset stores
+`/xrmmap/config/mca_calib/offset = 0` and
+`/xrmmap/mcasum/energy[0] = 0.00`).
+
+The legacy preset value is
+
+$$E_\text{scale} = \dfrac{40.96\ \mathrm{keV}}{4096\ \mathrm{channels}} = 0.01\ \mathrm{keV/channel},$$
+
+which the 2026-06-12 metadata audit confirmed against
+`/xrmmap/config/mca_calib/slope = 0.01` per channel and the full
+4096-element `/xrmmap/mcasum/energy` axis spanning
+$0.00 \to 40.95\ \mathrm{keV}$.
+
+Override per-experiment with
+`XRMMapH5Calibration(energy_scale=...)`.
+
+### ROI limits: explicit `roi_limit_units`
+
+Phase 4, Chunk 18 replaced the numeric `roi_limit_scale` with an
+explicit unit token `roi_limit_units`, removing a degeneracy the
+audit flagged. Three tokens are documented; the effective scale
+applied to an integer ROI limit $n_\text{ROI,int}$ depends on the
+resolved unit:
+
+| `roi_limit_units` | Effective scale $c$ | Resulting energy |
+|-------------------|--------------------|------------------|
+| `"centi_keV"`     | $0.01$              | $E_\text{ROI} = 0.01 \cdot n_\text{ROI,int}$ |
+| `"keV"`           | $1.0$               | $E_\text{ROI} = n_\text{ROI,int}$ |
+| `"channel_index"` | $E_\text{scale}$    | $E_\text{ROI} = E_\text{scale} \cdot n_\text{ROI,int}$ |
+
+So in general:
+
+$$E_\text{ROI} = c(\texttt{roi\_limit\_units}) \cdot n_\text{ROI,int}.$$
+
+The audit-confirmed value for the inherited dataset is
+`"channel_index"` — `/xrmmap/config/rois/limits` stores MCA
+channel indices, and the historic `0.01` multiplier matches
+`mca_calib/slope` (it was channel→keV via the energy
+calibration, not a centi-keV unit scale). Keep that in mind if
+you have files from a different XRM acquisition that *do* store
+centi-keV integers — pass `roi_limit_units="centi_keV"`
+explicitly. For XRM files that also expose keV-form ROI windows
+at `/xrmmap/roimap/mcasum/<ROI>/limits`, future work will prefer
+those when present (source-metadata branch of the ladder).
+
+### Navigation pixel scale: $s_\text{nav}$
+
+Spatial calibration is resolved by the same ladder. In order:
+
+1. The environ-table beam size $b_\text{nominal}$ (parsed from
+   the schema's `beam_size_key`, default
+   `Experiment.Beam_Size__Nominal`) → $s_\text{nav} = b_\text{nominal}$.
+2. The user-supplied direct scale → $s_\text{nav} = \texttt{pixel\_size\_um}$.
+3. The user-supplied total map width → $s_\text{nav} = \texttt{field\_width\_um} \,/\, x_\text{dim}$.
+4. The preset legacy fallback (non-strict modes only) → $s_\text{nav} = \texttt{legacy\_field\_width\_um} \,/\, x_\text{dim}$.
+
+So in formula form:
+
+$$s_\text{nav} = \begin{cases}
+b_\text{nominal} & \text{environ beam size present} \\
+\texttt{pixel\_size\_um} & \text{else, user-supplied} \\
+\texttt{field\_width\_um} / x_\text{dim} & \text{else, user-supplied} \\
+\texttt{legacy\_field\_width\_um} / x_\text{dim} & \text{else, mode } \ne \text{strict}.
+\end{cases}$$
+
+The legacy preset value `legacy_field_width_um = 500.0` µm
+applies to the inherited `ISE_500sqaures_…` files only. The 2026-06-12
+audit confirmed this is **scan-field extent**, not beam size — the
+draft paper's XRF beam is $2 \times 2$ µm.
+
+### Worked example — overriding the calibration for your instrument
+
+```python
+from axiomm.io.converters import (
+    ConversionMode, XRMMapH5Calibration, XRMMapH5Reader,
+    convert_file,
+)
+
+# Your experiment's calibration.
+reader = XRMMapH5Reader(
+    calibration=XRMMapH5Calibration(
+        energy_scale=0.005,              # keV per MCA channel
+        roi_limit_units="keV",           # your XRM stores keV directly
+        pixel_size_um=1.5,               # direct navigation pixel scale
+    ),
+    mode=ConversionMode.STRICT,          # refuse preset fallbacks
+)
+convert_file("input.h5", output_path="out.hspy", reader=reader)
+```
+
+In `strict` mode an unresolved required value raises
+`CalibrationUnresolvedError` with a message naming exactly which
+field was missing and how to supply it.
+
+## Calibration provenance namespace (Chunks 15–18)
+
+Phase 4 of the converter introduces **per-value calibration
+provenance**. Chunks 15–17 lay the types, the reader plumbing, and
+the resolution-ladder enforcement; the user-facing precedence
+rewrite lands in Chunk 19. **Reader behaviour in legacy mode is
+byte-identical to pre-Phase-4** for the inherited APS 13-ID-E
+dataset — the three historic constants now live in the named
+preset `XRMMAP_LEGACY_APS_13_ID_E_PRESET_V1` and are applied via
+the resolution ladder, but the *values* and *axes* the reader
+produces are unchanged on legacy files.
+
+What's new are three importable types in
+`axiomm.io.converters.calibration` (re-exported at the package
+top-level):
+
+* `CalibrationSource` — where a single calibration value came from.
+  Five members: `source_metadata`, `user_config`, `legacy_preset`,
+  `inferred`, `unknown`. Stored as a `str` subclass so the value
+  serialises to its bare token in manifest JSON.
+* `ConversionMode` — policy switch on the ladder. Four members:
+  `legacy` (current default, allows preset fallback), `generic`
+  (safe public default, no silent preset fallback), `strict` (no
+  inference allowed), `diagnostic` (dry-run report). The `legacy`
+  default stays in force through Chunk 17 and flips to `generic`
+  in Chunk 18 — that single flip is the only breaking change
+  planned for Phase 4.
+* `ResolvedValue(value, source, note=None)` — frozen dataclass
+  pairing a value with its provenance.
+
+As of Chunk 16, both `XRMMapH5Reader` and `GenericHDF5MapReader`
+accept a `mode` keyword and populate `resolved_calibration` on the
+payload with three entries — `energy_scale`, `navigation_scale`,
+and `roi_limit_units`:
+
+```python
+from axiomm.io.converters import (
+    ConversionMode, XRMMapH5Reader, convert_file,
+)
+
+# Default mode: ConversionMode.GENERIC (Phase 4, Chunk 18) — preset
+# fallback is still honoured but at warning severity. Use
+# ConversionMode.LEGACY for a quiet conversion on the inherited
+# APS 13-ID-E dataset.
+result = convert_file("A21_054_map.h5", reader="xrmmap_h5")
+
+# Strict mode refuses every fallback and raises
+# CalibrationUnresolvedError if any required value can't be
+# resolved from explicit user config or source metadata.
+reader = XRMMapH5Reader(mode=ConversionMode.STRICT)
+```
+
+The four available modes are described in the **Calibration
+provenance primitives** types above. The full ladder is enforced
+by both readers as of Chunk 17 (`XRMMapH5Reader`) and Chunk 18
+(`GenericHDF5MapReader`): user-supplied calibration always wins,
+the named legacy preset is consulted only when the active mode
+permits it, and unresolved values in strict mode raise.
+
+A typical default-mode payload now carries:
+
+```python
+payload.resolved_calibration
+# {
+#   "energy_scale":     ResolvedValue(0.01, LEGACY_PRESET, "applied from legacy preset…"),
+#   "navigation_scale": ResolvedValue(2.0,  SOURCE_METADATA, "parsed from environ…"),
+#   "roi_limit_units":  ResolvedValue("channel_index", LEGACY_PRESET, "applied roi_limit_units…"),
+# }
+```
+
+and the corresponding info / warning diagnostics surface what was
+resolved:
+
+* `calibration_resolved_from_user_config` — keys taken from
+  explicit `XRMMapH5Calibration(...)` / `HDF5MapCalibration(...)`
+  fields.
+* `calibration_resolved_from_metadata` — keys read from the
+  source file (e.g. navigation scale from the environ table).
+* `calibration_resolved_from_preset` — keys taken from the named
+  legacy preset. Emitted at **warning** severity in
+  `ConversionMode.GENERIC` (the default since Chunk 18) and at
+  **info** severity in `LEGACY` / `DIAGNOSTIC`.
+* `calibration_inferred` — keys inferred heuristically from
+  resolved numeric values.
+
+When `resolved_calibration` is populated, the AXIOMM metadata
+namespace and the manifest sidecar gain a `calibration` subkey
+alongside the existing `converter` / `axes` / `source` /
+`provenance_classification` / `diagnostics` sections. The subkey
+is **additive**: when `resolved_calibration` is `None` or empty,
+the namespace byte-shape is identical to the pre-Chunk-15
+layout — existing snapshots and round-trip tests continue to
+pass unchanged.
+
+## AXIOMM metadata layout
+
+Both `signal.metadata.AXIOMM` (in-memory after build) and the
+``axiomm_metadata`` subkey of the manifest sidecar share the same
+nested structure, defined by spec §15:
+
+```text
+AXIOMM
+├── converter
+│   ├── reader            "xrmmap_h5"
+│   ├── reader_version    "0.1.0.dev0"
+│   └── config            { schema: {...}, calibration: {...}, mode: "generic" }
+├── axes
+│   └── [ {name, role, size, units, scale, offset, index_in_array}, ... ]
+├── source
+│   ├── path              "/path/to/input.h5"
+│   ├── reader            "xrmmap_h5"
+│   ├── reader_version    "0.1.0.dev0"
+│   └── input_hash        null
+├── provenance_classification
+│   ├── observed          [ ... ]
+│   ├── inferred          [ ... ]
+│   └── assumed           [ ... ]
+├── diagnostics
+│   └── [ {severity, code, message, context}, ... ]
+└── calibration                                       (optional, Chunk 15+)
+    └── { <name>: {value, source, note}, ... }
+```
+
+The `calibration` subkey only appears when the reader populated
+`payload.resolved_calibration`. Readers that pre-date Chunk 16
+leave it absent, so existing snapshots stay byte-identical.
+
+Every section is built by a composable transformer in
+`axiomm.io.converters.metadata`; the same transformers are used by
+the HyperSpy builder and the manifest writer so the two cannot drift.
+
+## Reproducibility: the manifest sidecar
+
+Every successful `convert_file` call writes a JSON manifest at
+`<output>.axiomm.json` next to the `.hspy` file. The manifest captures
+everything needed to reproduce or audit the conversion.
+
+### Schema (v2)
+
+```{list-table}
+:header-rows: 1
+:widths: 28 72
+
+* - Field
+  - Description
+* - `manifest_schema_version`
+  - Schema version string. Currently `"2"`. Future non-additive
+    changes bump this so consumers can gate on the version they see.
+* - `axiomm_version`
+  - The AXIOMM package version that produced the conversion.
+* - `created_at`
+  - ISO 8601 timestamp in UTC, timezone-aware.
+* - `input_path`, `output_path`
+  - The resolved source and target paths.
+* - `reader_name`, `writer_name`
+  - Identifiers of the components actually used (e.g. `"xrmmap_h5"`,
+    `"hspy"`).
+* - `source_shape`
+  - The input dataset's shape as a list of ints, or `null` if the
+    reader's data exposes no `.shape`.
+* - `axiomm_metadata`
+  - Nested AXIOMM namespace with `converter`, `axes`, `source`,
+    `provenance_classification`, `diagnostics` subkeys — mirrors
+    ``signal.metadata.AXIOMM`` exactly. See
+    [AXIOMM metadata layout](#axiomm-metadata-layout) above for the
+    full structure.
+```
+
+```{note}
+Schema v2 (Chunk 10) groups the AXIOMM-specific fields under
+``axiomm_metadata`` so they mirror ``signal.metadata.AXIOMM``. In v1
+they sat flat at the manifest root (``axes_summary``,
+``config_used``, ``diagnostics``, ``provenance_classification``).
+v2 manifests are not backwards-compatible with v1 consumers; check
+``manifest_schema_version`` if your code reads both.
+```
+
+### Provenance classification (spec §15)
+
+The classification distinguishes:
+
+- **observed** — metadata read directly from the source file (counts
+  dataset, environ keys, ROI entries when present, navigation scale
+  when computed from a beam-size value found in the environ table).
+- **inferred** — values derived from observed values (e.g. axis sizes
+  from `data.shape`).
+- **assumed** — fallback or preset-default values with *no source*
+  in the input file (the Energy axis scale when resolved from the
+  legacy preset, the navigation axis units, the navigation scale
+  when it falls back to `legacy_field_width_um / xdim`, the ROI
+  limit rescaling applied per the resolved `roi_limit_units`).
+
+This separation is what makes an AXIOMM conversion auditable: a
+downstream consumer can tell what came from the instrument vs. what
+came from the converter's defaults.
+
+### Reading a manifest
+
+```python
+import json
+from axiomm.io.converters import convert_file
+
+result = convert_file("A21_054_map.h5", output_path="A21_054_map.hspy")
+
+with result.manifest_path.open() as f:
+    manifest = json.load(f)
+
+print(manifest["axiomm_version"])
+print(manifest["reader_name"], "→", manifest["writer_name"])
+
+# AXIOMM-specific content lives under "axiomm_metadata" in v2.
+classification = manifest["axiomm_metadata"]["provenance_classification"]
+for bucket, entries in classification.items():
+    print(f"[{bucket}] ({len(entries)})")
+    for e in entries:
+        print(f"  - {e}")
+```
+
+### Opting out
+
+Pass `manifest=False` to `convert_file` if you don't want a sidecar.
+`ConversionResult.manifest_path` will be `None` and no JSON file is
+written. The sidecar is also skipped when `skip_existing=True`
+short-circuits — skip means no work, no manifest update.
+
+## Lower-level: reader + builder without the writer
+
+If you want the HyperSpy signal in memory without writing to disk:
+
+```python
+from axiomm.io.converters import XRMMapH5Reader, build_hyperspy_signal
+
+payload = XRMMapH5Reader().read("example.h5")
+signal = build_hyperspy_signal(payload)
+# ... downstream analysis ...
+```
+
+The intermediate `AxiommSignalPayload` is a neutral in-memory
+representation of the signal — data array, axis specs, metadata,
+provenance, diagnostics. It is deliberately backend-agnostic so future
+non-HyperSpy builders (xarray, RosettaSciIO dicts, plain NumPy) can be
+added without churning the readers.
+
+## Diagnostics — read your `ConversionResult`
+
+Every conversion returns a `ConversionResult` whose `diagnostics` field
+is a tuple of structured `Diagnostic` records. They surface decisions
+the converter made on your behalf:
+
+| Code                              | Severity | What it means                                                                                  |
+|-----------------------------------|----------|------------------------------------------------------------------------------------------------|
+| `lazy_downgraded_to_eager`        | info     | You passed `lazy=True` (the default); the MVP reader materialised the dataset eagerly.         |
+| `output_skipped_existing`         | info     | `skip_existing=True` matched; no read/build/write was performed.                                |
+| `environ_missing`                 | warning  | The XRM environ config table wasn't found; the navigation-scale resolution ladder falls through to user `pixel_size_um` / `field_width_um` / the legacy preset.             |
+| `beam_size_missing`               | warning  | The configured beam-size key wasn't in the environ table; fell back.                           |
+| `beam_size_unparseable`           | warning  | The beam-size string couldn't be parsed; fell back.                                            |
+| `roi_missing`                     | warning  | ROI metadata datasets weren't present; ROIs not extracted.                                     |
+| `roi_limits_unexpected_shape`     | warning  | ROI limits had a shape we don't know how to slice (not `(n, 2)` and not `(n, k, 2)`); ROIs not extracted. |
+| `roi_variant_out_of_bounds`       | warning  | The file has `(n_rois, n_variants, 2)` ROI limits but the configured `roi_variant_index` is out of range. |
+| `roi_unreadable`                  | warning  | ROI metadata datasets couldn't be decoded; ROIs not extracted.                                 |
+| `environ_unreadable`              | warning  | Environ datasets couldn't be decoded.                                                          |
+| `environ_length_mismatch`         | warning  | The environ `name` and `value` arrays had different lengths; truncated to the shorter.         |
+| `navigation_scale_unknown`        | warning  | No beam size *and* no fallback configured; navigation scale defaulted to 1.0.                  |
+
+Pattern-match `d.code` rather than `d.message` if you build automation
+on top — codes are stable, messages may be reworded.
+
+## Reading non-XRM HDF5 files via `GenericHDF5MapReader`
+
+If your file has the same *structure* as an XRM-Map file — a 3-D
+counts dataset, an optional environ name/value table, an optional
+ROI name/limits table — but lives at different HDF5 paths, you do
+not need to write a new `Reader` class. Pass an `HDF5MapSchema` to
+`GenericHDF5MapReader`:
+
+```python
+from axiomm.io.converters import (
+    GenericHDF5MapReader, HDF5MapCalibration, HDF5MapSchema, convert_file,
+)
+
+schema = HDF5MapSchema(
+    counts_path="/scan/data/counts",
+    environ_name_path="/scan/metadata/names",
+    environ_value_path="/scan/metadata/values",
+    beam_size_key="Beam_Size_Um",
+    # ROIs absent in this hypothetical file → leave roi_*_path = None
+)
+
+reader = GenericHDF5MapReader(
+    schema=schema,
+    calibration=HDF5MapCalibration(
+        energy_scale=0.005,                # keV per channel
+        roi_limit_units="keV",             # ROIs stored in keV already
+        pixel_size_um=2.0,                 # direct navigation scale (or use
+                                           # field_width_um for derived scale)
+    ),
+)
+
+convert_file(
+    input_path="scan.h5",
+    output_path="scan.hspy",
+    reader=reader,
+)
+```
+
+The schema describes **where** things live; the config describes
+**what they mean**. The two are deliberately separate so a single
+schema can serve multiple instruments / generations whose
+calibration constants differ. The built-in
+`XRMMAP_H5_SCHEMA` covers the canonical XRM-Map / Larch layout, so
+you can use it as a starting point:
+
+```python
+from dataclasses import replace
+from axiomm.io.converters import XRMMAP_H5_SCHEMA, HDF5MapSchema
+
+# Same layout as XRM but with a renamed root group.
+schema = replace(XRMMAP_H5_SCHEMA,
+    counts_path="/xrm_v2/counts",
+    environ_name_path="/xrm_v2/config/env/name",
+    environ_value_path="/xrm_v2/config/env/value",
+)
+```
+
+`GenericHDF5MapReader` follows the same conventions as
+`XRMMapH5Reader`: counts are required, environ / ROI metadata are
+optional with structured diagnostics on absence, ROI limits handle
+both `(n_rois, 2)` and `(n_rois, n_variants, 2)` shapes (via
+`HDF5MapConfig.roi_variant_index`), and the
+`signal.metadata.AXIOMM.converter.config` records both the schema
+and the config used for the conversion, making manifests fully
+reproducible.
+
+For files whose structure diverges from this layout (multiple
+counts datasets per file, non-trailing signal axis, no environ
+table at all), write a bespoke `Reader` class instead — see the
+next section.
+
+## Extending AXIOMM with custom readers and writers
+
+Third-party packages can add their own readers and writers without
+modifying AXIOMM — declare them as Python **entry points** in your
+package's `pyproject.toml` and AXIOMM discovers them automatically
+on import via :func:`axiomm.io.converters.load_plugins`.
+
+### Entry-point groups
+
+| Group              | What it registers |
+|--------------------|-------------------|
+| `axiomm.readers`   | A `Reader` plugin |
+| `axiomm.writers`   | A `Writer` plugin |
+
+### Writing a reader plugin
+
+Implement the `Reader` protocol — a `name` attribute, a
+`supported_extensions` tuple, and `can_read(path)` /
+`read(path, *, lazy=True)` methods returning an
+`AxiommSignalPayload`:
+
+```python
+# my_xrf_package/readers/my_format.py
+from axiomm.io.converters.models import AxiommSignalPayload
+
+class MyFormatReader:
+    name = "my_format"
+    supported_extensions = (".myx",)
+
+    def can_read(self, path) -> bool:
+        # Cheap probe — extension + signature peek.
+        return str(path).endswith(".myx")
+
+    def read(self, path, *, lazy: bool = True) -> AxiommSignalPayload:
+        # Open the file, extract the counts dataset and any metadata,
+        # return a populated AxiommSignalPayload.
+        ...
+```
+
+In your package's `pyproject.toml`:
+
+```toml
+[project.entry-points."axiomm.readers"]
+my_format = "my_xrf_package.readers.my_format:MyFormatReader"
+```
+
+After `pip install`-ing your package alongside AXIOMM:
+
+```python
+from axiomm.io.converters import iter_readers, convert_file
+
+[r.name for r in iter_readers()]
+# -> ['xrmmap_h5', 'my_format']
+
+convert_file("scan.myx", output_path="scan.hspy", reader="my_format")
+# or
+convert_file("scan.myx", output_path="scan.hspy", reader="auto")
+```
+
+`reader="auto"` walks the registry and picks the (single) plugin
+whose `can_read(path)` returns `True`, so your plugin participates
+in auto-detection alongside the built-in readers.
+
+### Writing a writer plugin
+
+Same pattern using `axiomm.writers`:
+
+```toml
+[project.entry-points."axiomm.writers"]
+my_out = "my_xrf_package.writers.my_out:MyFormatWriter"
+```
+
+```python
+# my_xrf_package/writers/my_out.py
+from pathlib import Path
+from axiomm.io.converters.errors import OutputExistsError
+
+class MyFormatWriter:
+    name = "my_out"
+    supported_extensions = (".myout",)
+
+    def write(self, signal, output_path, *, overwrite: bool = False) -> Path:
+        path = Path(output_path)
+        if path.exists() and not overwrite:
+            raise OutputExistsError(f"{path} already exists; pass overwrite=True.")
+        # ...persist `signal` to disk in your format...
+        return path
+```
+
+### What happens if a plugin is broken?
+
+AXIOMM aims to be tolerant of third-party breakage without silencing
+real bugs:
+
+- **Malformed entry-point value** (e.g. missing `:`) — logged at
+  `WARNING` by `load_plugins`; that single plugin is skipped, the
+  rest still register.
+- **Plugin package uninstalled but entry-point metadata stale** —
+  the registration succeeds (it's a lazy string), but
+  `iter_readers()` (used by `reader="auto"`) logs a `WARNING` for
+  that plugin and continues with the others.
+- **Direct `get_reader("name")` of a broken plugin** — the
+  underlying `ImportError` / `AttributeError` propagates, so
+  explicit calls *do* fail loudly. Auto-detection is the tolerant
+  path; named lookup is the strict path.
+
+### Forcing a re-discovery
+
+If you install a plugin into the running Python session (e.g. via
+`pip install` from a notebook), call:
+
+```python
+from axiomm.io.converters import load_plugins
+load_plugins()
+```
+
+to pick up the new entry points without restarting the process.
+`load_plugins()` is idempotent — calling it repeatedly is safe.
+
+## See also
+
+- {doc}`Known issues <known_issues>` — the user-facing traps AXIOMM
+  either guards against or wants you to be aware of (including the
+  prototype's silent x/y swap on `.hspy` outputs).
+- [Specification](https://github.com/FrancescoPerrone/axiomm/blob/main/docs/specs/converter_tool_spec.md)
+  — the authoritative design document for the converter.
+- [Wiki](https://github.com/FrancescoPerrone/axiomm/wiki/Converter) — the
+  high-level landing page for the converter inside the broader AXIOMM
+  docs.
+- [Python API reference](../api/index) — auto-generated from the package
+  source.
