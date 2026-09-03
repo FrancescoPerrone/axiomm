@@ -1,9 +1,19 @@
-"""Theoretical Cliff-Lorimer k-factors from xraylib fundamental parameters.
+"""Theoretical fluorescence-sensitivity ratios ("k-factors") from xraylib.
 
-Standalone quantification tool. xraylib is imported lazily behind
-:func:`_import_xraylib` (monkeypatchable in tests); its absence raises a
-clear :class:`AnalysisDependencyError`. Excitation energy is required —
-no baked beamline value.
+**Scientific caveat.** These "k-factors" are ratios of *theoretical
+fluorescence cross-sections* (xraylib fundamental parameters) at the
+excitation energy only. They correct for element-dependent fluorescence
+yield / line branching, and nothing else: **detector efficiency and
+geometry, absorption/self-absorption, secondary fluorescence and other
+matrix effects, sample thickness, and the acquisition regime are all
+omitted.** The downstream weight percents are therefore an *uncorrected
+theoretical sensitivity-ratio estimate*, not a validated quantitative
+composition — see :mod:`axiomm.analysis.quant.cliff_lorimer` and
+``docs/user/analysis.md`` (Scientific assumptions & limitations).
+
+xraylib is imported lazily behind :func:`_import_xraylib` (monkeypatchable
+in tests); its absence raises :class:`AnalysisDependencyError`. Excitation
+energy is required — no baked beamline value.
 """
 
 from __future__ import annotations
@@ -14,6 +24,12 @@ from axiomm.analysis.quant.models import KFactorSet
 
 _LINE_ATTR = {"Ka": "KA_LINE", "La": "LA_LINE"}
 
+_PHYSICAL_MODEL = (
+    "uncorrected theoretical fluorescence cross-section ratio; omits "
+    "detector efficiency/geometry, absorption/self-absorption, matrix "
+    "effects, sample thickness, and acquisition regime"
+)
+
 
 def _import_xraylib():
     """Import xraylib (isolated so tests can monkeypatch it)."""
@@ -23,18 +39,33 @@ def _import_xraylib():
 
 
 def compute_k_factors(elements, *, excitation_kev: float, reference: str = "Si") -> KFactorSet:
-    """Theoretical Cliff-Lorimer k-factors ``k_{i,ref} = S_ref / S_i``."""
+    """Theoretical fluorescence-sensitivity ratios ``k_{i,ref} = S_ref / S_i``.
+
+    See the module docstring for the physical model these ratios do and do
+    not include.
+    """
     els = list(elements)
     symbols = [e.symbol for e in els]
 
-    if excitation_kev <= 0:
-        raise PayloadValidationError(
-            f"excitation_kev must be > 0; got {excitation_kev}."
-        )
+    if not els:
+        raise PayloadValidationError("no elements supplied.")
+    duplicates = {s for s in symbols if symbols.count(s) > 1}
+    if duplicates:
+        raise PayloadValidationError(f"duplicate element symbols: {sorted(duplicates)}.")
+    for el in els:
+        if el.emission_line not in _LINE_ATTR:
+            raise PayloadValidationError(
+                f"element {el.symbol!r} has unsupported emission_line "
+                f"{el.emission_line!r} (expected one of {sorted(_LINE_ATTR)})."
+            )
+        if el.atomic_number <= 0:
+            raise PayloadValidationError(
+                f"element {el.symbol!r} has non-positive atomic_number {el.atomic_number}."
+            )
+    if not (excitation_kev > 0 and excitation_kev == excitation_kev and excitation_kev != float("inf")):
+        raise PayloadValidationError(f"excitation_kev must be finite and > 0; got {excitation_kev}.")
     if reference not in symbols:
-        raise PayloadValidationError(
-            f"reference {reference!r} not among elements {symbols}."
-        )
+        raise PayloadValidationError(f"reference {reference!r} not among elements {symbols}.")
 
     try:
         xl = _import_xraylib()
@@ -45,14 +76,27 @@ def compute_k_factors(elements, *, excitation_kev: float, reference: str = "Si")
         ) from exc
 
     xl.XRayInit()
+    diagnostics: list[Diagnostic] = []
     sensitivities: dict[str, float] = {}
+    line_method: dict[str, str] = {}
     for el in els:
         line = getattr(xl, _LINE_ATTR[el.emission_line])
         try:
             s = xl.CS_FluorLine_Kissel(el.atomic_number, line, excitation_kev)
-        except Exception:  # noqa: BLE001 — xraylib call boundary; fall back
+            method = "CS_FluorLine_Kissel"
+        except ValueError:
+            # xraylib has no Kissel partial-cross-section for this Z/line at
+            # this energy: fall back to the total-line cross-section and
+            # record that the fallback (not Kissel) was used.
             s = xl.CS_FluorLine(el.atomic_number, line, excitation_kev)
+            method = "CS_FluorLine"
+            diagnostics.append(
+                Diagnostic("info", "kfactor_fallback",
+                           f"{el.symbol!r}: Kissel cross-section unavailable; "
+                           f"used CS_FluorLine instead.")
+            )
         sensitivities[el.symbol] = float(s)
+        line_method[el.symbol] = method
 
     s_ref = sensitivities.get(reference, 0.0)
     if s_ref <= 0:
@@ -60,7 +104,6 @@ def compute_k_factors(elements, *, excitation_kev: float, reference: str = "Si")
             f"reference {reference!r} has non-positive sensitivity {s_ref}."
         )
 
-    diagnostics: list[Diagnostic] = []
     k_factors: dict[str, float] = {}
     for sym, s in sensitivities.items():
         if s > 0:
@@ -68,19 +111,21 @@ def compute_k_factors(elements, *, excitation_kev: float, reference: str = "Si")
         else:
             k_factors[sym] = float("nan")
             diagnostics.append(
-                Diagnostic(
-                    "warning",
-                    "zero_sensitivity",
-                    f"element {sym!r} has non-positive sensitivity; k-factor is NaN.",
-                )
+                Diagnostic("warning", "zero_sensitivity",
+                           f"element {sym!r} has non-positive sensitivity; k-factor is NaN.")
             )
 
+    all_kissel = all(m == "CS_FluorLine_Kissel" for m in line_method.values())
     provenance = AnalysisProvenance(
         tool="quant",
         backend="kfactors_theoretical",
         params={
-            "method": "theoretical (xraylib FP, Kissel cross-sections)",
+            "method": ("xraylib FP, Kissel cross-sections" if all_kissel
+                       else "xraylib FP, mixed (Kissel + CS_FluorLine fallback)"),
+            "line_method": dict(line_method),
+            "physical_model": _PHYSICAL_MODEL,
             "xraylib_version": getattr(xl, "__version__", "unknown"),
+            "xraylib_backend": "xraylib",
             "excitation_kev": excitation_kev,
             "reference": reference,
         },

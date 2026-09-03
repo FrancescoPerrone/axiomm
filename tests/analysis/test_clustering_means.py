@@ -5,11 +5,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from axiomm.analysis.clustering.means import compute_cluster_means
+from axiomm.analysis.clustering.models import ClusteringResult
 from axiomm.analysis.errors import PayloadValidationError
 from axiomm.analysis.models import AnalysisProvenance
-from axiomm.analysis.clustering.models import ClusteringResult
-from axiomm.analysis.clustering.means import compute_cluster_means
-from axiomm.io.converters.models import AxisSpec, AxiommSignalPayload
+from axiomm.io.converters.models import AxiommSignalPayload, AxisSpec
 
 
 def _source(data):
@@ -79,3 +79,27 @@ def test_cluster_means_emit_heterogeneity_and_total_counts():
     assert cms.heterogeneity[1] > 0.2
     assert cms.total_counts[0] == pytest.approx(3.0)   # mean [1,1,1]
     assert cms.total_counts[1] == pytest.approx(1.0)   # mean [0.5,0,0.5]
+
+
+def test_blank_majority_cluster_not_reported_homogeneous():
+    # P11: a cluster of two DIFFERENT signal phases plus a majority of blank
+    # (zero-count) pixels must not read as homogeneous. If blanks were scored
+    # as distance 0 and kept, the median would be pulled to 0 (false 0). They
+    # must be excluded so the genuine phase spread survives.
+    # 6 pixels: [1,0], [0,1], and four [0,0] blanks -> one cluster.
+    rows = np.array([[1.0, 0.0], [0.0, 1.0], [0, 0], [0, 0], [0, 0], [0, 0]])
+    data = rows.reshape(2, 3, 2)
+    result = _clustering([0, 0, 0, 0, 0, 0], (2, 3), [0])
+    cms = compute_cluster_means(result, _source(data))
+    assert cms.heterogeneity[0] > 0.2       # not falsely 0
+    assert any(d.code == "blank_members_excluded" for d in cms.diagnostics)
+
+
+def test_all_blank_cluster_heterogeneity_undefined():
+    # P11: a degenerate all-zero cluster mean has undefined direction; its
+    # heterogeneity is NaN (undefined), never a false 0 (perfectly homogeneous).
+    data = np.zeros((2, 2, 3))
+    result = _clustering([0, 0, 0, 0], (2, 2), [0])
+    cms = compute_cluster_means(result, _source(data))
+    assert np.isnan(cms.heterogeneity[0])
+    assert any(d.code == "heterogeneity_undefined" for d in cms.diagnostics)

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Mapping
 
 from axiomm.analysis.models import AnalysisProvenance, Diagnostic
 
@@ -22,12 +22,25 @@ class KFactorSet:
 
 @dataclass
 class QuantResult:
-    """Cliff-Lorimer element + oxide weight percents for one spectrum."""
+    """Uncorrected theoretical sensitivity-ratio element + oxide wt% estimate.
+
+    These weight percents apply theoretical fluorescence-cross-section
+    ratios only (see :mod:`axiomm.analysis.quant.kfactors`); they are an
+    uncorrected estimate, not a validated quantitative composition.
+
+    ``gross_intensities`` / ``background_per_channel`` / ``window_channels``
+    carry the raw peak facts so a later statistically defined LOD/LOQ can
+    be computed from gross counts, background and window width.
+    """
 
     net_intensities: Mapping[str, float]
     wt_percent_element: Mapping[str, float]   # metals / cation basis
     wt_percent_oxide: Mapping[str, float]
     reference_element: str
+    gross_intensities: Mapping[str, float] = field(default_factory=dict)
+    background_per_channel: Mapping[str, float] = field(default_factory=dict)
+    window_channels: Mapping[str, int] = field(default_factory=dict)
+    cluster_id: int | None = None
     provenance: AnalysisProvenance | None = None
     diagnostics: list[Diagnostic] = field(default_factory=list)
 

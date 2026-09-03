@@ -9,8 +9,16 @@ never requires it.
 
 from __future__ import annotations
 
-from axiomm.analysis.quant.kfactors import compute_k_factors
 from axiomm.analysis.quant.cliff_lorimer import quantify, quantify_cluster_means
+from axiomm.analysis.quant.io import (
+    read_kfactors,
+    read_quant,
+    read_reliability,
+    write_kfactors,
+    write_quant,
+    write_reliability,
+)
+from axiomm.analysis.quant.kfactors import compute_k_factors
 from axiomm.analysis.quant.models import KFactorSet, QuantResult
 from axiomm.analysis.quant.reliability import (
     ReliabilityConfig,
@@ -18,7 +26,6 @@ from axiomm.analysis.quant.reliability import (
     assess_cluster_reliability,
     assess_reliability,
 )
-from axiomm.analysis.quant.io import read_kfactors, write_kfactors
 
 __all__ = [
     "KFactorSet",
@@ -31,5 +38,9 @@ __all__ = [
     "quantify",
     "quantify_cluster_means",
     "read_kfactors",
+    "read_quant",
+    "read_reliability",
     "write_kfactors",
+    "write_quant",
+    "write_reliability",
 ]

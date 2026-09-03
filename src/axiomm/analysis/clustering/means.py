@@ -9,10 +9,10 @@ from __future__ import annotations
 
 import numpy as np
 
+from axiomm.analysis.clustering.models import ClusteringResult, ClusterMeanSpectra
 from axiomm.analysis.errors import PayloadValidationError
 from axiomm.analysis.models import AnalysisProvenance, Diagnostic
 from axiomm.analysis.reshape import pixels_by_channels
-from axiomm.analysis.clustering.models import ClusterMeanSpectra, ClusteringResult
 
 
 def compute_cluster_means(result: ClusteringResult, source) -> ClusterMeanSpectra:
@@ -48,6 +48,16 @@ def compute_cluster_means(result: ClusteringResult, source) -> ClusterMeanSpectr
 
     heterogeneity = np.full(cluster_ids.size, np.nan, dtype=float)
     total_counts = np.zeros(cluster_ids.size, dtype=float)
+    # Heterogeneity = median cosine distance of member spectra to the mean.
+    # KNOWN LIMITATIONS (deferred, see docs/user/analysis.md): the median is
+    # insensitive to a minority (<50%) mixed population, and cosine distance
+    # confounds genuine compositional mixing with Poisson counting noise at
+    # low counts. Choosing an upper-quantile / fraction-exceeding metric and
+    # a noise model is a scientific design decision pending count-controlled
+    # validation. What is fixed here: a zero-norm member (a blank pixel)
+    # carries no directional information and must NOT be scored as distance 0
+    # (identical to the mean); it is excluded, and a degenerate all-zero mean
+    # yields an undefined (NaN) heterogeneity rather than a false 0.
     for i, cid in enumerate(cluster_ids):
         total_counts[i] = float(means[i].sum())
         if counts[i] == 0:
@@ -56,10 +66,31 @@ def compute_cluster_means(result: ClusteringResult, source) -> ClusterMeanSpectr
         mean_i = means[i]
         mean_norm = float(np.linalg.norm(mean_i))
         row_norms = np.linalg.norm(member, axis=1)
-        denom = row_norms * mean_norm
-        dots = member @ mean_i
-        with np.errstate(invalid="ignore", divide="ignore"):
-            cos = np.where(denom > 0, dots / denom, 1.0)
+        valid = row_norms > 0
+        n_blank = int((~valid).sum())
+        if mean_norm == 0.0 or not valid.any():
+            heterogeneity[i] = np.nan
+            diagnostics.append(
+                Diagnostic(
+                    "warning",
+                    "heterogeneity_undefined",
+                    f"Cluster {int(cid)}: mean or all members have zero norm; "
+                    "heterogeneity is undefined (NaN).",
+                )
+            )
+            continue
+        if n_blank:
+            diagnostics.append(
+                Diagnostic(
+                    "info",
+                    "blank_members_excluded",
+                    f"Cluster {int(cid)}: {n_blank} zero-norm member spectra "
+                    "excluded from the heterogeneity estimate.",
+                )
+            )
+        mv = member[valid]
+        denom = row_norms[valid] * mean_norm
+        cos = (mv @ mean_i) / denom
         heterogeneity[i] = float(np.median(1.0 - cos))
 
     src_backend = result.provenance.backend if result.provenance else "unknown"

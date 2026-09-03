@@ -27,6 +27,7 @@ class PeakMeasurementSet:
     measurements: tuple[PeakMeasurement, ...]
     provenance: AnalysisProvenance | None = None
     diagnostics: list[Diagnostic] = field(default_factory=list)
+    cluster_id: int | None = None   # identity when this set is one cluster's mean
 
     def net_by_label(self) -> dict[str, float]:
         """Convenience map ``label -> net`` (used by S3c)."""

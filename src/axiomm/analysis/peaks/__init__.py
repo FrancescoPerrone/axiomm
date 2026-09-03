@@ -15,15 +15,15 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from axiomm.analysis.registry import Registry
 from axiomm.analysis.peaks.base import PeakMeasurer
 from axiomm.analysis.peaks.energy import resolve_energy_axis
 from axiomm.analysis.peaks.models import PeakMeasurement, PeakMeasurementSet
 from axiomm.analysis.peaks.net_intensity import NetIntensityMeasurer, PeakWindowConfig
+from axiomm.analysis.registry import Registry
 
 if TYPE_CHECKING:
-    from axiomm.io.converters.models import AxisSpec
     from axiomm.analysis.clustering.models import ClusterMeanSpectra
+    from axiomm.io.converters.models import AxisSpec
 
 #: Registry mapping a stable name to a peak-measurer **class**.
 peak_measurers: Registry = Registry("peak measurer")
@@ -36,18 +36,21 @@ def get_peak_measurer(name: str):
 
 
 def measure_cluster_means(
-    means: "ClusterMeanSpectra",
-    energy_axis: "AxisSpec",
+    means: ClusterMeanSpectra,
+    energy_axis: AxisSpec,
     line_energies: Mapping[str, float],
     *,
     measurer: PeakMeasurer,
 ) -> tuple[PeakMeasurementSet, ...]:
-    """Measure peaks for each cluster mean, aligned to ``means.cluster_ids``."""
+    """Measure peaks for each cluster mean, stamping the cluster id."""
     matrix = np.asarray(means.means)
-    return tuple(
-        measurer.measure(matrix[i], energy_axis, line_energies)
-        for i in range(matrix.shape[0])
-    )
+    ids = np.asarray(means.cluster_ids)
+    results = []
+    for i in range(matrix.shape[0]):
+        measured = measurer.measure(matrix[i], energy_axis, line_energies)
+        measured.cluster_id = int(ids[i])
+        results.append(measured)
+    return tuple(results)
 
 
 __all__ = [

@@ -37,6 +37,11 @@ def test_missing_xraylib_raises_dependency_error(monkeypatch):
         compute_k_factors([_si(), _fe()], excitation_kev=18.0)
 
 
+def test_duplicate_symbol_raises_without_xraylib():
+    with pytest.raises(PayloadValidationError, match="duplicate"):
+        compute_k_factors([_si(), _si()], excitation_kev=18.0)
+
+
 def test_kfactors_with_xraylib():
     pytest.importorskip("xraylib")
     ks = compute_k_factors([_si(), _fe()], excitation_kev=18.0, reference="Si")
@@ -46,3 +51,51 @@ def test_kfactors_with_xraylib():
     assert ks.provenance.params["excitation_kev"] == 18.0
     assert ks.provenance.params["reference"] == "Si"
     assert "xraylib_version" in ks.provenance.params
+    # P5: the physical model / omitted effects are recorded, not implied
+    assert "detector efficiency" in ks.provenance.params["physical_model"]
+    # P7: the per-element cross-section method is recorded
+    assert set(ks.provenance.params["line_method"]) == {"Si", "Fe"}
+
+
+class _FakeXraylib:
+    """Minimal xraylib stub: Kissel raises for a chosen Z, forcing fallback."""
+
+    __version__ = "fake-0"
+    KA_LINE = 0
+    LA_LINE = 1
+
+    def __init__(self, kissel_fails_for):
+        self._fails = kissel_fails_for
+
+    def XRayInit(self):
+        pass
+
+    def CS_FluorLine_Kissel(self, z, line, kev):
+        if z in self._fails:
+            raise ValueError("no Kissel partial cross-section")
+        return 100.0
+
+    def CS_FluorLine(self, z, line, kev):
+        return 50.0
+
+
+def test_kissel_fallback_recorded_in_provenance(monkeypatch):
+    # Fe (Z=26) has no Kissel cross-section -> must fall back to CS_FluorLine,
+    # record CS_FluorLine as the method for Fe, emit a diagnostic, and NOT
+    # claim an all-Kissel method (P7).
+    fake = _FakeXraylib(kissel_fails_for={26})
+    monkeypatch.setattr(kfactors, "_import_xraylib", lambda: fake)
+    ks = compute_k_factors([_si(), _fe()], excitation_kev=18.0, reference="Si")
+    assert ks.provenance.params["line_method"]["Si"] == "CS_FluorLine_Kissel"
+    assert ks.provenance.params["line_method"]["Fe"] == "CS_FluorLine"
+    assert "mixed" in ks.provenance.params["method"]
+    assert any(d.code == "kfactor_fallback" for d in ks.diagnostics)
+
+
+def test_all_kissel_method_when_no_fallback(monkeypatch):
+    fake = _FakeXraylib(kissel_fails_for=set())
+    monkeypatch.setattr(kfactors, "_import_xraylib", lambda: fake)
+    ks = compute_k_factors([_si(), _fe()], excitation_kev=18.0, reference="Si")
+    assert "Kissel" in ks.provenance.params["method"]
+    assert "mixed" not in ks.provenance.params["method"]
+    assert not any(d.code == "kfactor_fallback" for d in ks.diagnostics)
