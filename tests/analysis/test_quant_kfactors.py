@@ -99,3 +99,23 @@ def test_all_kissel_method_when_no_fallback(monkeypatch):
     assert "Kissel" in ks.provenance.params["method"]
     assert "mixed" not in ks.provenance.params["method"]
     assert not any(d.code == "kfactor_fallback" for d in ks.diagnostics)
+
+
+class _ZeroSensitivityXraylib(_FakeXraylib):
+    """xraylib stub returning a non-positive sensitivity for one element."""
+
+    def __init__(self, zero_for):
+        super().__init__(kissel_fails_for=set())
+        self._zero_for = zero_for
+
+    def CS_FluorLine_Kissel(self, z, line, kev):
+        return 0.0 if z in self._zero_for else 100.0
+
+
+def test_nonpositive_sensitivity_raises_not_nan(monkeypatch):
+    # finding 8: a non-positive sensitivity must raise here, not return a
+    # NaN-containing KFactorSet that downstream code immediately rejects.
+    fake = _ZeroSensitivityXraylib(zero_for={26})   # Fe
+    monkeypatch.setattr(kfactors, "_import_xraylib", lambda: fake)
+    with pytest.raises(PayloadValidationError, match="non-positive or non-finite"):
+        compute_k_factors([_si(), _fe()], excitation_kev=18.0, reference="Si")

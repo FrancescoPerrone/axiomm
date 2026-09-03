@@ -14,30 +14,37 @@ from pathlib import Path
 import numpy as np
 
 from axiomm.analysis.clustering.models import ClusteringResult, ClusterMeanSpectra
-from axiomm.analysis.errors import OutputExistsError, PayloadValidationError
+from axiomm.analysis.errors import (
+    OutputExistsError,
+    PayloadSerializationError,
+)
 from axiomm.analysis.models import AnalysisProvenance, Diagnostic
 
 SCHEMA_VERSION = 1
 
 
+def _is_int(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
 def _load_sidecar(path: Path, expected_kind: str) -> dict:
-    """Load a sidecar, enforcing schema version and payload kind (P10)."""
+    """Load a sidecar, enforcing schema version and payload kind."""
     if not path.exists():
-        raise PayloadValidationError(f"{path} does not exist.")
+        raise PayloadSerializationError(f"{path} does not exist.")
     try:
         sidecar = json.loads(path.read_text())
     except json.JSONDecodeError as exc:
-        raise PayloadValidationError(f"{path.name}: malformed JSON ({exc}).") from exc
+        raise PayloadSerializationError(f"{path.name}: malformed JSON ({exc}).") from exc
     if not isinstance(sidecar, dict):
-        raise PayloadValidationError(f"{path.name}: sidecar is not a JSON object.")
+        raise PayloadSerializationError(f"{path.name}: sidecar is not a JSON object.")
     version = sidecar.get("schema_version")
     if version != SCHEMA_VERSION:
-        raise PayloadValidationError(
+        raise PayloadSerializationError(
             f"{path.name}: unsupported schema_version {version!r} (expected {SCHEMA_VERSION})."
         )
     kind = sidecar.get("kind")
     if kind != expected_kind:
-        raise PayloadValidationError(
+        raise PayloadSerializationError(
             f"{path.name}: expected payload kind {expected_kind!r}, got {kind!r}."
         )
     return sidecar
@@ -54,14 +61,24 @@ def _prov_to_dict(prov: AnalysisProvenance | None):
     }
 
 
-def _prov_from_dict(d):
+def _prov_from_dict(d, where: str = "clustering"):
     if d is None:
         return None
+    if not isinstance(d, dict):
+        raise PayloadSerializationError(f"{where}.provenance: must be an object or null.")
+    for field_name in ("tool", "backend"):
+        if not isinstance(d.get(field_name), str):
+            raise PayloadSerializationError(
+                f"{where}.provenance.{field_name}: missing or not a string."
+            )
+    params = d.get("params", {})
+    if not isinstance(params, dict):
+        raise PayloadSerializationError(f"{where}.provenance.params: must be an object.")
     return AnalysisProvenance(
         tool=d["tool"],
         backend=d["backend"],
-        tool_version=d["tool_version"],
-        params=d["params"],
+        tool_version=d.get("tool_version"),
+        params=params,
     )
 
 
@@ -73,12 +90,24 @@ def _diags_to_list(diagnostics):
     ]
 
 
-def _diags_from_list(items):
-    return [
-        Diagnostic(severity=d["severity"], code=d["code"], message=d["message"],
-                   context=d["context"])
-        for d in items
-    ]
+def _diags_from_list(items, where: str = "clustering"):
+    if not isinstance(items, list):
+        raise PayloadSerializationError(f"{where}.diagnostics: must be a list.")
+    out = []
+    for i, d in enumerate(items):
+        if not isinstance(d, dict):
+            raise PayloadSerializationError(f"{where}.diagnostics[{i}]: not an object.")
+        for field_name in ("severity", "code", "message"):
+            if not isinstance(d.get(field_name), str):
+                raise PayloadSerializationError(
+                    f"{where}.diagnostics[{i}].{field_name}: missing or not a string."
+                )
+        context = d.get("context", {})
+        if not isinstance(context, dict):
+            raise PayloadSerializationError(f"{where}.diagnostics[{i}].context: must be an object.")
+        out.append(Diagnostic(severity=d["severity"], code=d["code"],
+                              message=d["message"], context=context))
+    return out
 
 
 def _guard(paths, overwrite):
@@ -114,18 +143,44 @@ def write_clustering(result: ClusteringResult, directory, stem: str,
     return npz_path, json_path
 
 
+def _require_npz(npz, key: str, where: str):
+    if key not in npz.files:
+        raise PayloadSerializationError(f"{where}: missing array {key!r}.")
+    return npz[key]
+
+
+def _require_int_field(sidecar: dict, key: str, where: str) -> int:
+    value = sidecar.get(key)
+    if not _is_int(value):
+        raise PayloadSerializationError(f"{where}: {key!r} must be an integer ({value!r}).")
+    return value
+
+
+def _validate_integer_ids(arr: np.ndarray, where: str) -> None:
+    if not np.issubdtype(arr.dtype, np.integer):
+        raise PayloadSerializationError(f"{where}: cluster_ids must be an integer array ({arr.dtype}).")
+    if np.unique(arr).size != arr.size:
+        raise PayloadSerializationError(f"{where}: cluster_ids contains duplicates.")
+
+
 def read_clustering(directory, stem: str) -> ClusteringResult:
-    """Read a ClusteringResult written by :func:`write_clustering`."""
+    """Read and validate a ClusteringResult written by :func:`write_clustering`."""
     directory = Path(directory)
+    where = f"{stem}_clustering"
     npz = np.load(directory / f"{stem}_clustering.npz")
     sidecar = _load_sidecar(directory / f"{stem}_clustering.json", "clustering")
+    labels = _require_npz(npz, "labels", where)
+    label_map = _require_npz(npz, "label_map", where)
+    cluster_ids = _require_npz(npz, "cluster_ids", where)
+    _validate_integer_ids(cluster_ids, where)
+    n_clusters = _require_int_field(sidecar, "n_clusters", where)
     return ClusteringResult(
-        labels=npz["labels"],
-        label_map=npz["label_map"],
-        cluster_ids=npz["cluster_ids"],
-        n_clusters=int(sidecar["n_clusters"]),
-        provenance=_prov_from_dict(sidecar["provenance"]),
-        diagnostics=_diags_from_list(sidecar["diagnostics"]),
+        labels=labels,
+        label_map=label_map,
+        cluster_ids=cluster_ids,
+        n_clusters=n_clusters,
+        provenance=_prov_from_dict(sidecar.get("provenance"), where),
+        diagnostics=_diags_from_list(sidecar.get("diagnostics", []), where),
     )
 
 
@@ -167,21 +222,55 @@ def write_cluster_means(means: ClusterMeanSpectra, directory, stem: str,
 
 
 def read_cluster_means(directory, stem: str) -> ClusterMeanSpectra:
-    """Read a ClusterMeanSpectra written by :func:`write_cluster_means`."""
+    """Read and validate a ClusterMeanSpectra written by :func:`write_cluster_means`."""
     directory = Path(directory)
+    where = f"{stem}_cluster_means"
     npz = np.load(directory / f"{stem}_cluster_means.npz")
     sidecar = _load_sidecar(directory / f"{stem}_cluster_means.json", "cluster_means")
+
+    means = _require_npz(npz, "means", where)
+    pixel_counts = _require_npz(npz, "pixel_counts", where)
+    cluster_ids = _require_npz(npz, "cluster_ids", where)
+    n_clusters = _require_int_field(sidecar, "n_clusters", where)
+
+    if means.ndim != 2:
+        raise PayloadSerializationError(f"{where}: means must be 2-D, got shape {means.shape}.")
+    _validate_integer_ids(cluster_ids, where)
+    n = cluster_ids.size
+    if means.shape[0] != n or pixel_counts.size != n:
+        raise PayloadSerializationError(
+            f"{where}: means/pixel_counts/cluster_ids lengths disagree "
+            f"({means.shape[0]}, {pixel_counts.size}, {n})."
+        )
+    if not np.issubdtype(pixel_counts.dtype, np.integer):
+        raise PayloadSerializationError(
+            f"{where}: pixel_counts must be an integer array ({pixel_counts.dtype})."
+        )
+    if np.any(pixel_counts < 0):
+        raise PayloadSerializationError(f"{where}: pixel_counts must be >= 0.")
+
     heterogeneity = npz["heterogeneity"] if "heterogeneity" in npz.files else None
     total_counts = npz["total_counts"] if "total_counts" in npz.files else None
+    for name, arr in (("heterogeneity", heterogeneity), ("total_counts", total_counts)):
+        if arr is not None and arr.size != n:
+            raise PayloadSerializationError(
+                f"{where}: {name} length {arr.size} != n_clusters {n}."
+            )
+    # total_counts is a physical sum: NaN only where the cluster is empty.
+    if total_counts is not None and np.any(~np.isfinite(total_counts) & (pixel_counts > 0)):
+        raise PayloadSerializationError(
+            f"{where}: total_counts is non-finite for a non-empty cluster."
+        )
+
     return ClusterMeanSpectra(
-        means=npz["means"],
-        pixel_counts=npz["pixel_counts"],
-        cluster_ids=npz["cluster_ids"],
-        n_clusters=int(sidecar["n_clusters"]),
+        means=means,
+        pixel_counts=pixel_counts,
+        cluster_ids=cluster_ids,
+        n_clusters=n_clusters,
         heterogeneity=heterogeneity,
         total_counts=total_counts,
-        provenance=_prov_from_dict(sidecar["provenance"]),
-        diagnostics=_diags_from_list(sidecar["diagnostics"]),
+        provenance=_prov_from_dict(sidecar.get("provenance"), where),
+        diagnostics=_diags_from_list(sidecar.get("diagnostics", []), where),
     )
 
 

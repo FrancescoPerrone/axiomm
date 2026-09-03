@@ -162,3 +162,60 @@ def test_batch_on_unenriched_raises():
                              cluster_ids=np.array([0]), n_clusters=1)
     with pytest.raises(PayloadValidationError, match="enrich"):
         assess_cluster_reliability([_quant({"Si": 100.0}, cluster_id=0)], cms)
+
+
+# --- finding 2: one-to-one batch identity (dup / missing / exactly-once) ----
+
+def _two_cluster_means():
+    from axiomm.analysis.clustering.models import ClusterMeanSpectra
+    return ClusterMeanSpectra(
+        means=np.ones((2, 3)), pixel_counts=np.array([100, 100]),
+        cluster_ids=np.array([0, 1]), n_clusters=2,
+        heterogeneity=np.array([0.05, 0.05]), total_counts=np.array([1e5, 1e5]),
+    )
+
+
+def test_batch_duplicate_cluster_id_raises():
+    from axiomm.analysis.quant import assess_cluster_reliability
+    with pytest.raises(PayloadValidationError, match="duplicate"):
+        assess_cluster_reliability(
+            [_quant({"Si": 100.0}, cluster_id=0), _quant({"Si": 100.0}, cluster_id=0)],
+            _two_cluster_means())
+
+
+def test_batch_missing_expected_cluster_raises():
+    from axiomm.analysis.quant import assess_cluster_reliability
+    with pytest.raises(PayloadValidationError, match="every cluster"):
+        assess_cluster_reliability([_quant({"Si": 100.0}, cluster_id=0)], _two_cluster_means())
+
+
+def test_batch_requires_exact_bijection():
+    from axiomm.analysis.quant import assess_cluster_reliability
+    reports = assess_cluster_reliability(
+        [_quant({"Si": 100.0}, cluster_id=1), _quant({"Si": 100.0}, cluster_id=0)],
+        _two_cluster_means())
+    assert [r.cluster_id for r in reports] == [0, 1]   # cluster_means order
+
+
+# --- finding 7: integral, non-Boolean min_pixel_count and cluster IDs -------
+
+def test_bool_min_pixel_count_rejected():
+    with pytest.raises(PayloadValidationError, match="min_pixel_count"):
+        ReliabilityConfig(min_pixel_count=True)
+
+
+def test_float_min_pixel_count_rejected():
+    with pytest.raises(PayloadValidationError, match="min_pixel_count"):
+        ReliabilityConfig(min_pixel_count=20.0)
+
+
+def test_bool_pixel_count_is_invalid():
+    r = assess_reliability(_quant({"Si": 100.0}), pixel_count=True,
+                           heterogeneity=0.02, total_counts=1e5)
+    assert r.cluster_status == "invalid"
+
+
+def test_batch_bool_cluster_id_rejected():
+    from axiomm.analysis.quant import assess_cluster_reliability
+    with pytest.raises(PayloadValidationError, match="integer"):
+        assess_cluster_reliability([_quant({"Si": 100.0}, cluster_id=True)], _two_cluster_means())

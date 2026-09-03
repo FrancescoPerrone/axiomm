@@ -128,14 +128,34 @@ def test_missing_element_ref_not_silently_dropped():
 
 
 def test_negative_net_rejected():
+    # A coherent measurement with net < 0 (background over-subtracted): gross
+    # stays non-negative, so it constructs, and quantify must reject the net.
+    ms = (PeakMeasurement("Si", 1.74, 100.0, 100.0, 0.0, 1, True),
+          PeakMeasurement("Fe", 6.4, -50.0, 0.0, 50.0, 1, True))
+    peaks = PeakMeasurementSet(measurements=ms)
     with pytest.raises(PayloadValidationError, match="net intensity"):
-        quantify(_peaks({"Si": 100.0, "Fe": -50.0}), _kf({"Si": 1.0, "Fe": 1.0}), _elements())
+        quantify(peaks, _kf({"Si": 1.0, "Fe": 1.0}), _elements())
 
 
 @pytest.mark.parametrize("bad", [float("nan"), float("inf"), 0.0, -1.0])
 def test_nonpositive_or_nonfinite_kfactor_rejected(bad):
     with pytest.raises(PayloadValidationError, match="k-factor"):
         quantify(_peaks({"Si": 100.0, "Fe": 50.0}), _kf({"Si": 1.0, "Fe": bad}), _elements())
+
+
+def test_oxygen_as_kfactor_element_rejected():
+    # finding 9: O is derived by oxide stoichiometry; quantifying it directly
+    # would double-count oxygen. Reject until a measured-oxygen mode exists.
+    with pytest.raises(PayloadValidationError, match=r"double-count|must not be a k-factor"):
+        quantify(_peaks({"Si": 100.0, "O": 100.0}),
+                 _kf({"Si": 1.0, "O": 1.0}), _elements())
+
+
+def test_incoherent_net_exceeds_gross_rejected():
+    # finding 5: retained facts must be coherent — net cannot exceed gross.
+    ms = (PeakMeasurement("Si", 1.74, 200.0, 100.0, 0.0, 1, True),)
+    with pytest.raises(PayloadValidationError, match="exceeds gross"):
+        quantify(PeakMeasurementSet(measurements=ms), _kf({"Si": 1.0}), _elements())
 
 
 def test_duplicate_element_ref_rejected():

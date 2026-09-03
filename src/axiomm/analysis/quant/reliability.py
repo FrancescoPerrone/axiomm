@@ -38,6 +38,15 @@ from axiomm.analysis.models import AnalysisProvenance, Diagnostic
 ElementStatus = Literal["reportable", "below_count_floor", "invalid"]
 ClusterStatus = Literal["reportable_estimate", "exploratory_only", "invalid"]
 
+#: The admissible vocabularies, exported so serialization can validate against them.
+ELEMENT_STATUSES: frozenset[str] = frozenset({"reportable", "below_count_floor", "invalid"})
+CLUSTER_STATUSES: frozenset[str] = frozenset({"reportable_estimate", "exploratory_only", "invalid"})
+
+
+def _is_int(value: object) -> bool:
+    """True for a real integer, rejecting bool (``True`` is not a count/id)."""
+    return isinstance(value, int) and not isinstance(value, bool)
+
 
 @dataclass(frozen=True)
 class ReliabilityConfig:
@@ -55,6 +64,11 @@ class ReliabilityConfig:
     element_count_floors: Mapping[str, float] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        if not _is_int(self.min_pixel_count):
+            raise PayloadValidationError(
+                f"ReliabilityConfig.min_pixel_count must be an integer (not bool); "
+                f"got {self.min_pixel_count!r}."
+            )
         for name in ("min_pixel_count", "max_heterogeneity", "min_total_counts", "count_floor"):
             v = float(getattr(self, name))
             if not math.isfinite(v) or v < 0:
@@ -115,9 +129,13 @@ def assess_reliability(quant, *, pixel_count, heterogeneity, total_counts,
     reasons: list[str] = []
 
     # --- input validity (P2): non-finite / impossible values are invalid --
-    pc = float(pixel_count)
-    if not math.isfinite(pc) or pc < 0 or pc != int(pc):
-        invalid_reasons.append(f"pixel_count not a non-negative integer ({pixel_count!r})")
+    if isinstance(pixel_count, bool):
+        invalid_reasons.append(f"pixel_count must be an integer, not bool ({pixel_count!r})")
+        pc = float("nan")
+    else:
+        pc = float(pixel_count)
+        if not math.isfinite(pc) or pc < 0 or pc != int(pc):
+            invalid_reasons.append(f"pixel_count not a non-negative integer ({pixel_count!r})")
     if total_counts is None or not math.isfinite(float(total_counts)) or float(total_counts) < 0:
         invalid_reasons.append(f"total_counts not finite and >= 0 ({total_counts!r})")
     het_undefined = heterogeneity is None or (
@@ -203,8 +221,11 @@ def assess_cluster_reliability(quant_results, cluster_means,
     """Assess each cluster's quantification, aligning by explicit ``cluster_id``.
 
     Identity — not sequence position — links a ``QuantResult`` to its cluster
-    mean, so reordered inputs are matched correctly and a missing or unknown
-    ``cluster_id`` is an error rather than a silent mis-alignment (P8).
+    mean, and the match is required to be **one-to-one** (P8): every intended
+    cluster is represented exactly once. A missing, duplicate, or unknown
+    ``cluster_id`` is an error rather than a silent mis-alignment. The returned
+    reports follow ``cluster_means.cluster_ids`` order regardless of the order
+    of ``quant_results``.
     """
     config = config or ReliabilityConfig()
     if cluster_means.heterogeneity is None or cluster_means.total_counts is None:
@@ -212,25 +233,51 @@ def assess_cluster_reliability(quant_results, cluster_means,
             "cluster_means is not enriched with heterogeneity/total_counts; "
             "recompute with compute_cluster_means."
         )
-    id_to_idx = {int(cid): i for i, cid in enumerate(cluster_means.cluster_ids)}
-    if len(id_to_idx) != len(cluster_means.cluster_ids):
+
+    expected_ids = [int(c) for c in cluster_means.cluster_ids]
+    id_to_idx = {cid: i for i, cid in enumerate(expected_ids)}
+    if len(id_to_idx) != len(expected_ids):
         raise PayloadValidationError("cluster_means.cluster_ids contains duplicates.")
 
-    reports: list[ReliabilityReport] = []
+    # Collect each result's identity, rejecting missing / non-integer / duplicate.
+    by_id: dict[int, object] = {}
     for qr in quant_results:
         if qr.cluster_id is None:
             raise PayloadValidationError(
                 "quant result has no cluster_id; cannot verify cluster identity."
             )
-        cid = int(qr.cluster_id)
-        if cid not in id_to_idx:
+        if not _is_int(qr.cluster_id):
             raise PayloadValidationError(
-                f"quant result cluster_id {cid} not found in cluster_means.cluster_ids."
+                f"quant result cluster_id must be an integer (not bool); got {qr.cluster_id!r}."
             )
+        cid = int(qr.cluster_id)
+        if cid in by_id:
+            raise PayloadValidationError(
+                f"duplicate quant result cluster_id {cid}; each cluster must appear once."
+            )
+        by_id[cid] = qr
+
+    # Require an exact bijection between the two id sets.
+    got = set(by_id)
+    expected = set(expected_ids)
+    unknown = sorted(got - expected)
+    missing = sorted(expected - got)
+    if unknown:
+        raise PayloadValidationError(
+            f"quant result cluster_id(s) {unknown} not found in cluster_means.cluster_ids."
+        )
+    if missing:
+        raise PayloadValidationError(
+            f"no quant result for expected cluster_id(s) {missing}; "
+            "every cluster must be represented exactly once."
+        )
+
+    reports: list[ReliabilityReport] = []
+    for cid in expected_ids:
         i = id_to_idx[cid]
         reports.append(
             assess_reliability(
-                qr,
+                by_id[cid],
                 pixel_count=int(cluster_means.pixel_counts[i]),
                 heterogeneity=float(cluster_means.heterogeneity[i]),
                 total_counts=float(cluster_means.total_counts[i]),
@@ -241,5 +288,6 @@ def assess_cluster_reliability(quant_results, cluster_means,
     return tuple(reports)
 
 
-__all__ = ["ClusterStatus", "ElementStatus", "ReliabilityConfig",
-           "ReliabilityReport", "assess_cluster_reliability", "assess_reliability"]
+__all__ = ["CLUSTER_STATUSES", "ELEMENT_STATUSES", "ClusterStatus", "ElementStatus",
+           "ReliabilityConfig", "ReliabilityReport",
+           "assess_cluster_reliability", "assess_reliability"]

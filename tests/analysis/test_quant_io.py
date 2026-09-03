@@ -148,3 +148,112 @@ def test_read_rejects_malformed_json(tmp_path):
     (tmp_path / "m_quant.json").write_text("{not json")
     with pytest.raises(PayloadValidationError, match="malformed"):
         read_quant(tmp_path, "m")
+
+
+# --- finding 6: explicit schema evolution (v1 -> v2) -----------------------
+
+def test_schema_version_is_two():
+    assert SCHEMA_VERSION == 2
+
+
+def test_read_rejects_legacy_v1_clearly(tmp_path):
+    from axiomm.analysis.errors import PayloadSerializationError
+    from axiomm.analysis.quant.io import read_quant
+    # a legacy v1-shaped quant doc (schema_version 1, no gross/window/kind fields)
+    (tmp_path / "old_quant.json").write_text(json.dumps({
+        "schema_version": 1, "net_intensities": {}, "wt_percent_element": {},
+        "wt_percent_oxide": {}, "reference_element": "Si",
+        "provenance": None, "diagnostics": []}))
+    with pytest.raises(PayloadSerializationError, match="schema_version"):
+        read_quant(tmp_path, "old")
+
+
+# --- finding 3: deep validation of the deserialized payload ----------------
+
+def _valid_quant_doc():
+    return {
+        "schema_version": SCHEMA_VERSION, "kind": "quant",
+        "net_intensities": {"Si": 100.0}, "wt_percent_element": {"Si": 100.0},
+        "wt_percent_oxide": {"SiO2": 100.0}, "reference_element": "Si",
+        "gross_intensities": {"Si": 120.0}, "background_per_channel": {"Si": 2.0},
+        "window_channels": {"Si": 7}, "cluster_id": 3,
+        "provenance": None, "diagnostics": [],
+    }
+
+
+def _write(tmp_path, stem, doc):
+    (tmp_path / f"{stem}_quant.json").write_text(json.dumps(doc))
+
+
+def test_read_rejects_negative_gross(tmp_path):
+    from axiomm.analysis.errors import PayloadSerializationError
+    from axiomm.analysis.quant.io import read_quant
+    doc = _valid_quant_doc()
+    doc["gross_intensities"] = {"Si": -1.0}
+    _write(tmp_path, "g", doc)
+    with pytest.raises(PayloadSerializationError, match="gross_intensities"):
+        read_quant(tmp_path, "g")
+
+
+def test_read_rejects_non_integer_window(tmp_path):
+    from axiomm.analysis.errors import PayloadSerializationError
+    from axiomm.analysis.quant.io import read_quant
+    doc = _valid_quant_doc()
+    doc["window_channels"] = {"Si": 2.5}
+    _write(tmp_path, "w", doc)
+    with pytest.raises(PayloadSerializationError, match="window_channels"):
+        read_quant(tmp_path, "w")
+
+
+def test_read_rejects_inconsistent_element_keys(tmp_path):
+    from axiomm.analysis.errors import PayloadSerializationError
+    from axiomm.analysis.quant.io import read_quant
+    doc = _valid_quant_doc()
+    doc["gross_intensities"] = {"Fe": 10.0}  # Fe not in net
+    _write(tmp_path, "k", doc)
+    with pytest.raises(PayloadSerializationError, match="absent from net_intensities"):
+        read_quant(tmp_path, "k")
+
+
+def test_read_rejects_non_integer_cluster_id(tmp_path):
+    from axiomm.analysis.errors import PayloadSerializationError
+    from axiomm.analysis.quant.io import read_quant
+    doc = _valid_quant_doc()
+    doc["cluster_id"] = "3"
+    _write(tmp_path, "c", doc)
+    with pytest.raises(PayloadSerializationError, match="cluster_id"):
+        read_quant(tmp_path, "c")
+
+
+def test_read_rejects_bad_provenance_structure(tmp_path):
+    from axiomm.analysis.errors import PayloadSerializationError
+    from axiomm.analysis.quant.io import read_quant
+    doc = _valid_quant_doc()
+    doc["provenance"] = {"backend": "x"}   # missing tool
+    _write(tmp_path, "p", doc)
+    with pytest.raises(PayloadSerializationError, match="provenance"):
+        read_quant(tmp_path, "p")
+
+
+def test_read_reliability_rejects_bad_status_vocabulary(tmp_path):
+    from axiomm.analysis.errors import PayloadSerializationError
+    from axiomm.analysis.quant.io import read_reliability
+    (tmp_path / "s_reliability.json").write_text(json.dumps({
+        "schema_version": SCHEMA_VERSION, "kind": "reliability",
+        "cluster_status": "quantitative",   # retired vocabulary
+        "element_status": {"Si": "reportable"}, "reasons": [],
+        "cluster_id": None, "provenance": None, "diagnostics": []}))
+    with pytest.raises(PayloadSerializationError, match="cluster_status"):
+        read_reliability(tmp_path, "s")
+
+
+def test_read_reliability_rejects_bad_element_status(tmp_path):
+    from axiomm.analysis.errors import PayloadSerializationError
+    from axiomm.analysis.quant.io import read_reliability
+    (tmp_path / "e_reliability.json").write_text(json.dumps({
+        "schema_version": SCHEMA_VERSION, "kind": "reliability",
+        "cluster_status": "reportable_estimate",
+        "element_status": {"Si": "valid"},   # retired vocabulary
+        "reasons": [], "cluster_id": None, "provenance": None, "diagnostics": []}))
+    with pytest.raises(PayloadSerializationError, match="element_status"):
+        read_reliability(tmp_path, "e")

@@ -103,3 +103,15 @@ def test_all_blank_cluster_heterogeneity_undefined():
     cms = compute_cluster_means(result, _source(data))
     assert np.isnan(cms.heterogeneity[0])
     assert any(d.code == "heterogeneity_undefined" for d in cms.diagnostics)
+
+
+def test_heterogeneity_within_admissible_interval():
+    # finding 4: cosine distance must lie in [0, 2]. Across varied mixtures,
+    # every finite heterogeneity the tool reports stays in that interval.
+    rng = np.random.default_rng(0)
+    data = rng.random((6, 6, 5))
+    labels = rng.integers(0, 3, size=36)
+    result = _clustering(labels.tolist(), (6, 6), [0, 1, 2])
+    cms = compute_cluster_means(result, _source(data))
+    finite = cms.heterogeneity[np.isfinite(cms.heterogeneity)]
+    assert np.all((finite >= 0.0) & (finite <= 2.0))

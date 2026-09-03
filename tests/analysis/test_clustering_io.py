@@ -109,3 +109,39 @@ def test_write_refuses_silent_overwrite(tmp_path):
     with pytest.raises(OutputExistsError):
         write_clustering(_clustering(), tmp_path, "sample")
     write_clustering(_clustering(), tmp_path, "sample", overwrite=True)
+
+
+# --- finding 3: deep validation of deserialized cluster-means payloads ------
+
+def test_cluster_means_read_rejects_length_mismatch(tmp_path):
+    from axiomm.analysis.errors import PayloadSerializationError
+    write_cluster_means(_means(), tmp_path, "sample")
+    # corrupt the npz: pixel_counts shorter than cluster_ids
+    npz = tmp_path / "sample_cluster_means.npz"
+    data = dict(np.load(npz))
+    data["pixel_counts"] = np.array([2, 1])   # was length 3
+    np.savez(npz, **data)
+    with pytest.raises(PayloadSerializationError, match="lengths disagree"):
+        read_cluster_means(tmp_path, "sample")
+
+
+def test_cluster_means_read_rejects_negative_pixel_counts(tmp_path):
+    from axiomm.analysis.errors import PayloadSerializationError
+    write_cluster_means(_means(), tmp_path, "sample")
+    npz = tmp_path / "sample_cluster_means.npz"
+    data = dict(np.load(npz))
+    data["pixel_counts"] = np.array([2, -1, 1])
+    np.savez(npz, **data)
+    with pytest.raises(PayloadSerializationError, match="pixel_counts"):
+        read_cluster_means(tmp_path, "sample")
+
+
+def test_cluster_means_read_rejects_bad_provenance(tmp_path):
+    from axiomm.analysis.errors import PayloadSerializationError
+    write_cluster_means(_means(), tmp_path, "sample")
+    p = tmp_path / "sample_cluster_means.json"
+    doc = json.loads(p.read_text())
+    doc["provenance"] = {"backend": "gmm"}   # missing 'tool'
+    p.write_text(json.dumps(doc))
+    with pytest.raises(PayloadSerializationError, match="provenance"):
+        read_cluster_means(tmp_path, "sample")

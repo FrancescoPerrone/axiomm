@@ -21,6 +21,19 @@ class PayloadValidationError(AxiommAnalysisError):
     """Raised when a result payload fails a required-field or shape check."""
 
 
+class PayloadSerializationError(PayloadValidationError):
+    """Raised when a persisted payload is malformed, incompatible, or corrupt.
+
+    Covers everything a *reader* rejects beyond well-formed JSON: an
+    unsupported ``schema_version``, a wrong payload ``kind``, missing or
+    mistyped fields, non-finite numbers, out-of-range values, or an
+    unrecognised status vocabulary. A subclass of
+    :class:`PayloadValidationError` (a corrupt file is a failed validation),
+    so callers catching either type still catch it, while ``except
+    PayloadSerializationError`` isolates the persistence layer specifically.
+    """
+
+
 class ReferenceLibraryError(AxiommAnalysisError):
     """Raised for missing or malformed reference libraries."""
 
@@ -38,6 +51,7 @@ __all__ = [
     "AxiommAnalysisError",
     "BackendNotFoundError",
     "OutputExistsError",
+    "PayloadSerializationError",
     "PayloadValidationError",
     "ReferenceLibraryError",
 ]

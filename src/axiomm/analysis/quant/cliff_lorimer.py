@@ -58,6 +58,16 @@ def quantify(peaks, kfactors, elements, *, reference_name: str | None = None) ->
     for sym, kv in k.items():
         _check_finite(f"k-factor for {sym!r}", float(kv), positive=True)
 
+    # --- oxygen is derived by stoichiometry, never a k-factor element -----
+    # Measuring O as a cation *and* adding it via oxide stoichiometry would
+    # double-count oxygen. There is no measured-oxygen mode yet (finding 9).
+    if "O" in k:
+        raise PayloadValidationError(
+            "'O' must not be a k-factor element: oxygen is derived by oxide "
+            "stoichiometry, and quantifying it directly would double-count it. "
+            "A measured-oxygen mode is not implemented."
+        )
+
     # --- element reference table: no duplicates --------------------------
     el_by_sym: dict[str, object] = {}
     for e in elements:
@@ -94,6 +104,19 @@ def quantify(peaks, kfactors, elements, *, reference_name: str | None = None) ->
             )
             continue
         _check_finite(f"net intensity for {sym!r}", float(m.net), non_negative=True)
+        # Retained LOD/LOQ inputs must be coherent, not just present: gross and
+        # background are non-negative and net cannot exceed gross (finding 5).
+        _check_finite(f"gross for {sym!r}", float(m.gross), non_negative=True)
+        _check_finite(f"background for {sym!r}", float(m.background), non_negative=True)
+        if not (isinstance(m.n_channels, int) and not isinstance(m.n_channels, bool)
+                and m.n_channels >= 0):
+            raise PayloadValidationError(
+                f"window channels for {sym!r} must be a non-negative integer; got {m.n_channels!r}."
+            )
+        if float(m.net) > float(m.gross) + 1e-9:
+            raise PayloadValidationError(
+                f"net ({m.net}) exceeds gross ({m.gross}) for {sym!r}; incoherent peak facts."
+            )
         net[sym] = float(m.net)
         gross[sym] = float(m.gross)
         background[sym] = float(m.background)

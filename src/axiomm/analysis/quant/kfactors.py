@@ -18,6 +18,8 @@ energy is required — no baked beamline value.
 
 from __future__ import annotations
 
+import math
+
 from axiomm.analysis.errors import AnalysisDependencyError, PayloadValidationError
 from axiomm.analysis.models import AnalysisProvenance, Diagnostic
 from axiomm.analysis.quant.models import KFactorSet
@@ -98,22 +100,21 @@ def compute_k_factors(elements, *, excitation_kev: float, reference: str = "Si")
         sensitivities[el.symbol] = float(s)
         line_method[el.symbol] = method
 
-    s_ref = sensitivities.get(reference, 0.0)
-    if s_ref <= 0:
+    # A non-positive or non-finite sensitivity yields a meaningless k-factor.
+    # Emitting NaN here only defers the failure to quantification / strict
+    # serialization, which both reject it (finding 8): fail loudly and now.
+    bad = sorted(
+        sym for sym, s in sensitivities.items() if not (math.isfinite(s) and s > 0)
+    )
+    if bad:
         raise PayloadValidationError(
-            f"reference {reference!r} has non-positive sensitivity {s_ref}."
+            f"xraylib returned a non-positive or non-finite fluorescence "
+            f"sensitivity for element(s) {bad} at {excitation_kev} keV; "
+            "cannot form k-factors. Check the excitation energy and emission lines."
         )
 
-    k_factors: dict[str, float] = {}
-    for sym, s in sensitivities.items():
-        if s > 0:
-            k_factors[sym] = s_ref / s
-        else:
-            k_factors[sym] = float("nan")
-            diagnostics.append(
-                Diagnostic("warning", "zero_sensitivity",
-                           f"element {sym!r} has non-positive sensitivity; k-factor is NaN.")
-            )
+    s_ref = sensitivities[reference]
+    k_factors: dict[str, float] = {sym: s_ref / s for sym, s in sensitivities.items()}
 
     all_kissel = all(m == "CS_FluorLine_Kissel" for m in line_method.values())
     provenance = AnalysisProvenance(

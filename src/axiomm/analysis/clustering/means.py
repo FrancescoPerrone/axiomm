@@ -91,7 +91,26 @@ def compute_cluster_means(result: ClusteringResult, source) -> ClusterMeanSpectr
         mv = member[valid]
         denom = row_norms[valid] * mean_norm
         cos = (mv @ mean_i) / denom
-        heterogeneity[i] = float(np.median(1.0 - cos))
+        distances = 1.0 - cos
+        # A cosine distance must lie in [0, 2]. Small floating-point excursions
+        # past the ends are clamped; anything beyond tolerance signals corrupt
+        # input (e.g. non-finite spectra that slipped a norm check) and makes
+        # the estimate undefined rather than silently out-of-range (finding 4).
+        tol = 1e-9
+        if not np.all(np.isfinite(distances)) or float(distances.min()) < -tol \
+                or float(distances.max()) > 2.0 + tol:
+            heterogeneity[i] = np.nan
+            diagnostics.append(
+                Diagnostic(
+                    "warning",
+                    "heterogeneity_undefined",
+                    f"Cluster {int(cid)}: cosine distance outside the admissible "
+                    "[0, 2] interval; heterogeneity is undefined (NaN).",
+                )
+            )
+            continue
+        distances = np.clip(distances, 0.0, 2.0)
+        heterogeneity[i] = float(np.median(distances))
 
     src_backend = result.provenance.backend if result.provenance else "unknown"
     provenance = AnalysisProvenance(
