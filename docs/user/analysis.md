@@ -207,13 +207,28 @@ print("provenance.params =", kf.provenance.params)
 
 ```text
 k_factors = {'Si': 1.0, 'Fe': 0.027, 'Al': 1.68, 'Ca': 0.11}
-provenance.params = {'method': 'theoretical (xraylib FP, Kissel cross-sections)', 'xraylib_version': '4.3.0', 'excitation_kev': 18.0, 'reference': 'Si'}
+method       = xraylib FP, Kissel cross-sections
+line_method  = {'Si': 'CS_FluorLine_Kissel', 'Fe': 'CS_FluorLine_Kissel', ...}
+xraylib_version = 4.3.0
 ```
 
 **`KFactorSet`**: `k_factors` (`symbol → k_{i,ref}`), `sensitivities`,
 `reference_element`, `excitation_kev`. If xraylib is not installed,
 `compute_k_factors` raises `AnalysisDependencyError`. Persist with
 `write_kfactors` / `read_kfactors`.
+
+> **These k-factors are not a full quantification.** They are ratios of
+> theoretical fluorescence cross-sections at the excitation energy only.
+> They correct for element-dependent fluorescence yield and line
+> branching — **and nothing else.** Detector efficiency and geometry,
+> absorption and self-absorption, secondary fluorescence and other matrix
+> effects, sample thickness, and the acquisition regime are all omitted.
+> The `provenance.params` records the exact cross-section function used per
+> element (`line_method`): `CS_FluorLine_Kissel` where available, with a
+> recorded fall back to `CS_FluorLine` (and an `info` diagnostic) where
+> xraylib has no Kissel partial cross-section — so the record never claims
+> a Kissel calculation that was not actually used. See **Scientific
+> assumptions & limitations** at the end of this page.
 
 ---
 
@@ -255,27 +270,55 @@ diagnostics        = []
 ```
 
 **`QuantResult`**: `net_intensities`, `wt_percent_element` (metals/cation
-basis), `wt_percent_oxide`, `reference_element`. `quantify_cluster_means`
-runs `quantify` over a sequence of per-cluster `PeakMeasurementSet`s
-(from `peaks.measure_cluster_means`), preserving `cluster_ids` order.
-Persist with `write_quant` / `read_quant`.
+basis), `wt_percent_oxide`, `reference_element`. It also carries the raw
+peak facts — `gross_intensities`, `background_per_channel`,
+`window_channels` — kept so a statistically defined detection/quantification
+limit can be computed later, and a `cluster_id` that ties each result to its
+source cluster. `quantify_cluster_means` runs `quantify` over a sequence of
+per-cluster `PeakMeasurementSet`s (from `peaks.measure_cluster_means`),
+carrying each set's `cluster_id` through. Persist with `write_quant` /
+`read_quant`.
 
-> These numbers are the raw Cliff-Lorimer result. Deciding which cluster
-> means are clean enough to report as quantitative — and flagging elements
-> below a reliable count as *below the quantification limit* — is a
-> separate reliability step (still in development); a raw cluster mean is
-> not automatically a validated phase composition.
+`quantify` validates its inputs and refuses ambiguous data rather than
+silently propagating it: k-factors must be finite and positive, net
+intensities finite and non-negative, and **every** k-factor element must
+have a matching `ElementRef` — an element is never silently dropped and the
+remainder renormalised to 100%. Missing atomic weights or malformed oxide
+stoichiometry raise `PayloadValidationError`.
+
+> **These weight percents are an uncorrected theoretical
+> sensitivity-ratio estimate, not a validated quantitative composition.**
+> They apply the k-factor ratios (whose omitted physics is listed above)
+> and Cliff-Lorimer closure, and nothing else. Until the estimate has been
+> checked against measured standards, treat it as a screening number.
+> Deciding which cluster means are clean enough to report at all is the
+> separate reliability step below; a raw cluster mean is not automatically
+> a validated phase composition.
 
 ---
 
 ## 7. Reliability gate — `axiomm.analysis.quant`
 
 A GMM cluster mean averages over pixels that may mix phases or sit on
-boundaries, so it is not automatically a valid quantitative spectrum. The
-reliability gate is an **overlay** on a `QuantResult`: it flags elements
-below a reliable count and marks a cluster `exploratory_only` when it looks
-mixed or undercounted. It never rewrites the numbers and never asserts a
-physical cause. All thresholds are yours to set (`ReliabilityConfig`).
+boundaries, so it is not automatically a valid spectrum. The reliability
+gate is an **overlay** on a `QuantResult`: it flags elements below a
+screening count floor and grades each cluster. It never rewrites the
+numbers and never asserts a physical cause. All thresholds are yours to set
+(`ReliabilityConfig`).
+
+The vocabulary is deliberately conservative — nothing is called
+"quantitative", because the upstream weight percents are an uncorrected
+estimate (above):
+
+- **element** `reportable` · `below_count_floor` · `invalid`
+- **cluster** `reportable_estimate` · `exploratory_only` · `invalid`
+
+A non-finite or out-of-range input (a NaN net intensity, a negative pixel
+count, an impossible heterogeneity) is never graded `reportable` /
+`reportable_estimate` — it is `invalid`. A cluster with no element above its
+floor can never be a `reportable_estimate`. The `count_floor` is a crude
+net-count screening threshold, **not** an analytical limit of detection or
+quantification; you can override it per element with `element_count_floors`.
 
 `compute_cluster_means` now also reports per-cluster `heterogeneity`
 (median cosine distance of member spectra to the mean) and `total_counts`;
@@ -296,7 +339,7 @@ quant = QuantResult(
 )
 report = assess_reliability(
     quant, pixel_count=140, heterogeneity=0.32, total_counts=8.5e3,
-    config=ReliabilityConfig(min_net_counts=50, max_heterogeneity=0.15, min_total_counts=1e4),
+    config=ReliabilityConfig(count_floor=50, max_heterogeneity=0.15, min_total_counts=1e4),
 )
 print("cluster_status =", report.cluster_status)
 print("element_status =", dict(report.element_status))
@@ -305,14 +348,21 @@ print("reasons        =", list(report.reasons))
 
 ```text
 cluster_status = exploratory_only
-element_status = {'Si': 'valid', 'K': 'below_quantification_limit', 'Ca': 'valid'}
+element_status = {'Si': 'reportable', 'K': 'below_count_floor', 'Ca': 'reportable'}
 reasons        = ['heterogeneity 0.320 > 0.15', 'total_counts 8500 < 10000']
 ```
 
 **`ReliabilityReport`**: `cluster_status`
-(`"quantitative"`/`"exploratory_only"`), `element_status`
-(`sym → "valid"`/`"below_quantification_limit"`), and `reasons` (which
-thresholds tripped). Persist with `write_reliability` / `read_reliability`.
+(`"reportable_estimate"`/`"exploratory_only"`/`"invalid"`), `element_status`
+(`sym → "reportable"`/`"below_count_floor"`/`"invalid"`), `cluster_id`, and
+`reasons` (which thresholds tripped or why the inputs were invalid). Persist
+with `write_reliability` / `read_reliability`.
+
+`assess_cluster_reliability(quant_results, cluster_means, config)` batches
+the check over an enriched `ClusterMeanSpectra`, **aligning each result to
+its cluster by `cluster_id`** (not by position): reordered inputs are
+matched correctly, and a missing or unknown `cluster_id` is an error rather
+than a silent mis-alignment.
 
 ## Composing the tools
 
@@ -322,3 +372,78 @@ through `measure` → `quantify` with `compute_k_factors`. Because every tool
 reads and writes plain typed objects (and offers file adapters), you wire
 them together in whatever order your analysis needs — each one remains
 runnable and testable on its own.
+
+---
+
+## Scientific assumptions & limitations
+
+The quantification tools are **software-correct** — validated inputs,
+honest provenance, no silent data loss — but they are **not empirically
+calibrated**. Read this before treating any weight percent as a
+composition.
+
+### What the numbers are
+
+The k-factors are ratios of theoretical fluorescence cross-sections
+(xraylib fundamental parameters) at the excitation energy. The weight
+percents apply those ratios plus Cliff-Lorimer closure. That is the whole
+physical model. It is best described as an **uncorrected theoretical
+sensitivity-ratio estimate**.
+
+### What is deliberately omitted (needs empirical calibration)
+
+The k-factor model corrects for fluorescence yield and line branching, and
+nothing else. All of the following are **not** modelled, and each can move
+a reported percent by a large factor:
+
+- detector efficiency and solid-angle geometry;
+- X-ray absorption and self-absorption in the sample;
+- secondary (and higher-order) fluorescence and other matrix effects;
+- sample thickness / the thin-vs-thick-specimen regime;
+- the acquisition regime (live time, dead time, pile-up).
+
+**Until the output has been validated against measured standards of known
+composition, it is a screening estimate, not a measurement.** Iron is
+reported as FeO because EDS/XRM cannot resolve oxidation state; halogens are
+carried as elements; oxygen is added by assumed oxide stoichiometry, not
+measured.
+
+### Detection / quantification limits are not implemented
+
+`ReliabilityConfig.count_floor` (default 50 net counts) is a crude
+screening threshold, **not** an analytically defined limit of detection
+(LOD) or quantification (LOQ). A real LOD/LOQ is a statistical statement
+about counts, background and window width. Those raw inputs are retained on
+every `QuantResult` (`gross_intensities`, `background_per_channel`,
+`window_channels`) so a principled per-element LOD/LOQ can be added later;
+it is **deferred** and requires a design decision.
+
+### The heterogeneity metric is provisional
+
+`compute_cluster_means` reports per-cluster `heterogeneity` as the *median*
+cosine distance of member spectra to the cluster mean. Two known
+limitations are **not** yet addressed and require count-controlled
+validation before any redesign:
+
+- the median is insensitive to a **minority** (< 50 %) mixed population — a
+  cluster that is mostly one phase with a substantial contaminant fraction
+  can still read as homogeneous;
+- cosine distance **confounds** genuine compositional mixing with Poisson
+  counting noise, so low-count clusters look more heterogeneous than they
+  are.
+
+What *is* fixed: a zero-norm (blank) member is excluded rather than scored
+as identical to the mean, and a degenerate all-zero cluster mean yields an
+undefined (`NaN`) heterogeneity rather than a false zero. Choosing a
+noise-aware or upper-quantile / fraction-exceeding metric is deferred.
+
+### Provenance you can audit
+
+Every payload carries an `AnalysisProvenance`. For quantification it records
+the k-factor values and reference element, the per-element cross-section
+method (`line_method`), the xraylib version and backend, the excitation
+energy, the oxide convention used, and the physical-model caveat string; the
+reliability report records the thresholds applied and the exact inputs it
+assessed. Serialization is strict: files carry a `schema_version` and a
+payload `kind`, both checked on read, and non-finite values (NaN /
+Infinity) are rejected in both directions.

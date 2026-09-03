@@ -4,6 +4,18 @@
 > (S3c-1 k-factors · **S3c-2 Cliff-Lorimer wt%** · S3c-3 reliability gate).
 > Homed in `axiomm.analysis.quant`. Composes S3b peaks + S3c-1 k-factors +
 > S3a element data.
+>
+> **Revised at the S3d gate review (2026-09-03).** The shipped `quantify`
+> validates inputs and refuses ambiguous data instead of propagating it:
+> k-factors must be finite and positive, net intensities finite and
+> non-negative, and every k-factor element must have a matching
+> `ElementRef` — no element is silently dropped and the remainder
+> renormalised to 100%. `QuantResult` additionally retains the raw peak
+> facts (`gross_intensities`, `background_per_channel`, `window_channels`)
+> and a `cluster_id`. The weight percents are labelled an *uncorrected
+> theoretical sensitivity-ratio estimate*, not a validated quantitative
+> composition. The authoritative, runnable description is
+> `docs/user/analysis.md` (*Scientific assumptions & limitations*).
 
 ## 1. Goal
 

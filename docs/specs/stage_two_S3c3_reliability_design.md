@@ -3,6 +3,17 @@
 > **Status:** design approved 2026-09-02. Third of three S3c sub-chunks
 > (S3c-1 k-factors · S3c-2 Cliff-Lorimer wt% · **S3c-3 reliability gate**).
 > Homed in `axiomm.analysis.quant`; enriches S2's `compute_cluster_means`.
+>
+> **Revised at the S3d gate review (2026-09-03).** The status vocabulary in
+> this design was replaced to stop overclaiming: a cluster is now graded
+> `reportable_estimate` / `exploratory_only` / `invalid` (never
+> "quantitative"), and an element `reportable` / `below_count_floor` /
+> `invalid` (the "quantification limit" language is gone — the threshold is
+> a crude `count_floor`, not an LOD/LOQ). Non-finite or out-of-range inputs
+> grade `invalid`; a no-signal cluster is never a reportable estimate; the
+> batch helper aligns by `cluster_id`, not position. The authoritative,
+> runnable description of the shipped behaviour is `docs/user/analysis.md`
+> (see its *Scientific assumptions & limitations* section).
 
 ## 1. Goal
 
