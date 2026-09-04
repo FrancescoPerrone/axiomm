@@ -97,16 +97,16 @@ def test_reliability_roundtrip(tmp_path):
 
 # --- P10: strict serialization (schema, kind, finiteness, corruption) ------
 
-def test_write_rejects_nonfinite():
-    import tempfile
-
+def test_write_rejects_nonfinite(tmp_path):
+    from axiomm.analysis.errors import PayloadValidationError
     from axiomm.analysis.quant.io import write_quant
     from axiomm.analysis.quant.models import QuantResult
-    d = tempfile.mkdtemp()
     qr = QuantResult(net_intensities={"Si": float("nan")}, wt_percent_element={},
                      wt_percent_oxide={}, reference_element="Si")
-    with pytest.raises(ValueError):   # json allow_nan=False
-        write_quant(qr, d, "bad")
+    # validate-before-write catches the non-finite value before it is dumped
+    with pytest.raises(PayloadValidationError):
+        write_quant(qr, tmp_path, "bad")
+    assert not (tmp_path / "bad_quant.json").exists()   # nothing was persisted
 
 
 def test_read_rejects_unsupported_schema(tmp_path):
@@ -257,3 +257,39 @@ def test_read_reliability_rejects_bad_element_status(tmp_path):
         "reasons": [], "cluster_id": None, "provenance": None, "diagnostics": []}))
     with pytest.raises(PayloadSerializationError, match="element_status"):
         read_reliability(tmp_path, "e")
+
+
+# --- relational validation of quantification fields ------------------------
+
+def test_read_rejects_reference_not_in_net(tmp_path):
+    from axiomm.analysis.errors import PayloadSerializationError
+    from axiomm.analysis.quant.io import read_quant
+    doc = _valid_quant_doc()
+    doc["reference_element"] = "Zz"   # not a measured element
+    _write(tmp_path, "r", doc)
+    with pytest.raises(PayloadSerializationError, match="reference_element"):
+        read_quant(tmp_path, "r")
+
+
+def test_read_rejects_wt_element_key_not_in_net(tmp_path):
+    from axiomm.analysis.errors import PayloadSerializationError
+    from axiomm.analysis.quant.io import read_quant
+    doc = _valid_quant_doc()
+    doc["wt_percent_element"] = {"Fe": 100.0}   # Fe not in net_intensities
+    _write(tmp_path, "we", doc)
+    with pytest.raises(PayloadSerializationError, match="wt_percent_element"):
+        read_quant(tmp_path, "we")
+
+
+# --- validate-before-write: a malformed payload is never persisted ---------
+
+def test_write_quant_validates_before_writing(tmp_path):
+    from axiomm.analysis.errors import PayloadValidationError
+    from axiomm.analysis.quant.io import write_quant
+    from axiomm.analysis.quant.models import QuantResult
+    # reference element absent from net_intensities -> rejected, nothing written
+    qr = QuantResult(net_intensities={"Fe": 10.0}, wt_percent_element={"Fe": 100.0},
+                     wt_percent_oxide={}, reference_element="Si")
+    with pytest.raises(PayloadValidationError):
+        write_quant(qr, tmp_path, "bad")
+    assert not (tmp_path / "bad_quant.json").exists()

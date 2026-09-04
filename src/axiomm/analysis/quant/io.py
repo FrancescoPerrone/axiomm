@@ -203,12 +203,97 @@ def _guard(path: Path, overwrite: bool) -> None:
         raise OutputExistsError(f"{path} already exists; pass overwrite=True.")
 
 
+def _write_validated(doc: dict, path: Path, validator, where: str) -> Path:
+    """Validate a built document *before* writing it (never persist garbage)."""
+    validator(doc, where)
+    _dump(doc, path)
+    return path
+
+
+# --------------------------------------------------------------------------
+# per-kind structural + relational validators (shared by read AND write)
+# --------------------------------------------------------------------------
+
+def _validate_kfactors_dict(doc: dict, where: str) -> None:
+    k_factors = _num_mapping(doc, "k_factors", where)
+    sensitivities = _num_mapping(doc, "sensitivities", where, non_negative=True)
+    for sym, kv in k_factors.items():
+        if float(kv) <= 0:
+            raise PayloadSerializationError(f"{where}.k_factors[{sym!r}]: must be > 0 ({kv!r}).")
+    reference = _req(doc, "reference_element", str, where)
+    if reference not in k_factors:
+        raise PayloadSerializationError(
+            f"{where}: reference_element {reference!r} not among k_factors {sorted(k_factors)}."
+        )
+    # relational: a sensitivity must exist for every k-factor element
+    missing = sorted(set(k_factors) - set(sensitivities))
+    if missing:
+        raise PayloadSerializationError(
+            f"{where}: k_factors elements {missing} have no sensitivity entry."
+        )
+    excitation = _req(doc, "excitation_kev", (int, float), where)
+    if isinstance(excitation, bool) or not (math.isfinite(float(excitation)) and excitation > 0):
+        raise PayloadSerializationError(f"{where}: excitation_kev must be finite and > 0 ({excitation!r}).")
+    _validate_provenance(doc, where)
+    _validate_diagnostics(doc, where)
+
+
+def _validate_quant_dict(doc: dict, where: str) -> None:
+    net = _num_mapping(doc, "net_intensities", where)
+    wt_element = _num_mapping(doc, "wt_percent_element", where)
+    _num_mapping(doc, "wt_percent_oxide", where)
+    reference = _req(doc, "reference_element", str, where)
+    gross = _num_mapping(doc, "gross_intensities", where, non_negative=True)
+    background = _num_mapping(doc, "background_per_channel", where, non_negative=True)
+    window = _int_mapping(doc, "window_channels", where)
+    # relational checks: retained facts and wt% describe measured elements, and
+    # the reference element must itself be among the measured intensities.
+    for name, mapping in (("gross_intensities", gross),
+                          ("background_per_channel", background),
+                          ("window_channels", window),
+                          ("wt_percent_element", wt_element)):
+        extra = sorted(set(mapping) - set(net))
+        if extra:
+            raise PayloadSerializationError(
+                f"{where}.{name}: keys {extra} absent from net_intensities."
+            )
+    if reference not in net:
+        raise PayloadSerializationError(
+            f"{where}: reference_element {reference!r} not among net_intensities {sorted(net)}."
+        )
+    _validate_cluster_id(doc, where)
+    _validate_provenance(doc, where)
+    _validate_diagnostics(doc, where)
+
+
+def _validate_reliability_dict(doc: dict, where: str) -> None:
+    cluster_status = _req(doc, "cluster_status", str, where)
+    if cluster_status not in CLUSTER_STATUSES:
+        raise PayloadSerializationError(
+            f"{where}: cluster_status {cluster_status!r} not in {sorted(CLUSTER_STATUSES)}."
+        )
+    element_status = _req(doc, "element_status", dict, where)
+    for sym, status in element_status.items():
+        if not isinstance(sym, str):
+            raise PayloadSerializationError(f"{where}.element_status: non-string key {sym!r}.")
+        if status not in ELEMENT_STATUSES:
+            raise PayloadSerializationError(
+                f"{where}.element_status[{sym!r}]: {status!r} not in {sorted(ELEMENT_STATUSES)}."
+            )
+    reasons = _req(doc, "reasons", list, where)
+    if not all(isinstance(r, str) for r in reasons):
+        raise PayloadSerializationError(f"{where}.reasons: all entries must be strings.")
+    _validate_cluster_id(doc, where)
+    _validate_provenance(doc, where)
+    _validate_diagnostics(doc, where)
+
+
 # --------------------------------------------------------------------------
 # k-factors
 # --------------------------------------------------------------------------
 
 def write_kfactors(ks, directory, stem: str, *, overwrite: bool = False) -> Path:
-    """Write ``ks`` to ``<stem>_kfactors.json``."""
+    """Validate then write ``ks`` to ``<stem>_kfactors.json``."""
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"{stem}_kfactors.json"
@@ -223,8 +308,7 @@ def write_kfactors(ks, directory, stem: str, *, overwrite: bool = False) -> Path
         "provenance": _prov_to_dict(ks.provenance),
         "diagnostics": _diags_to_list(ks.diagnostics),
     }
-    _dump(doc, path)
-    return path
+    return _write_validated(doc, path, _validate_kfactors_dict, f"{stem}_kfactors (write)")
 
 
 def read_kfactors(directory, stem: str):
@@ -233,24 +317,12 @@ def read_kfactors(directory, stem: str):
     path = Path(directory) / f"{stem}_kfactors.json"
     doc = _load_doc(path, "kfactors")
     where = path.name
-    k_factors = _num_mapping(doc, "k_factors", where)
-    sensitivities = _num_mapping(doc, "sensitivities", where, non_negative=True)
-    for sym, kv in k_factors.items():
-        if float(kv) <= 0:
-            raise PayloadSerializationError(f"{where}.k_factors[{sym!r}]: must be > 0 ({kv!r}).")
-    reference = _req(doc, "reference_element", str, where)
-    if reference not in k_factors:
-        raise PayloadSerializationError(
-            f"{where}: reference_element {reference!r} not among k_factors {sorted(k_factors)}."
-        )
-    excitation = _req(doc, "excitation_kev", (int, float), where)
-    if isinstance(excitation, bool) or not (math.isfinite(float(excitation)) and excitation > 0):
-        raise PayloadSerializationError(f"{where}: excitation_kev must be finite and > 0 ({excitation!r}).")
+    _validate_kfactors_dict(doc, where)
     return KFactorSet(
-        k_factors=k_factors,
-        sensitivities=sensitivities,
-        reference_element=reference,
-        excitation_kev=float(excitation),
+        k_factors=doc["k_factors"],
+        sensitivities=doc["sensitivities"],
+        reference_element=doc["reference_element"],
+        excitation_kev=float(doc["excitation_kev"]),
         provenance=_validate_provenance(doc, where),
         diagnostics=_validate_diagnostics(doc, where),
     )
@@ -261,7 +333,7 @@ def read_kfactors(directory, stem: str):
 # --------------------------------------------------------------------------
 
 def write_quant(qr, directory, stem: str, *, overwrite: bool = False) -> Path:
-    """Write a QuantResult to ``<stem>_quant.json``."""
+    """Validate then write a QuantResult to ``<stem>_quant.json``."""
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"{stem}_quant.json"
@@ -280,8 +352,7 @@ def write_quant(qr, directory, stem: str, *, overwrite: bool = False) -> Path:
         "provenance": _prov_to_dict(qr.provenance),
         "diagnostics": _diags_to_list(qr.diagnostics),
     }
-    _dump(doc, path)
-    return path
+    return _write_validated(doc, path, _validate_quant_dict, f"{stem}_quant (write)")
 
 
 def read_quant(directory, stem: str):
@@ -290,30 +361,15 @@ def read_quant(directory, stem: str):
     path = Path(directory) / f"{stem}_quant.json"
     doc = _load_doc(path, "quant")
     where = path.name
-    net = _num_mapping(doc, "net_intensities", where)
-    _num_mapping(doc, "wt_percent_element", where)
-    _num_mapping(doc, "wt_percent_oxide", where)
-    reference = _req(doc, "reference_element", str, where)
-    gross = _num_mapping(doc, "gross_intensities", where, non_negative=True)
-    background = _num_mapping(doc, "background_per_channel", where, non_negative=True)
-    window = _int_mapping(doc, "window_channels", where)
-    # element-key consistency: retained facts describe measured elements only
-    for name, mapping in (("gross_intensities", gross),
-                          ("background_per_channel", background),
-                          ("window_channels", window)):
-        extra = sorted(set(mapping) - set(net))
-        if extra:
-            raise PayloadSerializationError(
-                f"{where}.{name}: keys {extra} absent from net_intensities."
-            )
+    _validate_quant_dict(doc, where)
     return QuantResult(
-        net_intensities=net,
+        net_intensities=doc["net_intensities"],
         wt_percent_element=doc["wt_percent_element"],
         wt_percent_oxide=doc["wt_percent_oxide"],
-        reference_element=reference,
-        gross_intensities=gross,
-        background_per_channel=background,
-        window_channels=window,
+        reference_element=doc["reference_element"],
+        gross_intensities=doc["gross_intensities"],
+        background_per_channel=doc["background_per_channel"],
+        window_channels=doc["window_channels"],
         cluster_id=_validate_cluster_id(doc, where),
         provenance=_validate_provenance(doc, where),
         diagnostics=_validate_diagnostics(doc, where),
@@ -325,7 +381,7 @@ def read_quant(directory, stem: str):
 # --------------------------------------------------------------------------
 
 def write_reliability(report, directory, stem: str, *, overwrite: bool = False) -> Path:
-    """Write a ReliabilityReport to ``<stem>_reliability.json``."""
+    """Validate then write a ReliabilityReport to ``<stem>_reliability.json``."""
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"{stem}_reliability.json"
@@ -340,8 +396,7 @@ def write_reliability(report, directory, stem: str, *, overwrite: bool = False) 
         "provenance": _prov_to_dict(report.provenance),
         "diagnostics": _diags_to_list(report.diagnostics),
     }
-    _dump(doc, path)
-    return path
+    return _write_validated(doc, path, _validate_reliability_dict, f"{stem}_reliability (write)")
 
 
 def read_reliability(directory, stem: str):
@@ -350,26 +405,11 @@ def read_reliability(directory, stem: str):
     path = Path(directory) / f"{stem}_reliability.json"
     doc = _load_doc(path, "reliability")
     where = path.name
-    cluster_status = _req(doc, "cluster_status", str, where)
-    if cluster_status not in CLUSTER_STATUSES:
-        raise PayloadSerializationError(
-            f"{where}: cluster_status {cluster_status!r} not in {sorted(CLUSTER_STATUSES)}."
-        )
-    element_status = _req(doc, "element_status", dict, where)
-    for sym, status in element_status.items():
-        if not isinstance(sym, str):
-            raise PayloadSerializationError(f"{where}.element_status: non-string key {sym!r}.")
-        if status not in ELEMENT_STATUSES:
-            raise PayloadSerializationError(
-                f"{where}.element_status[{sym!r}]: {status!r} not in {sorted(ELEMENT_STATUSES)}."
-            )
-    reasons = _req(doc, "reasons", list, where)
-    if not all(isinstance(r, str) for r in reasons):
-        raise PayloadSerializationError(f"{where}.reasons: all entries must be strings.")
+    _validate_reliability_dict(doc, where)
     return ReliabilityReport(
-        cluster_status=cluster_status,
-        element_status=element_status,
-        reasons=tuple(reasons),
+        cluster_status=doc["cluster_status"],
+        element_status=doc["element_status"],
+        reasons=tuple(doc["reasons"]),
         cluster_id=_validate_cluster_id(doc, where),
         provenance=_validate_provenance(doc, where),
         diagnostics=_validate_diagnostics(doc, where),

@@ -145,3 +145,53 @@ def test_cluster_means_read_rejects_bad_provenance(tmp_path):
     p.write_text(json.dumps(doc))
     with pytest.raises(PayloadSerializationError, match="provenance"):
         read_cluster_means(tmp_path, "sample")
+
+
+# --- schema evolution + shape invariants + validate-before-write -----------
+
+def test_clustering_schema_is_two():
+    assert SCHEMA_VERSION == 2
+
+
+def test_read_rejects_advertised_shape_mismatch(tmp_path):
+    from axiomm.analysis.errors import PayloadSerializationError
+    write_cluster_means(_means(), tmp_path, "sample")
+    p = tmp_path / "sample_cluster_means.json"
+    doc = json.loads(p.read_text())
+    doc["means_shape"] = [99, 99]   # lie about the array shape
+    p.write_text(json.dumps(doc))
+    with pytest.raises(PayloadSerializationError, match="advertised"):
+        read_cluster_means(tmp_path, "sample")
+
+
+def test_read_rejects_has_flag_without_array(tmp_path):
+    from axiomm.analysis.errors import PayloadSerializationError
+    # write a means WITHOUT heterogeneity, then flip the sidecar flag to True
+    m = ClusterMeanSpectra(means=np.ones((2, 3)), pixel_counts=np.array([2, 1]),
+                           cluster_ids=np.array([0, 1]), n_clusters=2)
+    write_cluster_means(m, tmp_path, "sample")
+    p = tmp_path / "sample_cluster_means.json"
+    doc = json.loads(p.read_text())
+    doc["has_heterogeneity"] = True
+    p.write_text(json.dumps(doc))
+    with pytest.raises(PayloadSerializationError, match="heterogeneity"):
+        read_cluster_means(tmp_path, "sample")
+
+
+def test_write_cluster_means_validates_before_writing(tmp_path):
+    from axiomm.analysis.errors import PayloadSerializationError
+    # pixel_counts length disagrees with cluster_ids -> reject, write nothing
+    bad = ClusterMeanSpectra(means=np.ones((2, 3)), pixel_counts=np.array([2]),
+                             cluster_ids=np.array([0, 1]), n_clusters=2)
+    with pytest.raises(PayloadSerializationError):
+        write_cluster_means(bad, tmp_path, "sample")
+    assert not (tmp_path / "sample_cluster_means.npz").exists()
+
+
+def test_write_clustering_rejects_duplicate_cluster_ids(tmp_path):
+    from axiomm.analysis.errors import PayloadSerializationError
+    label_map = np.array([[0, 1]], dtype=np.int64)
+    dup = ClusteringResult(labels=label_map.reshape(-1), label_map=label_map,
+                           cluster_ids=np.array([0, 0]), n_clusters=2)
+    with pytest.raises(PayloadSerializationError, match="duplicate"):
+        write_clustering(dup, tmp_path, "sample")

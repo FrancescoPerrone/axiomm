@@ -20,11 +20,55 @@ from axiomm.analysis.errors import (
 )
 from axiomm.analysis.models import AnalysisProvenance, Diagnostic
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2   # v2: cluster_means gained heterogeneity/total_counts (P1);
+                     # bumped rather than silently reusing v1 for a new shape.
 
 
 def _is_int(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _check_integer_ids(arr: np.ndarray, where: str) -> None:
+    if not np.issubdtype(np.asarray(arr).dtype, np.integer):
+        raise PayloadSerializationError(
+            f"{where}: cluster_ids must be an integer array ({np.asarray(arr).dtype})."
+        )
+    if np.unique(arr).size != np.asarray(arr).size:
+        raise PayloadSerializationError(f"{where}: cluster_ids contains duplicates.")
+
+
+def _check_cluster_means_arrays(means, pixel_counts, cluster_ids,
+                                heterogeneity, total_counts, where: str) -> None:
+    """Shared array invariants for cluster-means, used on read AND before write."""
+    means = np.asarray(means)
+    pixel_counts = np.asarray(pixel_counts)
+    cluster_ids = np.asarray(cluster_ids)
+    if means.ndim != 2:
+        raise PayloadSerializationError(f"{where}: means must be 2-D, got shape {means.shape}.")
+    _check_integer_ids(cluster_ids, where)
+    n = cluster_ids.size
+    if means.shape[0] != n or pixel_counts.size != n:
+        raise PayloadSerializationError(
+            f"{where}: means/pixel_counts/cluster_ids lengths disagree "
+            f"({means.shape[0]}, {pixel_counts.size}, {n})."
+        )
+    if not np.issubdtype(pixel_counts.dtype, np.integer):
+        raise PayloadSerializationError(
+            f"{where}: pixel_counts must be an integer array ({pixel_counts.dtype})."
+        )
+    if np.any(pixel_counts < 0):
+        raise PayloadSerializationError(f"{where}: pixel_counts must be >= 0.")
+    for name, arr in (("heterogeneity", heterogeneity), ("total_counts", total_counts)):
+        if arr is not None and np.asarray(arr).size != n:
+            raise PayloadSerializationError(
+                f"{where}: {name} length {np.asarray(arr).size} != n_clusters {n}."
+            )
+    if total_counts is not None:
+        tc = np.asarray(total_counts)
+        if np.any(~np.isfinite(tc) & (pixel_counts > 0)):
+            raise PayloadSerializationError(
+                f"{where}: total_counts is non-finite for a non-empty cluster."
+            )
 
 
 def _load_sidecar(path: Path, expected_kind: str) -> dict:
@@ -129,6 +173,10 @@ def write_clustering(result: ClusteringResult, directory, stem: str,
     json_path = directory / f"{stem}_clustering.json"
     _guard((npz_path, json_path), overwrite)
 
+    # validate-before-write: never persist a malformed payload
+    where = f"{stem}_clustering (write)"
+    _check_integer_ids(np.asarray(result.cluster_ids), where)
+
     np.savez(npz_path, labels=result.labels, label_map=result.label_map,
              cluster_ids=result.cluster_ids)
     sidecar = {
@@ -156,13 +204,6 @@ def _require_int_field(sidecar: dict, key: str, where: str) -> int:
     return value
 
 
-def _validate_integer_ids(arr: np.ndarray, where: str) -> None:
-    if not np.issubdtype(arr.dtype, np.integer):
-        raise PayloadSerializationError(f"{where}: cluster_ids must be an integer array ({arr.dtype}).")
-    if np.unique(arr).size != arr.size:
-        raise PayloadSerializationError(f"{where}: cluster_ids contains duplicates.")
-
-
 def read_clustering(directory, stem: str) -> ClusteringResult:
     """Read and validate a ClusteringResult written by :func:`write_clustering`."""
     directory = Path(directory)
@@ -172,8 +213,14 @@ def read_clustering(directory, stem: str) -> ClusteringResult:
     labels = _require_npz(npz, "labels", where)
     label_map = _require_npz(npz, "label_map", where)
     cluster_ids = _require_npz(npz, "cluster_ids", where)
-    _validate_integer_ids(cluster_ids, where)
+    _check_integer_ids(cluster_ids, where)
     n_clusters = _require_int_field(sidecar, "n_clusters", where)
+    # advertised shape invariant: the sidecar's label_map_shape must match
+    if "label_map_shape" in sidecar and list(label_map.shape) != list(sidecar["label_map_shape"]):
+        raise PayloadSerializationError(
+            f"{where}: label_map shape {list(label_map.shape)} != advertised "
+            f"{sidecar['label_map_shape']}."
+        )
     return ClusteringResult(
         labels=labels,
         label_map=label_map,
@@ -192,6 +239,12 @@ def write_cluster_means(means: ClusterMeanSpectra, directory, stem: str,
     npz_path = directory / f"{stem}_cluster_means.npz"
     json_path = directory / f"{stem}_cluster_means.json"
     _guard((npz_path, json_path), overwrite)
+
+    # validate-before-write: never persist a malformed payload
+    _check_cluster_means_arrays(
+        means.means, means.pixel_counts, means.cluster_ids,
+        means.heterogeneity, means.total_counts, f"{stem}_cluster_means (write)",
+    )
 
     # Persist the enrichment arrays too (P1): heterogeneity / total_counts are
     # what the reliability gate consumes; dropping them makes a round-tripped
@@ -232,35 +285,21 @@ def read_cluster_means(directory, stem: str) -> ClusterMeanSpectra:
     pixel_counts = _require_npz(npz, "pixel_counts", where)
     cluster_ids = _require_npz(npz, "cluster_ids", where)
     n_clusters = _require_int_field(sidecar, "n_clusters", where)
-
-    if means.ndim != 2:
-        raise PayloadSerializationError(f"{where}: means must be 2-D, got shape {means.shape}.")
-    _validate_integer_ids(cluster_ids, where)
-    n = cluster_ids.size
-    if means.shape[0] != n or pixel_counts.size != n:
-        raise PayloadSerializationError(
-            f"{where}: means/pixel_counts/cluster_ids lengths disagree "
-            f"({means.shape[0]}, {pixel_counts.size}, {n})."
-        )
-    if not np.issubdtype(pixel_counts.dtype, np.integer):
-        raise PayloadSerializationError(
-            f"{where}: pixel_counts must be an integer array ({pixel_counts.dtype})."
-        )
-    if np.any(pixel_counts < 0):
-        raise PayloadSerializationError(f"{where}: pixel_counts must be >= 0.")
-
     heterogeneity = npz["heterogeneity"] if "heterogeneity" in npz.files else None
     total_counts = npz["total_counts"] if "total_counts" in npz.files else None
-    for name, arr in (("heterogeneity", heterogeneity), ("total_counts", total_counts)):
-        if arr is not None and arr.size != n:
-            raise PayloadSerializationError(
-                f"{where}: {name} length {arr.size} != n_clusters {n}."
-            )
-    # total_counts is a physical sum: NaN only where the cluster is empty.
-    if total_counts is not None and np.any(~np.isfinite(total_counts) & (pixel_counts > 0)):
+
+    _check_cluster_means_arrays(means, pixel_counts, cluster_ids,
+                                heterogeneity, total_counts, where)
+    # advertised shape invariant: the sidecar's means_shape must match
+    if "means_shape" in sidecar and list(means.shape) != list(sidecar["means_shape"]):
         raise PayloadSerializationError(
-            f"{where}: total_counts is non-finite for a non-empty cluster."
+            f"{where}: means shape {list(means.shape)} != advertised {sidecar['means_shape']}."
         )
+    # the sidecar's has_* flags must match the arrays actually present
+    if sidecar.get("has_heterogeneity") is True and heterogeneity is None:
+        raise PayloadSerializationError(f"{where}: sidecar advertises heterogeneity but it is absent.")
+    if sidecar.get("has_total_counts") is True and total_counts is None:
+        raise PayloadSerializationError(f"{where}: sidecar advertises total_counts but it is absent.")
 
     return ClusterMeanSpectra(
         means=means,
