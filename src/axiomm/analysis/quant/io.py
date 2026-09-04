@@ -220,6 +220,11 @@ def _validate_kfactors_dict(doc: dict, where: str) -> None:
     for sym, kv in k_factors.items():
         if float(kv) <= 0:
             raise PayloadSerializationError(f"{where}.k_factors[{sym!r}]: must be > 0 ({kv!r}).")
+    for sym, sv in sensitivities.items():
+        if float(sv) <= 0:
+            raise PayloadSerializationError(
+                f"{where}.sensitivities[{sym!r}]: must be > 0 ({sv!r})."
+            )
     reference = _req(doc, "reference_element", str, where)
     if reference not in k_factors:
         raise PayloadSerializationError(
@@ -239,9 +244,9 @@ def _validate_kfactors_dict(doc: dict, where: str) -> None:
 
 
 def _validate_quant_dict(doc: dict, where: str) -> None:
-    net = _num_mapping(doc, "net_intensities", where)
-    wt_element = _num_mapping(doc, "wt_percent_element", where)
-    _num_mapping(doc, "wt_percent_oxide", where)
+    net = _num_mapping(doc, "net_intensities", where, non_negative=True)
+    wt_element = _num_mapping(doc, "wt_percent_element", where, non_negative=True)
+    _num_mapping(doc, "wt_percent_oxide", where, non_negative=True)
     reference = _req(doc, "reference_element", str, where)
     gross = _num_mapping(doc, "gross_intensities", where, non_negative=True)
     background = _num_mapping(doc, "background_per_channel", where, non_negative=True)
@@ -256,6 +261,12 @@ def _validate_quant_dict(doc: dict, where: str) -> None:
         if extra:
             raise PayloadSerializationError(
                 f"{where}.{name}: keys {extra} absent from net_intensities."
+            )
+    # net intensity can never exceed gross (net = gross - background*window)
+    for sym, gval in gross.items():
+        if float(net[sym]) > float(gval) + 1e-9:
+            raise PayloadSerializationError(
+                f"{where}: net ({net[sym]}) exceeds gross ({gval}) for {sym!r}."
             )
     if reference not in net:
         raise PayloadSerializationError(

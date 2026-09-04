@@ -1,14 +1,20 @@
 """Versioned file adapters for clustering payloads.
 
-Internal adapter (v1), **not** a stable public persistence contract. The
-sidecar carries ``schema_version`` and records shapes, ``cluster_ids``
-ordering, backend metadata, and provenance; the ``.npz`` preserves
-numeric dtypes. Refuses to silently overwrite.
+Internal adapter (current ``SCHEMA_VERSION = 2``; v2 added the
+``cluster_means`` heterogeneity/total_counts arrays), **not** a stable public
+persistence contract. The sidecar carries ``schema_version`` and ``kind`` and
+records shapes, ``cluster_ids`` ordering, backend metadata, and provenance; the
+``.npz`` preserves numeric dtypes. Reads are deeply validated (schema, kind,
+array shapes/dtypes/ranges, advertised-shape and ``has_*`` agreement,
+label/cluster-id consistency), writes validate first and never leave a partial
+NPZ/JSON pair, and it refuses to silently overwrite.
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
+import zipfile
 from pathlib import Path
 
 import numpy as np
@@ -35,6 +41,31 @@ def _check_integer_ids(arr: np.ndarray, where: str) -> None:
         )
     if np.unique(arr).size != np.asarray(arr).size:
         raise PayloadSerializationError(f"{where}: cluster_ids contains duplicates.")
+
+
+def _check_clustering_arrays(labels, label_map, cluster_ids, n_clusters, where: str) -> None:
+    """Shared clustering-result invariants, used on read AND before write."""
+    labels = np.asarray(labels)
+    label_map = np.asarray(label_map)
+    cluster_ids = np.asarray(cluster_ids)
+    _check_integer_ids(cluster_ids, where)
+    if not _is_int(n_clusters) or n_clusters != cluster_ids.size:
+        raise PayloadSerializationError(
+            f"{where}: n_clusters {n_clusters!r} != number of cluster_ids ({cluster_ids.size})."
+        )
+    if labels.size != label_map.size:
+        raise PayloadSerializationError(
+            f"{where}: labels size {labels.size} != label_map size {label_map.size}."
+        )
+    if not np.issubdtype(labels.dtype, np.integer):
+        raise PayloadSerializationError(f"{where}: labels must be an integer array ({labels.dtype}).")
+    if not np.array_equal(np.asarray(label_map).reshape(-1), labels):
+        raise PayloadSerializationError(f"{where}: label_map is not a reshape of labels.")
+    unknown = set(np.unique(labels).tolist()) - set(cluster_ids.tolist())
+    if unknown:
+        raise PayloadSerializationError(
+            f"{where}: labels reference unknown cluster ids {sorted(unknown)}."
+        )
 
 
 def _check_cluster_means_arrays(means, pixel_counts, cluster_ids,
@@ -68,6 +99,16 @@ def _check_cluster_means_arrays(means, pixel_counts, cluster_ids,
         if np.any(~np.isfinite(tc) & (pixel_counts > 0)):
             raise PayloadSerializationError(
                 f"{where}: total_counts is non-finite for a non-empty cluster."
+            )
+        if np.any(tc[np.isfinite(tc)] < 0):
+            raise PayloadSerializationError(f"{where}: total_counts must be >= 0.")
+    if heterogeneity is not None:
+        h = np.asarray(heterogeneity)
+        finite_h = h[np.isfinite(h)]
+        # a cosine-distance heterogeneity lives in [0, 2]; NaN (undefined) is allowed
+        if finite_h.size and (finite_h.min() < -1e-9 or finite_h.max() > 2.0 + 1e-9):
+            raise PayloadSerializationError(
+                f"{where}: heterogeneity outside the admissible [0, 2] interval."
             )
 
 
@@ -175,20 +216,44 @@ def write_clustering(result: ClusteringResult, directory, stem: str,
 
     # validate-before-write: never persist a malformed payload
     where = f"{stem}_clustering (write)"
-    _check_integer_ids(np.asarray(result.cluster_ids), where)
+    _check_clustering_arrays(result.labels, result.label_map, result.cluster_ids,
+                             result.n_clusters, where)
 
-    np.savez(npz_path, labels=result.labels, label_map=result.label_map,
-             cluster_ids=result.cluster_ids)
     sidecar = {
         "schema_version": SCHEMA_VERSION,
         "kind": "clustering",
         "n_clusters": result.n_clusters,
-        "label_map_shape": list(result.label_map.shape),
+        "label_map_shape": list(np.asarray(result.label_map).shape),
         "provenance": _prov_to_dict(result.provenance),
         "diagnostics": _diags_to_list(result.diagnostics),
     }
-    json_path.write_text(json.dumps(sidecar, indent=2, allow_nan=False))
+    _write_pair(npz_path, json_path,
+                {"labels": result.labels, "label_map": result.label_map,
+                 "cluster_ids": result.cluster_ids}, sidecar)
     return npz_path, json_path
+
+
+def _load_npz(path: Path, where: str):
+    """Load an ``.npz``, turning a missing/corrupt archive into a named error."""
+    if not path.exists():
+        raise PayloadSerializationError(f"{where}: missing NPZ file {path.name}.")
+    try:
+        return np.load(path, allow_pickle=False)
+    except (ValueError, OSError, EOFError, zipfile.BadZipFile) as exc:
+        raise PayloadSerializationError(f"{where}: corrupt NPZ file {path.name} ({exc}).") from exc
+
+
+def _write_pair(npz_path: Path, json_path: Path, payload: dict, sidecar: dict) -> None:
+    """Write the NPZ+JSON pair, cleaning up so no partial pair can survive."""
+    try:
+        np.savez(npz_path, **payload)
+        json_path.write_text(json.dumps(sidecar, indent=2, allow_nan=False))
+    except Exception:
+        # never leave a half-written pair behind
+        for p in (npz_path, json_path):
+            with contextlib.suppress(OSError):
+                p.unlink()
+        raise
 
 
 def _require_npz(npz, key: str, where: str):
@@ -208,13 +273,13 @@ def read_clustering(directory, stem: str) -> ClusteringResult:
     """Read and validate a ClusteringResult written by :func:`write_clustering`."""
     directory = Path(directory)
     where = f"{stem}_clustering"
-    npz = np.load(directory / f"{stem}_clustering.npz")
+    npz = _load_npz(directory / f"{stem}_clustering.npz", where)
     sidecar = _load_sidecar(directory / f"{stem}_clustering.json", "clustering")
     labels = _require_npz(npz, "labels", where)
     label_map = _require_npz(npz, "label_map", where)
     cluster_ids = _require_npz(npz, "cluster_ids", where)
-    _check_integer_ids(cluster_ids, where)
     n_clusters = _require_int_field(sidecar, "n_clusters", where)
+    _check_clustering_arrays(labels, label_map, cluster_ids, n_clusters, where)
     # advertised shape invariant: the sidecar's label_map_shape must match
     if "label_map_shape" in sidecar and list(label_map.shape) != list(sidecar["label_map_shape"]):
         raise PayloadSerializationError(
@@ -259,18 +324,22 @@ def write_cluster_means(means: ClusterMeanSpectra, directory, stem: str,
         payload["heterogeneity"] = np.asarray(means.heterogeneity, dtype=float)
     if means.total_counts is not None:
         payload["total_counts"] = np.asarray(means.total_counts, dtype=float)
-    np.savez(npz_path, **payload)
+    if means.n_clusters != np.asarray(means.cluster_ids).size:
+        raise PayloadSerializationError(
+            f"{stem}_cluster_means (write): n_clusters {means.n_clusters} != "
+            f"number of cluster_ids ({np.asarray(means.cluster_ids).size})."
+        )
     sidecar = {
         "schema_version": SCHEMA_VERSION,
         "kind": "cluster_means",
         "n_clusters": means.n_clusters,
-        "means_shape": list(means.means.shape),
+        "means_shape": list(np.asarray(means.means).shape),
         "has_heterogeneity": means.heterogeneity is not None,
         "has_total_counts": means.total_counts is not None,
         "provenance": _prov_to_dict(means.provenance),
         "diagnostics": _diags_to_list(means.diagnostics),
     }
-    json_path.write_text(json.dumps(sidecar, indent=2, allow_nan=False))
+    _write_pair(npz_path, json_path, payload, sidecar)
     return npz_path, json_path
 
 
@@ -278,7 +347,7 @@ def read_cluster_means(directory, stem: str) -> ClusterMeanSpectra:
     """Read and validate a ClusterMeanSpectra written by :func:`write_cluster_means`."""
     directory = Path(directory)
     where = f"{stem}_cluster_means"
-    npz = np.load(directory / f"{stem}_cluster_means.npz")
+    npz = _load_npz(directory / f"{stem}_cluster_means.npz", where)
     sidecar = _load_sidecar(directory / f"{stem}_cluster_means.json", "cluster_means")
 
     means = _require_npz(npz, "means", where)
@@ -290,16 +359,25 @@ def read_cluster_means(directory, stem: str) -> ClusterMeanSpectra:
 
     _check_cluster_means_arrays(means, pixel_counts, cluster_ids,
                                 heterogeneity, total_counts, where)
+    if n_clusters != np.asarray(cluster_ids).size:
+        raise PayloadSerializationError(
+            f"{where}: n_clusters {n_clusters} != number of cluster_ids "
+            f"({np.asarray(cluster_ids).size})."
+        )
     # advertised shape invariant: the sidecar's means_shape must match
     if "means_shape" in sidecar and list(means.shape) != list(sidecar["means_shape"]):
         raise PayloadSerializationError(
             f"{where}: means shape {list(means.shape)} != advertised {sidecar['means_shape']}."
         )
-    # the sidecar's has_* flags must match the arrays actually present
-    if sidecar.get("has_heterogeneity") is True and heterogeneity is None:
-        raise PayloadSerializationError(f"{where}: sidecar advertises heterogeneity but it is absent.")
-    if sidecar.get("has_total_counts") is True and total_counts is None:
-        raise PayloadSerializationError(f"{where}: sidecar advertises total_counts but it is absent.")
+    # the sidecar's has_* flags must EXACTLY match the arrays actually present
+    for flag, arr, name in (("has_heterogeneity", heterogeneity, "heterogeneity"),
+                            ("has_total_counts", total_counts, "total_counts")):
+        advertised = bool(sidecar.get(flag, False))
+        if advertised != (arr is not None):
+            raise PayloadSerializationError(
+                f"{where}: sidecar {flag}={advertised} disagrees with {name} "
+                f"{'present' if arr is not None else 'absent'}."
+            )
 
     return ClusterMeanSpectra(
         means=means,

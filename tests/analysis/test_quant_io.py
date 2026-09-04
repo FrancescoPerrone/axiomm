@@ -293,3 +293,53 @@ def test_write_quant_validates_before_writing(tmp_path):
     with pytest.raises(PayloadValidationError):
         write_quant(qr, tmp_path, "bad")
     assert not (tmp_path / "bad_quant.json").exists()
+
+
+# --- additional quant persistence invariants (audit-closure point 4) -------
+
+def test_read_rejects_negative_net(tmp_path):
+    from axiomm.analysis.errors import PayloadSerializationError
+    from axiomm.analysis.quant.io import read_quant
+    doc = _valid_quant_doc()
+    doc["net_intensities"] = {"Si": -1.0}
+    doc["reference_element"] = "Si"
+    doc["gross_intensities"] = {}
+    doc["background_per_channel"] = {}
+    doc["window_channels"] = {}
+    doc["wt_percent_element"] = {}
+    _write(tmp_path, "nn", doc)
+    with pytest.raises(PayloadSerializationError, match="net_intensities"):
+        read_quant(tmp_path, "nn")
+
+
+def test_read_rejects_net_greater_than_gross(tmp_path):
+    from axiomm.analysis.errors import PayloadSerializationError
+    from axiomm.analysis.quant.io import read_quant
+    doc = _valid_quant_doc()
+    doc["net_intensities"] = {"Si": 200.0}
+    doc["gross_intensities"] = {"Si": 100.0}   # net > gross
+    _write(tmp_path, "ng", doc)
+    with pytest.raises(PayloadSerializationError, match="exceeds gross"):
+        read_quant(tmp_path, "ng")
+
+
+def test_read_rejects_negative_wt_percent(tmp_path):
+    from axiomm.analysis.errors import PayloadSerializationError
+    from axiomm.analysis.quant.io import read_quant
+    doc = _valid_quant_doc()
+    doc["wt_percent_oxide"] = {"SiO2": -5.0}
+    _write(tmp_path, "nw", doc)
+    with pytest.raises(PayloadSerializationError, match="wt_percent_oxide"):
+        read_quant(tmp_path, "nw")
+
+
+def test_read_kfactors_rejects_nonpositive_sensitivity(tmp_path):
+    from axiomm.analysis.errors import PayloadSerializationError
+    from axiomm.analysis.quant.io import read_kfactors
+    (tmp_path / "s_kfactors.json").write_text(json.dumps({
+        "schema_version": SCHEMA_VERSION, "kind": "kfactors",
+        "k_factors": {"Si": 1.0}, "sensitivities": {"Si": 0.0},   # non-positive
+        "reference_element": "Si", "excitation_kev": 18.0,
+        "provenance": None, "diagnostics": []}))
+    with pytest.raises(PayloadSerializationError, match="sensitivities"):
+        read_kfactors(tmp_path, "s")

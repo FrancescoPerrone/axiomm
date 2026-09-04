@@ -195,3 +195,67 @@ def test_write_clustering_rejects_duplicate_cluster_ids(tmp_path):
                            cluster_ids=np.array([0, 0]), n_clusters=2)
     with pytest.raises(PayloadSerializationError, match="duplicate"):
         write_clustering(dup, tmp_path, "sample")
+
+
+def test_write_clustering_rejects_n_clusters_mismatch(tmp_path):
+    from axiomm.analysis.errors import PayloadSerializationError
+    label_map = np.array([[0, 1]], dtype=np.int64)
+    bad = ClusteringResult(labels=label_map.reshape(-1), label_map=label_map,
+                           cluster_ids=np.array([0, 1]), n_clusters=3)   # != 2 ids
+    with pytest.raises(PayloadSerializationError, match="n_clusters"):
+        write_clustering(bad, tmp_path, "sample")
+
+
+def test_write_clustering_rejects_unknown_label(tmp_path):
+    from axiomm.analysis.errors import PayloadSerializationError
+    label_map = np.array([[0, 9]], dtype=np.int64)   # 9 is not a cluster id
+    bad = ClusteringResult(labels=label_map.reshape(-1), label_map=label_map,
+                           cluster_ids=np.array([0, 1]), n_clusters=2)
+    with pytest.raises(PayloadSerializationError, match="unknown cluster"):
+        write_clustering(bad, tmp_path, "sample")
+
+
+def test_read_rejects_heterogeneity_out_of_range(tmp_path):
+    from axiomm.analysis.errors import PayloadSerializationError
+    write_cluster_means(_means(), tmp_path, "sample")
+    npz = tmp_path / "sample_cluster_means.npz"
+    data = dict(np.load(npz))
+    data["heterogeneity"] = np.array([0.02, np.nan, 3.5])   # 3.5 > 2
+    np.savez(npz, **data)
+    with pytest.raises(PayloadSerializationError, match="admissible"):
+        read_cluster_means(tmp_path, "sample")
+
+
+def test_read_rejects_negative_total_counts(tmp_path):
+    from axiomm.analysis.errors import PayloadSerializationError
+    write_cluster_means(_means(), tmp_path, "sample")
+    npz = tmp_path / "sample_cluster_means.npz"
+    data = dict(np.load(npz))
+    data["total_counts"] = np.array([3.0, -1.0, 21.0])
+    np.savez(npz, **data)
+    with pytest.raises(PayloadSerializationError, match="total_counts"):
+        read_cluster_means(tmp_path, "sample")
+
+
+def test_read_rejects_corrupt_npz(tmp_path):
+    from axiomm.analysis.errors import PayloadSerializationError
+    write_cluster_means(_means(), tmp_path, "sample")
+    (tmp_path / "sample_cluster_means.npz").write_bytes(b"not a real npz archive")
+    with pytest.raises(PayloadSerializationError, match=r"corrupt|NPZ"):
+        read_cluster_means(tmp_path, "sample")
+
+
+def test_write_leaves_no_partial_pair_on_failure(tmp_path, monkeypatch):
+    # if the sidecar write fails, the npz must not be left behind
+    import axiomm.analysis.clustering.io as cio
+    orig = cio.json.dumps
+
+    def boom(*a, **k):
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(cio.json, "dumps", boom)
+    with pytest.raises(RuntimeError):
+        write_cluster_means(_means(), tmp_path, "sample")
+    monkeypatch.setattr(cio.json, "dumps", orig)
+    assert not (tmp_path / "sample_cluster_means.npz").exists()
+    assert not (tmp_path / "sample_cluster_means.json").exists()
