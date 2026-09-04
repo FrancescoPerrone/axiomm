@@ -1,15 +1,24 @@
 # AXIOMM Stage Two · S3d — exploratory mineral matching design (rev. 2)
 
-> **Status:** design for review (revised 2026-09-04). Fourth S3 chunk, homed in
-> `axiomm.analysis.mineralogy.match`. Consumes S3c quantification + reliability
-> and the S3a mineralogy reference. **This document is the contract to review
-> before any matcher code is written; a companion test module
-> (`tests/analysis/test_mineralogy_match_semantics.py`) encodes these semantics
-> as skipped executable specifications.**
+> **Status:** **IMPLEMENTED** (2026-09-04) in `axiomm.analysis.mineralogy.match`,
+> after the source-basis audit closed. Fourth S3 chunk; consumes S3c
+> quantification + reliability and the S3a mineralogy reference. The companion
+> test module `tests/analysis/test_mineralogy_match_semantics.py` is now live
+> (no longer skipped) and is the acceptance suite.
 >
-> **Rev. 2 (this revision)** resolves the compositional-basis blocker, redefines
-> the comparison basis honestly, adds evidence-support controls, makes
-> reliability gating explicit, and defines a metric contract. See §3–§7.
+> **Implementation notes vs. this design.** (1) The source audit found the V1
+> measured/standard endmembers are already *molar cation proportions* (derived
+> from oxide wt%), so V2 tags them `atom_counts` (which normalises them
+> correctly) and records the oxide-source provenance; the `oxide_mass_fraction`
+> and `element_mass_fraction` converters are implemented and tested for clusters
+> and future references. (2) `min_informative_dims` defaults to **2** (a
+> one-element overlap is insufficient) rather than 3, so genuinely two-cation
+> minerals (e.g. forsterite) remain matchable. (3) The matcher **rejects** a
+> basis-unaudited reference (V1) outright rather than offering an opt-in.
+>
+> **Rev. 2** resolved the compositional-basis blocker, redefined the comparison
+> basis honestly, added evidence-support controls, made reliability gating
+> explicit, and defined a metric contract. See §3–§7.
 
 ## 0. One-paragraph summary
 

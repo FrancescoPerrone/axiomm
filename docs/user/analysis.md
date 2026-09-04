@@ -364,6 +364,75 @@ its cluster by `cluster_id`** (not by position): reordered inputs are
 matched correctly, and a missing or unknown `cluster_id` is an error rather
 than a silent mis-alignment.
 
+## 8. Mineral matching — `axiomm.analysis.mineralogy.match`
+
+Rank a quantified cluster against a mineral reference and get **candidate
+matches with scores and evidence** — never a validated identification. S3d
+converts the cluster's cation **mass** fractions and every reference
+endmember to one common **molar/element** basis before scoring (so mass
+fractions are never compared to stoichiometric cation counts), keeps the
+measured structural elements F/S/Cl while excluding O/Br/I, treats
+below-floor and unmeasured elements as *censored/uncertain* rather than zero,
+and refuses to present a sparse overlap as a confident match.
+
+Use the **basis-audited** `MINERALOGY_DEFAULT_V2`; the legacy
+`MINERALOGY_DEFAULT_V1` is basis-unaudited and the matcher rejects it. A
+`ReliabilityReport` is required by default (pass `allow_ungated=True` to match
+without one — it is recorded prominently).
+
+```python
+from axiomm.analysis.mineralogy import MINERALOGY_DEFAULT_V2 as REF
+from axiomm.analysis.mineralogy.match import match_cluster, MatchConfig
+from axiomm.analysis.quant.models import QuantResult
+from axiomm.analysis.quant.reliability import ReliabilityReport
+
+qr = QuantResult(
+    net_intensities={"Si": 3000.0, "Al": 900.0, "K": 300.0, "Na": 200.0},
+    wt_percent_element={"Si": 30.0, "Al": 9.8, "K": 12.0, "Na": 8.0},
+    wt_percent_oxide={}, reference_element="Si", cluster_id=3,
+)
+report = ReliabilityReport(
+    cluster_status="reportable_estimate",
+    element_status={"Si": "reportable", "Al": "reportable",
+                    "K": "reportable", "Na": "reportable"},
+    reasons=(), cluster_id=3,
+)
+result = match_cluster(qr, REF, reliability=report, config=MatchConfig(top_k=3))
+print("input_reliability =", result.input_reliability, "| gated:", result.reliability_gated)
+for c in result.candidates:
+    print(f"  {c.name:20s} score={c.score:.3f} used={list(c.elements_used)} "
+          f"dim_cov={c.dimension_coverage:.2f} comp_cov={c.composition_coverage:.2f}")
+print("best =", result.best().name if result.best() else None)
+```
+
+```text
+input_reliability = reportable_estimate | gated: True
+  Albite               score=1.000 used=['Al', 'Na', 'Si'] dim_cov=1.00 comp_cov=1.00
+  Phlogopite (measured) score=0.999 used=['Al', 'K', 'Si'] dim_cov=0.43 comp_cov=0.59
+  Orthoclase           score=0.999 used=['Al', 'K', 'Si'] dim_cov=1.00 comp_cov=1.00
+best = Albite
+```
+
+**`MineralMatchResult`**: `candidates` (rank-eligible, best-first; **may be
+empty**), `insufficient` (flagged for too-sparse overlap), `cluster_id`,
+`input_reliability`, `reliability_gated`, `library_name`/`library_version`,
+provenance and diagnostics. `best()` returns the top candidate **or `None`** —
+there is no unconditional single label. Each `MineralCandidate` carries
+`score` (a `[0,1]` rank score), `elements_used`, `elements_censored`,
+`elements_unavailable`, `n_informative_dims`, and both `dimension_coverage`
+and `composition_coverage` so a well-covered match is distinguishable from a
+lucky partial one (note Phlogopite's 0.43 dimension coverage above).
+`match_clusters` batches over clusters, aligning reliabilities one-to-one by
+`cluster_id`. Persist with `write_match` / `read_match`.
+
+> **These are candidate rankings of an uncalibrated screening estimate, not
+> mineral identifications.** The count floor is not an LOD/LOQ; `exploratory_only`
+> clusters are ranked only on explicit opt-in and keep their warning. See the
+> section below — **standards validation remains mandatory** before any
+> quantitative-accuracy or validated mineral-identification claim.
+
+---
+
 ## Composing the tools
 
 The examples above already chain: a payload flows through
@@ -447,3 +516,19 @@ reliability report records the thresholds applied and the exact inputs it
 assessed. Serialization is strict: files carry a `schema_version` and a
 payload `kind`, both checked on read, and non-finite values (NaN /
 Infinity) are rejected in both directions.
+
+### Mineral matching is exploratory ranking
+
+S3d (§8) produces **candidate rankings, never identifications.** It scores an
+uncalibrated screening estimate: the same omitted physics and missing LOD/LOQ
+above apply, so a top-ranked candidate is a screening result, not a confirmed
+phase. The reference compositions are basis-audited (`MINERALOGY_DEFAULT_V2`):
+the idealised endmembers are stoichiometric atom counts, and the measured /
+GeoReM-standard endmembers originate as oxide wt% (Fe as FeO; F/Cl as element
+wt%) converted to cation proportions — every cluster and reference is brought
+to one molar/element basis before scoring, with the conversion recorded in
+provenance. Evidence support (`dimension_coverage`, `composition_coverage`,
+`n_informative_dims`) guards against a sparse overlap scoring as a perfect
+match, and below-floor / unmeasured elements are censored, not zeroed.
+**Standards validation remains mandatory** before any quantitative-accuracy or
+validated mineral-identification claim.
