@@ -1,11 +1,15 @@
-# AXIOMM Stage Two · S3d — exploratory mineral matching design
+# AXIOMM Stage Two · S3d — exploratory mineral matching design (rev. 2)
 
-> **Status:** design for review (2026-09-03). Fourth S3 chunk, homed in
-> `axiomm.analysis.mineralogy.match`. Consumes S3c quantification +
-> reliability and the S3a mineralogy reference. **This document is the
-> contract to review before any matcher code is written; a companion test
-> module (`tests/analysis/test_mineralogy_match_semantics.py`) encodes these
-> semantics as skipped executable specifications.**
+> **Status:** design for review (revised 2026-09-04). Fourth S3 chunk, homed in
+> `axiomm.analysis.mineralogy.match`. Consumes S3c quantification + reliability
+> and the S3a mineralogy reference. **This document is the contract to review
+> before any matcher code is written; a companion test module
+> (`tests/analysis/test_mineralogy_match_semantics.py`) encodes these semantics
+> as skipped executable specifications.**
+>
+> **Rev. 2 (this revision)** resolves the compositional-basis blocker, redefines
+> the comparison basis honestly, adds evidence-support controls, makes
+> reliability gating explicit, and defines a metric contract. See §3–§7.
 
 ## 0. One-paragraph summary
 
@@ -22,225 +26,262 @@ without changing the meaning of stored results.
 
 `axiomm.analysis.mineralogy.match` — given a cluster's `QuantResult` (and its
 `ReliabilityReport`) plus a `MineralogyReference`, produce a **ranked list of
-candidate endmembers** with a similarity score and per-candidate diagnostics.
+candidate endmembers** with a similarity score and per-candidate evidence
+diagnostics.
 
-**In scope**
+**In scope:** convert the cluster and every reference endmember to one common
+comparison basis; score their similarity; rank; expose scores and evidence
+support; propagate identity, reliability, provenance.
 
-- Convert a cluster's cation mass fractions to molar/cation proportions and
-  score their structural similarity to each endmember's cation-proportion
-  vector.
-- Rank candidates; expose scores; propagate identity, reliability, provenance.
-- A configurable, provenance-recorded similarity metric, normalization,
-  element exclusions, and ranking thresholds.
-
-**Out of scope (must not be implied by any output)**
-
-- A single validated mineral identification per cluster.
-- Any quantitative-accuracy claim: standards validation remains mandatory
-  before that (see §11).
-- Treating the reliability `count_floor` as an LOD/LOQ.
-- Recomputing quantification or reliability (S3d is an overlay/consumer).
+**Out of scope (must not be implied by any output):** a single validated mineral
+identification; any quantitative-accuracy claim (standards validation stays
+mandatory, §12); treating the reliability `count_floor` as an LOD/LOQ;
+recomputing quantification or reliability.
 
 ## 2. Inputs & data contract
 
-A match call consumes, per cluster:
+Per cluster: a `QuantResult` (`wt_percent_element` = cation-region **mass**
+fractions, plus retained peak facts, `cluster_id`, provenance, diagnostics); a
+`ReliabilityReport` (`cluster_status`, `element_status`, `cluster_id`); and a
+`MineralogyReference` (`elements` with `atomic_weight`; `minerals`;
+`structural_exclude`; `family_display`; library `name`/`version`).
 
-- `QuantResult` — `wt_percent_element` (cation **mass** fractions),
-  `net_intensities`, retained peak facts, `cluster_id`, `provenance`,
-  `diagnostics`.
-- `ReliabilityReport` (optional but recommended) — `cluster_status`,
-  `element_status`, `cluster_id`, `reasons`.
-- `MineralogyReference` — `elements` (`ElementRef`, carrying `atomic_weight`
-  and `structural_exclude` membership), `minerals` (`MineralEndmember`,
-  `composition` = **stoichiometric cation counts**), `structural_exclude`,
-  `family_display`, plus the library's `name` / `version`.
+**Reliability is part of the contract, not optional — see §6.** Identity is
+checked: a supplied report's `cluster_id` must equal the `QuantResult`'s, and the
+batch API aligns one-to-one by `cluster_id` (reusing the S3c bijection rule).
 
-**Identity is checked, not assumed.** If a `ReliabilityReport` is supplied, its
-`cluster_id` must equal the `QuantResult.cluster_id`; a mismatch raises
-`PayloadValidationError`. A batch API aligns results to reports by `cluster_id`
-one-to-one, reusing the S3c bijection rule.
+## 3. Compositional basis — the core correctness fix (blocker)
 
-## 3. The mass → molar conversion (core correctness)
+**The library currently mixes compositional bases.** `MineralEndmember.composition`
+holds *stoichiometric atom counts* for ideal minerals, but measured phases and
+glass standards are expressed as *elemental mass percentages*. Today
+`MineralogyReference.build_vectors_with_diagnostics` sum-normalises **both** as if
+they were counts — which is correct for atom-count endmembers and **wrong** for
+mass-fraction endmembers. A measured cluster's `wt_percent_element` is a third
+thing again (mass fractions). None of these may be compared until they are in one
+basis.
 
-**The single most important scientific rule in S3d.** Endmember vectors are
-built from stoichiometric cation *counts* (`MineralEndmember.composition` →
-`MineralogyReference.build_vectors_with_diagnostics`), i.e. molar/cation
-proportions. A `QuantResult` gives cation **mass** fractions. These live in
-different spaces and must never be compared directly.
+**Fix: declare each reference's basis, and convert everything to one common
+comparison basis (molar/element proportions) before scoring.**
 
-For each measured cation *i* with mass fraction `w_i` and atomic weight `A_i`
-(from `ElementRef`), the molar/cation proportion is
+- Add an explicit `basis` to `MineralEndmember`:
+  `basis: Literal["atom_counts", "mass_fraction"]` (an S3a model addition made at
+  implementation time; **not** in this design-only change).
+- A basis-aware conversion produces, for every endmember *and* for the cluster,
+  a vector of **molar/element proportions** on the included basis (§4):
+  - `atom_counts` → proportions are the counts themselves, normalised over the
+    included elements (already molar).
+  - `mass_fraction` (and the cluster's `wt_percent_element`) → divide each
+    element's mass fraction by its atomic weight, then normalise:
+    `n_i = (w_i / A_i) / Σ_j (w_j / A_j)`.
+- Because the conversion is identical for a mass-fraction endmember and for the
+  cluster, a mass-fraction *standard* of a given phase and the atom-count *ideal*
+  of the same phase converge to the same molar vector — a direct test of the fix.
 
-```
-n_i = (w_i / A_i) / Σ_j (w_j / A_j)
-```
+`build_vectors_with_diagnostics` is basis-naive and must **not** be used as-is for
+mass-fraction endmembers; the S3d compose step performs the basis-aware
+conversion (and, at implementation, `build_vectors_with_diagnostics` is either
+extended to honour `basis` or superseded). Atomic weights must be finite and
+positive (already enforced by `MineralogyReference.validate`); a missing atomic
+weight for an element being converted is an error, not a silent drop.
 
-over the cations that survive the exclusion + missing-data policy (§4, §5). The
-similarity metric (§6) then compares the cluster's `n` vector to each
-endmember's normalized cation-proportion vector on a shared element ordering.
-Oxygen and the structural-exclude set (`O`, `Br`, `I`, …) are excluded on both
-sides so the comparison is cation-basis on cation-basis.
+## 4. The included / excluded elemental basis (not "cation-only")
 
-Atomic weights must be finite and positive (already enforced by
-`MineralogyReference.validate`); a missing atomic weight for a measured cation
-is an error, not a silent drop.
+The comparison is **not strictly cation-only**, because F, S and Cl are retained.
+The basis is defined and justified explicitly:
 
-## 4. Missing-data / censored-observation policy (Lisheen K)
+- **Excluded:** `O` and the reference's `structural_exclude` set (in the default
+  library, `{O, Br, I}`). `O` is excluded because it is never independently
+  measured here — it is added by assumed oxide stoichiometry, and including it
+  would let a modelled quantity dominate the similarity. `Br`, `I` are excluded as
+  the library's declared non-structural / mobile trace halogens.
+- **Included:** every other measured, characteristic-line element — which
+  includes the non-cation structural elements **F, S, Cl**. They are retained
+  because they are directly measured and structurally diagnostic (F/Cl in
+  apatite, S in sulfates/sulfides), so dropping them would discard real
+  discriminating information.
 
-Unmeasured elements and elements graded `below_count_floor` are **censored /
-uncertain observations, not confirmed zeros.** This matters concretely: diluted
-K in the Lisheen glass cluster was a known failure mode — treating its
-below-floor K as a hard zero would wrongly reject K-bearing endmembers.
+The design therefore speaks of **"included structural elements"** and
+**"molar/element proportions"**, never "cations". The exclusion set is taken from
+the reference (`structural_exclude`) plus any `MatchConfig.exclude`, so it is data-
+and config-driven, not hard-coded, and is recorded in provenance.
 
-The policy is explicit and configurable (`MissingDataPolicy`), with these
-modes, defaulting to the censoring-aware option:
+## 5. Evidence support (sparse overlap must not score as a perfect match)
 
-- `exclude` (default) — drop a censored element from **both** the cluster
-  vector and each candidate vector before scoring, so a censored element neither
-  confirms nor refutes a candidate. Recorded per candidate as a diagnostic.
-- `zero` — treat censored elements as 0 (the naive, rejected-by-default
-  behaviour), offered only for explicit comparison/benchmarking.
-- `penalize` — score censored elements against a configurable upper-bound
-  (derived from the element's floor), contributing bounded uncertainty rather
-  than a hard zero.
+Cosine similarity on a one- or two-element overlap can read 1.0 while meaning
+almost nothing. S3d records evidence support per candidate and refuses to present
+under-supported matches as confident:
 
-Which elements were censored, and under which mode, is recorded in the result's
-diagnostics and provenance. The policy is tested directly against a
-K-diluted-cluster fixture.
+- `elements_used` — included elements present with usable signal in **both** the
+  cluster and the candidate (the dimensions actually scored).
+- `coverage` — `|elements_used| / |candidate included elements|`: how much of the
+  candidate the observation actually constrains.
+- `elements_censored` — cluster elements that are `below_count_floor` (measured
+  but not reportable): censored, not zero (§6, §7).
+- `elements_unavailable` — candidate elements that were **never measured** (absent
+  from the cluster's measured set entirely): missing data, distinct from censored.
+- `n_informative_dims` — `|elements_used|`, the count of scored dimensions.
+- **`insufficient_evidence` outcome** — when `n_informative_dims <
+  config.min_informative_dims` (default: 3), the candidate is **not** presented as
+  a scored match: it is either omitted from `candidates` or emitted with a flag
+  and no rank-eligible score, plus a diagnostic. This is what stops a sparse
+  overlap from producing a misleadingly perfect ranking.
 
-## 5. Reliability-gating policy
+`coverage` may also carry a `min_coverage` floor (config, default off) below which
+a candidate is likewise treated as insufficiently supported.
 
-- **Invalid inputs are rejected.** A `QuantResult` that fails validation, or a
-  `ReliabilityReport` with `cluster_status == "invalid"`, raises rather than
-  being ranked.
-- **`exploratory_only` may be ranked only with an explicit warning.** The
-  result carries a `warning`-severity diagnostic and a flag; callers must opt in
-  (`rank_exploratory=True`, default `False` → such clusters return an empty
-  ranking plus the warning, never silent candidates).
-- **`reportable_estimate` is still an uncalibrated screening estimate.** Even
-  for it, every result is labelled a candidate/ranking, never an identification.
+## 6. Reliability gating (required, or explicitly ungated and recorded)
 
-## 6. Similarity, normalization & ranking (configurable, provenance-recorded)
+- **A `ReliabilityReport` is required by default.** `match_cluster` expects one;
+  its `cluster_id` must match the `QuantResult`.
+- **Absence requires an explicit, ungated opt-in that is recorded prominently.**
+  Calling without a report raises unless `allow_ungated=True` is passed; when
+  ungated, the result sets `reliability_gated = False`, carries a
+  `warning`-severity `ungated_match` diagnostic, and records `input_reliability =
+  "ungated"` in provenance — so a stored ungated result is unmistakable.
+- **`cluster_status == "invalid"` (or an invalid `QuantResult`) raises.**
+- **`exploratory_only` is ranked only with an explicit opt-in and a warning.**
+  Default: such a cluster returns empty `candidates` plus a warning; with
+  `rank_exploratory=True`, candidates are returned still carrying the warning.
+- **`reportable_estimate` is still an uncalibrated screening estimate** — every
+  result is a candidate/ranking, never an identification.
 
-A `MatchConfig` (frozen dataclass, example defaults, caller-settable) holds:
+## 7. Metric contract (direction, scale, thresholding)
 
-- `metric` — similarity/distance function name, resolved through a small
-  registry so alternatives plug in (default: cosine similarity on the
-  molar/cation vectors; cityblock/aitchison candidates deferred).
-- `normalization` — how vectors are normalized before scoring (default: sum-to-
-  one on the cation basis, matching the reference vectors).
-- `exclude` — elements excluded from scoring beyond `structural_exclude`.
-- `min_score` / `top_k` — ranking thresholds: candidates below `min_score` are
-  dropped; at most `top_k` are returned (both configurable, no hidden cutoff).
-- `missing_data` — the §4 `MissingDataPolicy`.
+Metrics are resolved through a small registry and obey a single contract so
+ranking and thresholding are metric-agnostic and the cosine-vs-`min_score`
+contradiction cannot recur:
 
-Every one of these is copied into the result provenance, so a ranking is
-reproducible from its record alone.
+Each metric declares:
 
-## 7. Output payload
+- `kind: "similarity" | "distance"` — the natural direction.
+- `raw_bounds: (lo, hi)` — the range of the raw score (e.g. cosine similarity on
+  non-negative molar vectors is `[0, 1]`).
+- `raw(a, b) -> float` — the raw score.
+- `rank_score(raw) -> float in [0, 1]` — a **monotonic** map where **1 is the
+  best possible match**, regardless of `kind`. For a similarity this is a rescale
+  of `raw`; for a distance it is a decreasing map (e.g. `1 / (1 + d)`).
 
-`MineralMatchResult` (dataclass, composition not inheritance):
+Ranking always orders by `rank_score` descending. `MatchConfig.min_score` is a
+threshold **on `rank_score`, in `[0, 1]`** — so it is always in range and always
+means "minimum match quality", whatever the metric. Config validation rejects
+`min_score` outside `[0, 1]`. (This is what resolves the earlier contradiction:
+there is no `min_score = 2.0`, because thresholds live in `[0, 1]`, not in a raw
+cosine range.) `MineralCandidate.score` stores `rank_score`; the raw score and
+metric name are kept in provenance/diagnostics for traceability.
 
-- `cluster_id: int | None` — carried from the `QuantResult`.
-- `candidates: tuple[MineralCandidate, ...]` — ranked best-first; **may be
-  empty** (no candidate cleared `min_score`, or an exploratory cluster was not
-  opted in). There is no unconditional single-label field.
-- `MineralCandidate`: `name`, `family`, `score`, `elements_used`
-  (`tuple[str, ...]`), `elements_censored` (`tuple[str, ...]`), and a short
-  `basis` note.
-- `input_reliability: str | None` — the upstream `cluster_status` verbatim.
-- `library_name` / `library_version` — reference identity.
+Default metric: **cosine similarity** on the molar/element vectors (provisional).
+
+## 8. Output payload
+
+`MineralMatchResult` (composition, not inheritance):
+
+- `cluster_id: int | None`.
+- `candidates: tuple[MineralCandidate, ...]` — ranked best-first by `rank_score`;
+  **may be empty**. No unconditional single-label field.
+- `MineralCandidate`: `name`, `family`, `score` (`rank_score` in `[0, 1]`),
+  `elements_used`, `coverage`, `elements_censored`, `elements_unavailable`,
+  `n_informative_dims`, `outcome` (`"scored" | "insufficient_evidence"`), and a
+  short `basis` note.
+- `input_reliability: str | None` — the upstream `cluster_status` verbatim, or
+  `"ungated"`.
+- `reliability_gated: bool`.
+- `library_name` / `library_version`.
 - `provenance: AnalysisProvenance` and `diagnostics: list[Diagnostic]`.
 
-A convenience `best()` returns the top candidate **or `None`**, never a
-fabricated assignment.
+`best()` returns the top **scored** candidate or `None` — never a fabricated
+assignment, and never an `insufficient_evidence` entry.
 
-## 8. Provenance & diagnostics propagation
+## 9. Provenance & diagnostics propagation
 
-Each result records: `cluster_id`, upstream `cluster_status` and the reliability
-report's identity, the reference-library `name`/`version`, the k-factor
-provenance carried on the `QuantResult` (values, xraylib version+backend,
-physical-model caveat), the `MatchConfig` (metric, normalization, exclusions,
-thresholds, missing-data mode), and the mass→molar conversion note. Upstream
-diagnostics are carried forward and joined with S3d's own (censored elements,
-exploratory warning, dropped candidates, unknown composition elements).
+Each result records: `cluster_id`; upstream `cluster_status` (or `"ungated"`) and
+the reliability report's identity; reference-library `name`/`version`; the
+k-factor provenance carried on the `QuantResult`; the full `MatchConfig` (metric,
+normalization, exclusions, `min_score`, `min_informative_dims`, missing-data
+mode); and the basis-conversion note (which elements were converted from which
+basis). Upstream diagnostics are carried forward and joined with S3d's own
+(censored elements, unavailable elements, insufficient-evidence, exploratory or
+ungated warnings, unknown composition elements).
 
-## 9. Extensibility (swap provisional parts without changing stored meaning)
+## 10. Missing-data policy (censored vs unavailable)
 
-The interface is designed so later, better components replace provisional ones
-without altering what a stored `MineralMatchResult` means:
+Unmeasured and `below_count_floor` elements are **censored / uncertain, not
+confirmed zeros** — the diluted-K Lisheen cluster is the motivating failure mode.
+`MissingDataPolicy` (config, default `exclude`):
 
-- **Calibrated k-factors** change the numbers inside `QuantResult`, not S3d's
-  contract; S3d already reads `wt_percent_element` and provenance generically.
-- **Formal per-element LOD/LOQ** replaces the crude `count_floor` as the source
-  of the censoring decision: `MissingDataPolicy` consumes an abstract
-  "is this element reportable / censored?" signal, so swapping the floor for a
-  statistical LOQ needs no payload change.
-- **A noise-aware heterogeneity metric** changes how `exploratory_only` is
-  decided upstream; S3d only reads the resulting status string.
+- `exclude` (default) — drop a censored/unavailable element from **both** vectors
+  before scoring, so it neither confirms nor refutes a candidate; recorded in
+  `elements_censored` / `elements_unavailable`.
+- `zero` — treat censored elements as 0. This is a naive sensitivity mode only,
+  **off by default and emitted with an explicit warning diagnostic** whenever used.
+- `penalize` — **deferred** until a formal LOD/LOQ exists (a principled upper
+  bound needs a real limit, not the crude count floor).
 
-The stored result's fields and their meanings are fixed by this spec; provisional
-inputs feed them through stable seams.
-
-## 10. Module layout
+## 11. Module layout
 
 ```
 src/axiomm/analysis/mineralogy/match/
-  __init__.py         # public: match_cluster, match_clusters, MatchConfig,
-                      #   MissingDataPolicy, MineralMatchResult, MineralCandidate,
-                      #   metric registry, match I/O
-  models.py           # MineralMatchResult, MineralCandidate
-  config.py           # MatchConfig, MissingDataPolicy (validated dataclasses)
-  compose.py          # mass->molar conversion + vector assembly (headless)
-  metrics.py          # similarity/distance registry (cosine default)
-  match.py            # match_cluster / match_clusters (composition of the above)
-  io.py               # versioned JSON adapter (schema_version + kind, strict)
+  __init__.py    # match_cluster, match_clusters, MatchConfig, MissingDataPolicy,
+                 #   MineralMatchResult, MineralCandidate, metric registry, match I/O
+  models.py      # MineralMatchResult, MineralCandidate
+  config.py      # MatchConfig, MissingDataPolicy (validated dataclasses)
+  basis.py       # basis-aware mass/atom-count -> molar/element proportion vectors
+  metrics.py     # metric registry + contract (kind, raw_bounds, raw, rank_score)
+  match.py       # match_cluster / match_clusters (composition of the above)
+  io.py          # versioned JSON adapter (schema_version + kind, strict, validated)
 ```
 
-Headless core (no UX imports); a metric registry mirrors S3b/S2. All config
-dataclasses self-validate (finite, admissible ranges, integral thresholds),
-consistent with the repair-pass conventions.
+Headless core; validated config dataclasses (finite, admissible ranges, integral
+thresholds), consistent with the repair-pass conventions. Match I/O follows the
+completed persistence rules: `schema_version` + `kind`, strict finiteness, deep
+structural + relational validation, validate-before-write.
 
-## 11. Mandatory caveat (documented in code and user docs)
+## 12. Mandatory caveat
 
 Every public S3d docstring and the `docs/user/analysis.md` matcher section state:
 **standards validation remains mandatory before any quantitative-accuracy or
-validated mineral-identification claim.** S3d output is exploratory ranking of an
-uncalibrated screening estimate.
+validated mineral-identification claim.** S3d output is an exploratory ranking of
+an uncalibrated screening estimate.
 
-## 12. Acceptance criteria (mirrored by the semantics tests)
+## 13. Acceptance criteria (mirrored by the semantics tests)
 
-1. Mass fractions are converted to molar/cation proportions via atomic weights
-   before scoring; a pure-endmember cluster's own vector ranks that endmember
-   first (closed-form check on a simple oxide).
-2. Comparing raw mass fractions to cation-count vectors is impossible through
-   the public API (only the converted vector reaches the metric).
-3. `below_count_floor` / unmeasured elements are censored per policy; the
-   default `exclude` mode does not zero them; the K-diluted Lisheen-style
-   fixture still surfaces K-bearing candidates.
-4. `cluster_status == "invalid"` (or an invalid `QuantResult`) raises;
-   `exploratory_only` returns empty + warning unless `rank_exploratory=True`.
-5. `cluster_id`, upstream `cluster_status`, reference `name`/`version`, and
-   k-factor provenance appear in every result.
-6. `MatchConfig` (metric, normalization, exclusions, `min_score`, `top_k`,
-   missing-data mode) is honoured and recorded in provenance.
-7. Output is a ranked list with scores; `best()` returns `None` when nothing
-   clears `min_score`; there is no unconditional single-label assignment.
-8. A `ReliabilityReport` whose `cluster_id` disagrees with the `QuantResult`
-   raises; batch matching aligns one-to-one by `cluster_id`.
-9. Match I/O enforces `schema_version` + `kind`, strict finiteness, and deep
-   validation, raising `PayloadSerializationError` on malformed files.
-10. Config dataclasses reject non-finite / out-of-range / non-integral values.
+1. **Basis conversion.** A mass-fraction standard and the atom-count ideal of the
+   *same* phase convert to the same molar vector and rank each other first;
+   comparing raw mass fractions to atom-count vectors is impossible via the public
+   API (only converted vectors reach the metric).
+2. **Included basis.** F/S/Cl are retained and can be discriminating; O/Br/I are
+   excluded; the effective basis is recorded in provenance.
+3. **Evidence support.** A one-element overlap yields `insufficient_evidence`
+   (not a perfect score); `coverage`, `elements_used`, `elements_censored`,
+   `elements_unavailable`, `n_informative_dims` are populated.
+4. **Censoring.** `below_count_floor` / unmeasured elements are censored per
+   policy; the default `exclude` mode does not zero them; a K-diluted fixture
+   still surfaces K-bearing candidates; `zero` mode differs and warns.
+5. **Reliability gating.** No report + no opt-in raises; `allow_ungated=True`
+   sets `reliability_gated=False` and warns; `invalid` raises; `exploratory_only`
+   is empty-with-warning unless opted in.
+6. **Metric contract.** `min_score` is validated to `[0, 1]`; ranking is by
+   `rank_score` descending; an achievable-but-unmet threshold yields empty
+   candidates and `best() is None`; no `min_score = 2.0` is representable.
+7. **Identity & provenance.** `cluster_id`, `input_reliability`, reference
+   `name`/`version`, and k-factor provenance appear in every result; a
+   report/quant `cluster_id` mismatch raises; batch aligns one-to-one.
+8. **Output shape.** Ranked list with scores; no unconditional single label;
+   `best()` returns `None` when nothing qualifies.
+9. **Config validation.** `MatchConfig` rejects non-finite / out-of-range
+   (`min_score` ∉ `[0,1]`) / non-integral (`min_informative_dims`, `top_k`) values.
+10. **Match I/O.** Enforces `schema_version` + `kind`, strict finiteness, deep
+    validation, validate-before-write; raises `PayloadSerializationError` on
+    malformed files.
 
-## 13. Open decisions (for Francesco)
+## 14. Resolved decisions
 
-- **Metric default.** Cosine similarity on cation proportions is proposed;
-  compositional-data alternatives (Aitchison/CLR distance) are a candidate but
-  need a zero-handling decision — deferred.
-- **`penalize` missing-data mode.** Whether the upper-bound formula should be
-  derived from the crude count floor now, or wait for a real LOQ. Proposed:
-  ship `exclude` + `zero`, defer `penalize` until LOQ exists.
-- **Layered labels.** The roadmap mentions family→endmember layering; this spec
-  ranks endmembers and exposes `family`. Whether S3d also emits a family-level
-  roll-up is an open scope question.
-```
+- **Metric default:** provisional **cosine** on molar/element vectors.
+  Compositional-data alternatives (Aitchison/CLR) are deferred (need a zero-
+  handling decision).
+- **Missing-data:** ship `exclude` (default) and `zero` (explicitly warned
+  sensitivity mode only); **defer `penalize`** until a formal LOD/LOQ exists.
+- **Family-level roll-up:** **deferred**; `family` metadata is retained on every
+  candidate so a later roll-up needs no data change.
+- **Reference basis:** add `MineralEndmember.basis`; convert to molar/element
+  proportions before scoring (§3), at implementation time.
