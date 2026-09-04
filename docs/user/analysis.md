@@ -380,22 +380,30 @@ Use the **basis-audited** `MINERALOGY_DEFAULT_V2`; the legacy
 `ReliabilityReport` is required by default (pass `allow_ungated=True` to match
 without one — it is recorded prominently).
 
+The end-to-end output AXIOMM is built for — a **mineral phase map** — is shown
+by [`examples/phase_map_demo.py`](../../examples/phase_map_demo.py), which runs
+the whole pipeline (decomposition → clustering → cluster means → peaks →
+k-factors → quantification → reliability → matching) on a synthetic map built
+from this open reference chemistry and renders the phase map beside each step:
+
+![AXIOMM phase-map proof of concept](../../examples/output/axiomm_phase_map_demo.png)
+
 ```python
 from axiomm.analysis.mineralogy import MINERALOGY_DEFAULT_V2 as REF
 from axiomm.analysis.mineralogy.match import match_cluster, MatchConfig
 from axiomm.analysis.quant.models import QuantResult
 from axiomm.analysis.quant.reliability import ReliabilityReport
 
+# an olivine-like cluster: Mg,Si cation mass fractions from S3c
 qr = QuantResult(
-    net_intensities={"Si": 3000.0, "Al": 900.0, "K": 300.0, "Na": 200.0},
-    wt_percent_element={"Si": 30.0, "Al": 9.8, "K": 12.0, "Na": 8.0},
-    wt_percent_oxide={}, reference_element="Si", cluster_id=3,
+    net_intensities={"Mg": 1.0, "Si": 1.0},
+    wt_percent_element={"Mg": 34.5, "Si": 19.9},
+    wt_percent_oxide={}, reference_element="Si", cluster_id=1,
 )
 report = ReliabilityReport(
     cluster_status="reportable_estimate",
-    element_status={"Si": "reportable", "Al": "reportable",
-                    "K": "reportable", "Na": "reportable"},
-    reasons=(), cluster_id=3,
+    element_status={"Mg": "reportable", "Si": "reportable"},
+    reasons=(), cluster_id=1,
 )
 result = match_cluster(qr, REF, reliability=report, config=MatchConfig(top_k=3))
 print("input_reliability =", result.input_reliability, "| gated:", result.reliability_gated)
@@ -407,11 +415,16 @@ print("best =", result.best().name if result.best() else None)
 
 ```text
 input_reliability = reportable_estimate | gated: True
-  Albite               score=1.000 used=['Al', 'Na', 'Si'] dim_cov=1.00 comp_cov=1.00
-  Phlogopite (measured) score=0.999 used=['Al', 'K', 'Si'] dim_cov=0.43 comp_cov=0.59
-  Orthoclase           score=0.999 used=['Al', 'K', 'Si'] dim_cov=1.00 comp_cov=1.00
-best = Albite
+  Forsterite           score=1.000 used=['Mg', 'Si'] dim_cov=1.00 comp_cov=1.00
+  Apatite (measured)   score=0.995 used=['Mg', 'Si'] dim_cov=0.40 comp_cov=0.01
+  Phlogopite           score=0.948 used=['Mg', 'Si'] dim_cov=0.40 comp_cov=0.67
+best = Forsterite
 ```
+
+Forsterite wins outright, and the coverage fields expose the runner-ups as
+spurious partial overlaps — `Apatite (measured)` scores 0.995 on the shared
+Mg/Si but represents only `comp_cov=0.01` of apatite's composition, so it is
+plainly not the phase.
 
 **`MineralMatchResult`**: `candidates` (rank-eligible, best-first; **may be
 empty**), `insufficient` (flagged for too-sparse overlap), `cluster_id`,

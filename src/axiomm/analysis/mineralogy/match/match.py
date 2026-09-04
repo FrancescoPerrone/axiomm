@@ -128,7 +128,8 @@ def match_cluster(qr, reference, *, reliability=None, config: MatchConfig | None
         elif cand.score >= config.min_score:
             scored.append(cand)
 
-    scored.sort(key=lambda c: c.score, reverse=True)
+    # rank by score, breaking ties toward the better-covered candidate
+    scored.sort(key=lambda c: (c.score, c.composition_coverage), reverse=True)
     if config.top_k is not None:
         scored = scored[:config.top_k]
     if insufficient:
@@ -149,18 +150,25 @@ def _score_candidate(m, cluster_molar, censored_cluster, measured, included,
     cand_included = set(cand_molar)
     if not cand_included:
         return None
-    shared = sorted(set(cluster_molar) & cand_included)          # observed shared dims
+    reportable = set(cluster_molar)                              # reportable measured
+    shared = sorted(reportable & cand_included)                 # observed shared dims
     censored_here = sorted(cand_included & censored_cluster)
     unavailable_here = sorted(s for s in cand_included if s not in measured)
     n_info = len(shared)
     dim_cov = n_info / len(cand_included)
     comp_cov = sum(cand_molar[s] for s in shared)
 
-    # score dims depend on the missing-data policy
+    # Score over the cluster's REPORTABLE elements: a candidate that lacks a
+    # reportable element is zero-filled there and thereby penalised for failing
+    # to explain it. Censored elements are excluded by default (they neither
+    # help nor hurt); the 'zero' policy adds them back as confirmed-absent
+    # (value 0), penalising candidates that contain them. Elements the cluster
+    # never measured (unavailable) are always excluded — absence can't be
+    # inferred from an unmeasured line.
+    score_dims = set(reportable)
     if config.missing_data.mode == "zero":
-        score_dims = sorted(set(shared) | set(censored_here))    # censored count as 0
-    else:  # exclude
-        score_dims = shared
+        score_dims |= set(censored_here)
+    score_dims = sorted(score_dims)
     a = [cluster_molar.get(s, 0.0) for s in score_dims]
     b = [cand_molar.get(s, 0.0) for s in score_dims]
     raw = metric.raw(a, b) if score_dims else 0.0
