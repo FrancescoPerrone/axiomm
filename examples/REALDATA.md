@@ -1,4 +1,54 @@
-# AXIOMM real-data exploratory demonstration (NIST PGM)
+# AXIOMM real-data exploratory demonstration
+
+Two real, open EDS inputs, used at different stages. Neither binary — nor any
+derivative — is committed to git.
+
+| Input | Kind | Status | Why |
+|---|---|---|---|
+| NIST PGM (`PGM.tar.gz`) | SEM/EDS, mineral ore | download blocked (host 504) | the preferred SEM mineralogy input |
+| lukmuk `EDS_dataset.bcf` | **STEM**-EDS, REBCO thin film | **accessible locally** | real-data interoperability + pipeline evidence now |
+
+---
+
+## Accessible input now: STEM-EDS Bruker `.bcf` (lukmuk)
+
+A real STEM-EDS spectrum image (thin TEM film, FEI Tecnai Osiris, 200 keV) from
+`github.com/lukmuk/eds-processing-notebooks` (commit `0554bf4`, **GPL-3.0**).
+Used as the accessible real-data input while the NIST SEM archive endpoint is
+down. It is **STEM, not SEM**; materials science, **not** mineral ground truth;
+and **not** standards-based quantitative validation. Because its chemistry
+(Y/O/Er/Ho/Hf, REBCO-type) is outside AXIOMM's silicate/oxide reference, mineral
+matching is expected to **abstain** — a valid outcome.
+
+**Licence:** treat the data as GPL-3.0. The binary, any subset/derivative, and
+all inspection output are kept **outside** the repository and out of the
+PolyForm package. So there is **no committed fixture** from it; the opt-in test
+is env-gated instead.
+
+Inspect it (loads via RosettaSciIO/HyperSpy at the edge — HyperSpy is never a
+core AXIOMM dependency):
+
+```bash
+pip install -e ".[hyperspy,viz]"
+export AXIOMM_REALDATA_BCF=/abs/path/EDS_dataset.bcf
+python examples/bcf_inspect.py "$AXIOMM_REALDATA_BCF"
+# writes <name>.inspection.json + <name>.signal0.quicklook.png BESIDE the data
+pytest -m realdata tests/io/datasets/test_bcf_inspect_realdata.py   # opt-in; skips without the env var
+```
+
+**Established by inspection** (facts recorded verbatim in the local report, not
+inferred): one `Signal1D` spectrum image `(260, 180, 2048)` `uint8`, array-axis
+order `height, width, Energy`; nav axes 0.216 nm/px; energy axis 0.01001 keV/ch,
+offset −0.4838 keV; `beam_energy` 200 keV, EDS `live_time` 974.5 s, `real_time`
+1015.6 s, detector elevation 22°/azimuth 45°; `Sample.elements` in the file are
+`[Er, Hf, Ho, O, Y]` (this differs from the repo README's REBCO/SrTiO₃
+description — recorded as a diagnostic, not reconciled). Next chunk (only after
+review): a small pluggable `BrukerBCFReader` building AXIOMM's neutral payload
+by `index_in_array`; no reader is implemented yet.
+
+---
+
+## Preferred input (blocked): NIST PGM SEM/EDS
 
 > **Status: scaffolding delivered; data-dependent steps are blocked in the
 > current build environment (no network route to `data.nist.gov`).** The
