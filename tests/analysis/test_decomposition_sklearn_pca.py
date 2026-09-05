@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from axiomm.analysis.errors import PayloadValidationError
-from axiomm.io.converters.models import AxisSpec, AxiommSignalPayload
+from axiomm.io.converters.models import AxiommSignalPayload, AxisSpec
 
 
 def _payload_last_axis_signal():
@@ -36,7 +36,7 @@ def test_pca_shapes_variance_and_provenance():
     assert result.explained_variance_ratio[0] >= result.explained_variance_ratio[1]
     assert result.provenance.tool == "decomposition"
     assert result.provenance.backend == "pca"
-    assert result.provenance.params == {"n_components": 2}
+    assert result.provenance.params == {"n_components": 2, "random_state": 0}
 
 
 def test_pca_none_keeps_min_components():
@@ -89,3 +89,18 @@ def test_pca_requires_exactly_one_signal_axis():
     payload = AxiommSignalPayload(data=data, axes=axes, signal_kind="signal1d")
     with pytest.raises(PayloadValidationError, match="exactly one signal axis"):
         SklearnPCADecomposer().decompose(payload)
+
+
+def test_pca_is_reproducible_by_default():
+    """Default random_state seeds the randomized SVD, so PCA is deterministic."""
+    pytest.importorskip("sklearn")
+    import numpy as np
+
+    from axiomm.analysis.decomposition.sklearn_pca import SklearnPCADecomposer
+    rng = np.random.default_rng(0)
+    payload = _payload_last_axis_signal()
+    payload.data = rng.random(payload.data.shape)   # larger-variance input
+    a = SklearnPCADecomposer().decompose(payload, n_components=2)
+    b = SklearnPCADecomposer().decompose(payload, n_components=2)
+    assert np.array_equal(a.loadings, b.loadings)
+    assert a.provenance.params["random_state"] == 0

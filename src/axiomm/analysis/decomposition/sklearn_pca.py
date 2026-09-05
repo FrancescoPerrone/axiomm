@@ -11,16 +11,26 @@ from __future__ import annotations
 
 import numpy as np
 
+from axiomm.analysis.decomposition.models import DecompositionResult
 from axiomm.analysis.errors import PayloadValidationError
 from axiomm.analysis.models import AnalysisProvenance, Diagnostic
 from axiomm.analysis.reshape import pixels_by_channels
-from axiomm.analysis.decomposition.models import DecompositionResult
 
 
 class SklearnPCADecomposer:
-    """PCA via ``sklearn.decomposition.PCA`` on the neutral payload."""
+    """PCA via ``sklearn.decomposition.PCA`` on the neutral payload.
+
+    ``random_state`` seeds scikit-learn's randomized SVD solver, which
+    ``svd_solver="auto"`` selects for large matrices. It defaults to ``0`` so
+    the decomposition — and therefore the whole downstream pipeline — is
+    **reproducible by default**; pass ``random_state=None`` for run-to-run
+    variability. It is ignored by the exact ("full") solver.
+    """
 
     name = "pca"
+
+    def __init__(self, random_state: int | None = 0) -> None:
+        self.random_state = random_state
 
     def decompose(self, payload, *, n_components: int | None = None) -> DecompositionResult:
         diagnostics: list[Diagnostic] = []
@@ -49,7 +59,7 @@ class SklearnPCADecomposer:
 
         from sklearn.decomposition import PCA
 
-        pca = PCA(n_components=n_components)
+        pca = PCA(n_components=n_components, random_state=self.random_state)
         loadings = pca.fit_transform(X)
         factors = pca.components_.T
         evr = pca.explained_variance_ratio_
@@ -72,7 +82,7 @@ class SklearnPCADecomposer:
             provenance=AnalysisProvenance(
                 tool="decomposition",
                 backend=self.name,
-                params={"n_components": n_components},
+                params={"n_components": n_components, "random_state": self.random_state},
             ),
             diagnostics=diagnostics,
         )
