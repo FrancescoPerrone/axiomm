@@ -119,13 +119,13 @@ def test_metric_receives_the_converted_vector():
     real = M.get_metric
 
     def spy(name):
+        import dataclasses
         metric = real(name)
 
         def raw(a, b):
             calls.append((list(a), list(b)))
             return metric.raw(a, b)
-        return metric.__class__(metric.name, metric.kind, metric.raw_bounds, raw,
-                                metric.rank_score)
+        return dataclasses.replace(metric, raw=raw)
     M.get_metric = spy
     try:
         qr = _quant(Mg=60.0, Si=40.0)   # MASS %
@@ -364,11 +364,11 @@ def test_match_io_roundtrip_and_strict_read(tmp_path):
 def test_match_write_validates_before_writing(tmp_path):
     bad = MineralMatchResult(
         cluster_id=0,
-        candidates=(MineralCandidate(name="X", family="f", score=1.5, outcome="scored",
-                                     elements_used=("Si",), elements_censored=(),
-                                     elements_unavailable=(), n_informative_dims=1,
-                                     dimension_coverage=1.0, composition_coverage=1.0,
-                                     basis="molar_proportions"),),
+        candidates=(MineralCandidate(name="X", family="f", score=1.5, raw_score=1.5,
+                                     outcome="scored", elements_used=("Si",),
+                                     elements_censored=(), elements_unavailable=(),
+                                     n_informative_dims=1, dimension_coverage=1.0,
+                                     composition_coverage=1.0, basis="molar_proportions"),),
         input_reliability="reportable_estimate", reliability_gated=True,
         library_name="controlled_test_v1", library_version="1")
     with pytest.raises(PayloadSerializationError):
@@ -381,7 +381,8 @@ def test_read_match_rejects_bad_outcome(tmp_path):
     doc = {"schema_version": 1, "kind": "match", "cluster_id": 0,
            "input_reliability": "reportable_estimate", "reliability_gated": True,
            "library_name": "x", "library_version": "1",
-           "candidates": [{"name": "Q", "family": "f", "score": 0.9, "outcome": "bogus",
+           "candidates": [{"name": "Q", "family": "f", "score": 0.9, "raw_score": 0.9,
+                           "outcome": "bogus",
                            "elements_used": ["Si"], "elements_censored": [],
                            "elements_unavailable": [], "n_informative_dims": 1,
                            "dimension_coverage": 1.0, "composition_coverage": 1.0,

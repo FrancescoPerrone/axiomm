@@ -31,6 +31,12 @@ class QuantResult:
     ``gross_intensities`` / ``background_per_channel`` / ``window_channels``
     carry the raw peak facts so a later statistically defined LOD/LOQ can
     be computed from gross counts, background and window width.
+
+    ``observation_status`` records, per element, *how* it was observed — one of
+    :data:`OBSERVATION_STATUSES` — so downstream tools never infer that an
+    element was unobserved merely because its wt% is zero. It is empty when the
+    result was constructed without measurement facts (e.g. by hand); consumers
+    must then treat observation as unknown rather than invent a status.
     """
 
     net_intensities: Mapping[str, float]
@@ -40,9 +46,20 @@ class QuantResult:
     gross_intensities: Mapping[str, float] = field(default_factory=dict)
     background_per_channel: Mapping[str, float] = field(default_factory=dict)
     window_channels: Mapping[str, int] = field(default_factory=dict)
+    observation_status: Mapping[str, str] = field(default_factory=dict)
     cluster_id: int | None = None
     provenance: AnalysisProvenance | None = None
     diagnostics: list[Diagnostic] = field(default_factory=list)
 
 
-__all__ = ["KFactorSet", "QuantResult"]
+#: How an element was observed, from the retained measurement facts.
+#: ``measured_positive`` — a peak was measured with net > 0;
+#: ``measured_zero`` — a peak was measured with net <= 0 (looked, saw nothing);
+#: ``not_measured`` — no peak/window for this element;
+#: ``invalid`` — the measurement was non-finite/incoherent.
+OBSERVATION_STATUSES: frozenset[str] = frozenset(
+    {"measured_positive", "measured_zero", "not_measured", "invalid"}
+)
+
+
+__all__ = ["OBSERVATION_STATUSES", "KFactorSet", "QuantResult"]

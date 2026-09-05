@@ -94,10 +94,12 @@ def quantify(peaks, kfactors, elements, *, reference_name: str | None = None) ->
     gross: dict[str, float] = {}
     background: dict[str, float] = {}
     window: dict[str, int] = {}
+    observation_status: dict[str, str] = {}
     for sym in k:
         m = meas_by_label.get(sym)
         if m is None:
             net[sym] = 0.0
+            observation_status[sym] = "not_measured"
             diagnostics.append(
                 Diagnostic("info", "element_not_measured",
                            f"element {sym!r} has no measured peak; net set to 0.")
@@ -121,6 +123,7 @@ def quantify(peaks, kfactors, elements, *, reference_name: str | None = None) ->
         gross[sym] = float(m.gross)
         background[sym] = float(m.background)
         window[sym] = int(m.n_channels)
+        observation_status[sym] = "measured_positive" if float(m.net) > 0 else "measured_zero"
 
     net_ref = net[reference]
     if net_ref > 0:
@@ -195,6 +198,7 @@ def quantify(peaks, kfactors, elements, *, reference_name: str | None = None) ->
         net_intensities=net, wt_percent_element=wt_element, wt_percent_oxide=wt_oxide,
         reference_element=reference,
         gross_intensities=gross, background_per_channel=background, window_channels=window,
+        observation_status=observation_status,
         cluster_id=peaks.cluster_id,
         provenance=provenance, diagnostics=diagnostics,
     )

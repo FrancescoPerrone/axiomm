@@ -29,7 +29,8 @@ class MineralCandidate:
 
     name: str
     family: str
-    score: float
+    score: float                     # rank_score in [0, 1] (1 = best)
+    raw_score: float                 # the metric's raw value the rank derives from
     outcome: str
     elements_used: tuple[str, ...]
     elements_censored: tuple[str, ...]

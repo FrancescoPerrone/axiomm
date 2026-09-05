@@ -16,10 +16,12 @@ Schema history:
 * **v2** — added the ``kind`` tag; ``quant`` gained ``gross_intensities`` /
   ``background_per_channel`` / ``window_channels`` / ``cluster_id``;
   ``reliability`` gained ``cluster_id`` and the honest status vocabulary.
+* **v3** — ``quant`` gained ``observation_status`` (per-element acquisition
+  status), so a zero wt% is no longer conflated with "unobserved".
 
-v2 is a breaking structural change, so ``SCHEMA_VERSION`` was incremented
-rather than reused. v1 files are rejected with a clear message; there is no
-in-place migration.
+Each bump is a breaking structural change, so ``SCHEMA_VERSION`` was
+incremented rather than reused. Older files are rejected with a clear message;
+there is no in-place migration.
 """
 
 from __future__ import annotations
@@ -33,9 +35,10 @@ from axiomm.analysis.errors import (
     PayloadSerializationError,
 )
 from axiomm.analysis.models import AnalysisProvenance, Diagnostic
+from axiomm.analysis.quant.models import OBSERVATION_STATUSES
 from axiomm.analysis.quant.reliability import CLUSTER_STATUSES, ELEMENT_STATUSES
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 # --------------------------------------------------------------------------
@@ -272,6 +275,22 @@ def _validate_quant_dict(doc: dict, where: str) -> None:
         raise PayloadSerializationError(
             f"{where}: reference_element {reference!r} not among net_intensities {sorted(net)}."
         )
+    # observation_status (finding 5): known vocabulary, keys within measured set
+    obs = doc.get("observation_status", {})
+    if not isinstance(obs, dict):
+        raise PayloadSerializationError(f"{where}.observation_status: must be an object.")
+    for sym, status in obs.items():
+        if not isinstance(sym, str):
+            raise PayloadSerializationError(f"{where}.observation_status: non-string key {sym!r}.")
+        if status not in OBSERVATION_STATUSES:
+            raise PayloadSerializationError(
+                f"{where}.observation_status[{sym!r}]: {status!r} not in {sorted(OBSERVATION_STATUSES)}."
+            )
+    extra_obs = sorted(set(obs) - set(net))
+    if extra_obs:
+        raise PayloadSerializationError(
+            f"{where}.observation_status: keys {extra_obs} absent from net_intensities."
+        )
     _validate_cluster_id(doc, where)
     _validate_provenance(doc, where)
     _validate_diagnostics(doc, where)
@@ -359,6 +378,7 @@ def write_quant(qr, directory, stem: str, *, overwrite: bool = False) -> Path:
         "gross_intensities": dict(qr.gross_intensities),
         "background_per_channel": dict(qr.background_per_channel),
         "window_channels": dict(qr.window_channels),
+        "observation_status": dict(qr.observation_status),
         "cluster_id": qr.cluster_id,
         "provenance": _prov_to_dict(qr.provenance),
         "diagnostics": _diags_to_list(qr.diagnostics),
@@ -381,6 +401,7 @@ def read_quant(directory, stem: str):
         gross_intensities=doc["gross_intensities"],
         background_per_channel=doc["background_per_channel"],
         window_channels=doc["window_channels"],
+        observation_status=doc.get("observation_status", {}),
         cluster_id=_validate_cluster_id(doc, where),
         provenance=_validate_provenance(doc, where),
         diagnostics=_validate_diagnostics(doc, where),

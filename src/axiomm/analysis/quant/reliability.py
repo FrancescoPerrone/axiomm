@@ -98,6 +98,59 @@ class ReliabilityReport:
     diagnostics: list[Diagnostic] = field(default_factory=list)
 
 
+def validate_reliability(report: ReliabilityReport) -> ReliabilityReport:
+    """Strictly validate a report, rejecting unknown vocab and contradictions.
+
+    Used wherever a report enters the system (matching, deserialization) so an
+    externally-constructed or corrupted report cannot smuggle an unknown
+    status, a non-string element key, a non-integer cluster id, or a
+    self-contradictory verdict past the gate. Returns the report for chaining.
+    """
+    if report.cluster_status not in CLUSTER_STATUSES:
+        raise PayloadValidationError(
+            f"ReliabilityReport.cluster_status {report.cluster_status!r} not in "
+            f"{sorted(CLUSTER_STATUSES)}."
+        )
+    if not isinstance(report.element_status, Mapping):
+        raise PayloadValidationError("ReliabilityReport.element_status must be a mapping.")
+    invalid_elems = []
+    for sym, status in report.element_status.items():
+        if not isinstance(sym, str):
+            raise PayloadValidationError(
+                f"ReliabilityReport.element_status has non-string key {sym!r}."
+            )
+        if status not in ELEMENT_STATUSES:
+            raise PayloadValidationError(
+                f"ReliabilityReport.element_status[{sym!r}] {status!r} not in "
+                f"{sorted(ELEMENT_STATUSES)}."
+            )
+        if status == "invalid":
+            invalid_elems.append(sym)
+    if report.cluster_id is not None and not _is_int(report.cluster_id):
+        raise PayloadValidationError(
+            f"ReliabilityReport.cluster_id must be an integer or None; got {report.cluster_id!r}."
+        )
+    if not all(isinstance(r, str) for r in report.reasons):
+        raise PayloadValidationError("ReliabilityReport.reasons must all be strings.")
+    # --- contradiction checks (must match assess_reliability's invariants) ---
+    if report.cluster_status == "reportable_estimate":
+        if report.reasons:
+            raise PayloadValidationError(
+                "contradictory report: cluster_status 'reportable_estimate' with non-empty reasons."
+            )
+        if invalid_elems:
+            raise PayloadValidationError(
+                f"contradictory report: 'reportable_estimate' cluster has invalid element(s) "
+                f"{invalid_elems}."
+            )
+    if invalid_elems and report.cluster_status != "invalid":
+        raise PayloadValidationError(
+            f"contradictory report: element(s) {invalid_elems} are 'invalid' but cluster_status "
+            f"is {report.cluster_status!r} (must be 'invalid')."
+        )
+    return report
+
+
 def _classify_element(net: float, floor: float) -> str:
     """Element verdict: non-finite/negative net is ``invalid``, never reportable."""
     if not math.isfinite(net) or net < 0:
@@ -290,4 +343,4 @@ def assess_cluster_reliability(quant_results, cluster_means,
 
 __all__ = ["CLUSTER_STATUSES", "ELEMENT_STATUSES", "ClusterStatus", "ElementStatus",
            "ReliabilityConfig", "ReliabilityReport",
-           "assess_cluster_reliability", "assess_reliability"]
+           "assess_cluster_reliability", "assess_reliability", "validate_reliability"]

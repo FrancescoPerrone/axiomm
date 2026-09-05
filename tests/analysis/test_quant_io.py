@@ -152,8 +152,8 @@ def test_read_rejects_malformed_json(tmp_path):
 
 # --- finding 6: explicit schema evolution (v1 -> v2) -----------------------
 
-def test_schema_version_is_two():
-    assert SCHEMA_VERSION == 2
+def test_schema_version_is_three():
+    assert SCHEMA_VERSION == 3
 
 
 def test_read_rejects_legacy_v1_clearly(tmp_path):

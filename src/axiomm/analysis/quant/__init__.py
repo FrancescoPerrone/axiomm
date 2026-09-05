@@ -25,6 +25,7 @@ from axiomm.analysis.quant.reliability import (
     ReliabilityReport,
     assess_cluster_reliability,
     assess_reliability,
+    validate_reliability,
 )
 
 __all__ = [
@@ -40,6 +41,7 @@ __all__ = [
     "read_kfactors",
     "read_quant",
     "read_reliability",
+    "validate_reliability",
     "write_kfactors",
     "write_quant",
     "write_reliability",
