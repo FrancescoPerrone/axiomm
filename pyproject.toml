@@ -73,7 +73,10 @@ where = ["src"]
 minversion = "7.0"
 testpaths = ["tests"]
 pythonpath = ["src"]
-addopts = "-ra --strict-markers"
+addopts = "-ra --strict-markers -m 'not realdata'"
+markers = [
+    "realdata: opt-in tests that require network access and/or a large real dataset cache (deselected by default; run with `pytest -m realdata`)",
+]
 
 [tool.ruff]
 line-length = 100
