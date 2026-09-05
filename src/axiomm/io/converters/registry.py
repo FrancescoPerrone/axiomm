@@ -270,6 +270,11 @@ readers.register(
     "axiomm.io.converters.readers.xrmmap_h5:XRMMapH5Reader",
 )
 
+readers.register(
+    "bruker_bcf",
+    "axiomm.io.converters.readers.bruker_bcf:BrukerBCFReader",
+)
+
 writers.register(
     "hspy",
     "axiomm.io.converters.writers.hspy:HSpyWriter",

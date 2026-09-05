@@ -51,6 +51,15 @@ class ConversionWorkflowError(AxiommConverterError):
     """
 
 
+class ReaderDependencyError(AxiommConverterError):
+    """Raised when an optional dependency a reader needs at the edge is absent.
+
+    The core stays dependency-light; format-specific readers (e.g. the Bruker
+    ``.bcf`` reader, which needs RosettaSciIO/HyperSpy) raise this with a clear
+    install hint rather than letting a bare ``ImportError`` escape.
+    """
+
+
 class CalibrationUnresolvedError(AxiommConverterError):
     """Raised by the calibration resolution ladder in
     :class:`~axiomm.io.converters.calibration.ConversionMode.STRICT`
@@ -76,6 +85,7 @@ __all__ = [
     "InputDiscoveryError",
     "MetadataParseError",
     "OutputExistsError",
+    "ReaderDependencyError",
     "ReaderDetectionError",
     "SignalValidationError",
     "UnsupportedFormatError",
