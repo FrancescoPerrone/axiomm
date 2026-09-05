@@ -1,0 +1,585 @@
+{
+  "manifest_schema": "1",
+  "reference": {
+    "name": "minerals_default_v2",
+    "version": "2",
+    "n_endmembers": 44
+  },
+  "sources": [
+    {
+      "file": "Standards.xlsx",
+      "sheet": "Compiled",
+      "sha256": "2476e7d73abd3de20db06b413e7d5989196b0425a6b746e5a97a3169c542b814",
+      "provider": "GeoReM (Max-Planck) compiled reference values + local EPMA standards",
+      "licence": "GeoReM values are public reference data; local A22/M22 columns are the owner's unpublished measurements",
+      "retrieval": "GeoReM: http://georem.mpch-mainz.gwdg.de/ (per-standard preferred values). Not committed: contains the owner's unpublished columns.",
+      "units": "oxide wt% (Fe as FeO total); F, Cl as element wt%"
+    },
+    {
+      "file": "Experiment_compositions.xlsx",
+      "sheets": [
+        "West Kimberley",
+        "Basanite",
+        "Gaussie"
+      ],
+      "sha256": "1d8f542d8096e4c183841935a99cf7539c3e9e6432eaebd7b9f5e121775a7591",
+      "provider": "owner EPMA phase averages ('Average' rows; StDev rows skipped)",
+      "licence": "owner's unpublished data \u2014 NOT committed",
+      "retrieval": "not publicly retrievable; recorded here by SHA-256 only",
+      "units": "oxide wt% (Fe as FeO total); F, Cl as element wt%"
+    }
+  ],
+  "conversions": {
+    "ideal_stoichiometric": "stored values ARE stoichiometric atom counts (O included, masked at match); no unit conversion. basis=atom_counts.",
+    "measured_phase": "oxide wt% -> cation moles = n_cation * wt% / oxide_molecular_mass; F/Cl -> wt% / atomic_weight; normalised to cation atomic proportions per ~100 cations (O excluded). Stored proportions are already molar; basis=atom_counts.",
+    "georem_standard": "same conversion as measured_phase, from the Standards.xlsx 'Compiled' sheet."
+  },
+  "endmembers": [
+    {
+      "name": "Quartz",
+      "category": "ideal_stoichiometric",
+      "basis": "atom_counts",
+      "composition": {
+        "Si": 1.0,
+        "O": 2.0
+      }
+    },
+    {
+      "name": "Albite",
+      "category": "ideal_stoichiometric",
+      "basis": "atom_counts",
+      "composition": {
+        "Na": 1.0,
+        "Al": 1.0,
+        "Si": 3.0,
+        "O": 8.0
+      }
+    },
+    {
+      "name": "Anorthite",
+      "category": "ideal_stoichiometric",
+      "basis": "atom_counts",
+      "composition": {
+        "Ca": 1.0,
+        "Al": 2.0,
+        "Si": 2.0,
+        "O": 8.0
+      }
+    },
+    {
+      "name": "Orthoclase",
+      "category": "ideal_stoichiometric",
+      "basis": "atom_counts",
+      "composition": {
+        "K": 1.0,
+        "Al": 1.0,
+        "Si": 3.0,
+        "O": 8.0
+      }
+    },
+    {
+      "name": "Diopside",
+      "category": "ideal_stoichiometric",
+      "basis": "atom_counts",
+      "composition": {
+        "Ca": 1.0,
+        "Mg": 1.0,
+        "Si": 2.0,
+        "O": 6.0
+      }
+    },
+    {
+      "name": "Hedenbergite",
+      "category": "ideal_stoichiometric",
+      "basis": "atom_counts",
+      "composition": {
+        "Ca": 1.0,
+        "Fe": 1.0,
+        "Si": 2.0,
+        "O": 6.0
+      }
+    },
+    {
+      "name": "Tremolite",
+      "category": "ideal_stoichiometric",
+      "basis": "atom_counts",
+      "composition": {
+        "Ca": 2.0,
+        "Mg": 5.0,
+        "Si": 8.0,
+        "O": 22.0
+      }
+    },
+    {
+      "name": "Phlogopite",
+      "category": "ideal_stoichiometric",
+      "basis": "atom_counts",
+      "composition": {
+        "K": 1.0,
+        "Mg": 3.0,
+        "Al": 1.0,
+        "Si": 3.0,
+        "O": 10.0,
+        "F": 1.0
+      }
+    },
+    {
+      "name": "Apatite",
+      "category": "ideal_stoichiometric",
+      "basis": "atom_counts",
+      "composition": {
+        "Ca": 5.0,
+        "P": 3.0,
+        "O": 12.0,
+        "F": 1.0
+      }
+    },
+    {
+      "name": "Cl-Apatite",
+      "category": "ideal_stoichiometric",
+      "basis": "atom_counts",
+      "composition": {
+        "Ca": 5.0,
+        "P": 3.0,
+        "O": 12.0,
+        "Cl": 1.0
+      }
+    },
+    {
+      "name": "Titanite",
+      "category": "ideal_stoichiometric",
+      "basis": "atom_counts",
+      "composition": {
+        "Ca": 1.0,
+        "Ti": 1.0,
+        "Si": 1.0,
+        "O": 5.0
+      }
+    },
+    {
+      "name": "Rutile",
+      "category": "ideal_stoichiometric",
+      "basis": "atom_counts",
+      "composition": {
+        "Ti": 1.0,
+        "O": 2.0
+      }
+    },
+    {
+      "name": "Pseudobrookite",
+      "category": "ideal_stoichiometric",
+      "basis": "atom_counts",
+      "composition": {
+        "Fe": 2.0,
+        "Ti": 1.0,
+        "O": 5.0
+      }
+    },
+    {
+      "name": "Ilmenite",
+      "category": "ideal_stoichiometric",
+      "basis": "atom_counts",
+      "composition": {
+        "Fe": 1.0,
+        "Ti": 1.0,
+        "O": 3.0
+      }
+    },
+    {
+      "name": "Ulvospinel",
+      "category": "ideal_stoichiometric",
+      "basis": "atom_counts",
+      "composition": {
+        "Fe": 2.0,
+        "Ti": 1.0,
+        "O": 4.0
+      }
+    },
+    {
+      "name": "Magnetite",
+      "category": "ideal_stoichiometric",
+      "basis": "atom_counts",
+      "composition": {
+        "Fe": 3.0,
+        "O": 4.0
+      }
+    },
+    {
+      "name": "Hematite",
+      "category": "ideal_stoichiometric",
+      "basis": "atom_counts",
+      "composition": {
+        "Fe": 2.0,
+        "O": 3.0
+      }
+    },
+    {
+      "name": "Chromite",
+      "category": "ideal_stoichiometric",
+      "basis": "atom_counts",
+      "composition": {
+        "Fe": 1.0,
+        "Cr": 2.0,
+        "O": 4.0
+      }
+    },
+    {
+      "name": "Spinel",
+      "category": "ideal_stoichiometric",
+      "basis": "atom_counts",
+      "composition": {
+        "Mg": 1.0,
+        "Al": 2.0,
+        "O": 4.0
+      }
+    },
+    {
+      "name": "Forsterite",
+      "category": "ideal_stoichiometric",
+      "basis": "atom_counts",
+      "composition": {
+        "Mg": 2.0,
+        "Si": 1.0,
+        "O": 4.0
+      }
+    },
+    {
+      "name": "Fayalite",
+      "category": "ideal_stoichiometric",
+      "basis": "atom_counts",
+      "composition": {
+        "Fe": 2.0,
+        "Si": 1.0,
+        "O": 4.0
+      }
+    },
+    {
+      "name": "Pyrite",
+      "category": "ideal_stoichiometric",
+      "basis": "atom_counts",
+      "composition": {
+        "Fe": 1.0,
+        "S": 2.0
+      }
+    },
+    {
+      "name": "Pyrrhotite",
+      "category": "ideal_stoichiometric",
+      "basis": "atom_counts",
+      "composition": {
+        "Fe": 1.0,
+        "S": 1.0
+      }
+    },
+    {
+      "name": "Sodalite",
+      "category": "ideal_stoichiometric",
+      "basis": "atom_counts",
+      "composition": {
+        "Na": 8.0,
+        "Al": 6.0,
+        "Si": 6.0,
+        "O": 24.0,
+        "Cl": 2.0
+      }
+    },
+    {
+      "name": "Apatite (measured)",
+      "category": "measured_phase",
+      "basis": "atom_counts",
+      "composition": {
+        "Mg": 0.8,
+        "Si": 0.5,
+        "P": 35.1,
+        "Ca": 57.5,
+        "F": 5.4
+      }
+    },
+    {
+      "name": "Rutile (measured)",
+      "category": "measured_phase",
+      "basis": "atom_counts",
+      "composition": {
+        "Ti": 96.9,
+        "Cr": 0.6,
+        "Fe": 1.9
+      }
+    },
+    {
+      "name": "Phlogopite (measured)",
+      "category": "measured_phase",
+      "basis": "atom_counts",
+      "composition": {
+        "Mg": 29.4,
+        "Al": 11.2,
+        "Si": 36.5,
+        "K": 11.4,
+        "Ti": 2.9,
+        "Fe": 3.7,
+        "F": 4.3
+      }
+    },
+    {
+      "name": "Silicate glass (measured)",
+      "category": "measured_phase",
+      "basis": "atom_counts",
+      "composition": {
+        "Na": 6.1,
+        "Mg": 2.9,
+        "Al": 12.1,
+        "Si": 60.9,
+        "P": 0.5,
+        "K": 9.4,
+        "Ca": 2.0,
+        "Ti": 1.5,
+        "Fe": 3.5,
+        "Ba": 0.6
+      }
+    },
+    {
+      "name": "Clinopyroxene (measured)",
+      "category": "measured_phase",
+      "basis": "atom_counts",
+      "composition": {
+        "Mg": 24.7,
+        "Al": 0.5,
+        "Si": 49.5,
+        "Ca": 20.9,
+        "Fe": 2.9
+      }
+    },
+    {
+      "name": "Amphibole (measured)",
+      "category": "measured_phase",
+      "basis": "atom_counts",
+      "composition": {
+        "Na": 5.1,
+        "Mg": 22.6,
+        "Al": 8.4,
+        "Si": 41.9,
+        "K": 2.6,
+        "Ca": 10.1,
+        "Ti": 1.8,
+        "Fe": 6.0,
+        "F": 1.4
+      }
+    },
+    {
+      "name": "Titanomagnetite (measured)",
+      "category": "measured_phase",
+      "basis": "atom_counts",
+      "composition": {
+        "Mg": 6.4,
+        "Al": 2.6,
+        "Ti": 22.8,
+        "Cr": 1.0,
+        "Mn": 0.5,
+        "Fe": 66.3
+      }
+    },
+    {
+      "name": "Glass std GSE-1G",
+      "category": "georem_standard",
+      "basis": "atom_counts",
+      "composition": {
+        "Si": 51.8,
+        "Al": 14.8,
+        "Fe": 10.2,
+        "Mg": 5.0,
+        "Ca": 7.6,
+        "Na": 7.3,
+        "K": 3.2
+      }
+    },
+    {
+      "name": "Glass std GSD-1G",
+      "category": "georem_standard",
+      "basis": "atom_counts",
+      "composition": {
+        "Si": 51.2,
+        "Al": 15.2,
+        "Fe": 10.7,
+        "Mg": 5.2,
+        "Ca": 7.4,
+        "Na": 6.7,
+        "K": 3.7
+      }
+    },
+    {
+      "name": "Glass std GOR128-G",
+      "category": "georem_standard",
+      "basis": "atom_counts",
+      "composition": {
+        "Si": 21.7,
+        "Al": 5.5,
+        "Fe": 3.9,
+        "Mg": 18.3,
+        "Ca": 3.1,
+        "Na": 0.5,
+        "F": 37.2,
+        "Cl": 9.6
+      }
+    },
+    {
+      "name": "Glass std BHVO-2G",
+      "category": "georem_standard",
+      "basis": "atom_counts",
+      "composition": {
+        "Si": 46.8,
+        "Al": 15.2,
+        "Fe": 9.0,
+        "Mg": 10.1,
+        "Ca": 11.6,
+        "Na": 4.4,
+        "K": 0.6,
+        "Ti": 2.0
+      }
+    },
+    {
+      "name": "Glass std BCR-2G",
+      "category": "georem_standard",
+      "basis": "atom_counts",
+      "composition": {
+        "Si": 52.3,
+        "Al": 15.2,
+        "Fe": 10.0,
+        "Mg": 5.1,
+        "Ca": 7.3,
+        "Na": 6.0,
+        "K": 2.1,
+        "Ti": 1.6
+      }
+    },
+    {
+      "name": "Glass std BB1",
+      "category": "georem_standard",
+      "basis": "atom_counts",
+      "composition": {
+        "Si": 48.6,
+        "Al": 22.6,
+        "Ca": 6.5,
+        "Na": 16.0,
+        "K": 1.6,
+        "Cl": 4.6
+      }
+    },
+    {
+      "name": "Glass std SP",
+      "category": "georem_standard",
+      "basis": "atom_counts",
+      "composition": {
+        "Si": 48.9,
+        "Al": 19.7,
+        "Ca": 1.6,
+        "Na": 22.4,
+        "K": 1.3,
+        "Cl": 6.1
+      }
+    },
+    {
+      "name": "Std UGY(mica)",
+      "category": "georem_standard",
+      "basis": "atom_counts",
+      "composition": {
+        "Si": 36.5,
+        "Ti": 1.4,
+        "Al": 14.8,
+        "Fe": 6.2,
+        "Mg": 27.9,
+        "Na": 0.5,
+        "K": 12.3
+      }
+    },
+    {
+      "name": "Std BFS-AMP(amph)",
+      "category": "georem_standard",
+      "basis": "atom_counts",
+      "composition": {
+        "Si": 41.7,
+        "Ti": 0.8,
+        "Al": 11.9,
+        "Fe": 15.2,
+        "Mg": 13.7,
+        "Ca": 12.1,
+        "Na": 2.6,
+        "K": 1.7
+      }
+    },
+    {
+      "name": "Std BFS-AP(apatite)",
+      "category": "georem_standard",
+      "basis": "atom_counts",
+      "composition": {
+        "Ca": 56.0,
+        "P": 34.0,
+        "F": 9.5
+      }
+    },
+    {
+      "name": "Std DAP(apatite)",
+      "category": "georem_standard",
+      "basis": "atom_counts",
+      "composition": {
+        "Ca": 54.1,
+        "P": 32.8,
+        "F": 12.4
+      }
+    },
+    {
+      "name": "Std MDAP(apatite)",
+      "category": "georem_standard",
+      "basis": "atom_counts",
+      "composition": {
+        "Ca": 57.3,
+        "P": 35.5,
+        "F": 6.7
+      }
+    },
+    {
+      "name": "Std ODAP(apatite)",
+      "category": "georem_standard",
+      "basis": "atom_counts",
+      "composition": {
+        "Mg": 0.5,
+        "Ca": 59.2,
+        "Na": 1.0,
+        "P": 38.4,
+        "F": 0.5
+      }
+    }
+  ],
+  "verification_fixture": {
+    "note": "PUBLIC GeoReM preferred values (Standards.xlsx 'Compiled' sheet). Fe as FeO total. Converting these must reproduce the stored V2 cation proportions.",
+    "standards": {
+      "Glass std GSE-1G": {
+        "source_column": "Compiled!C (GeoReM preferred)",
+        "oxide_wt_percent": {
+          "SiO2": 53.7,
+          "Al2O3": 13.0,
+          "FeO": 12.7,
+          "MgO": 3.5,
+          "CaO": 7.4,
+          "Na2O": 3.9,
+          "K2O": 2.6
+        }
+      },
+      "Glass std GSD-1G": {
+        "source_column": "Compiled!E (GeoReM preferred)",
+        "oxide_wt_percent": {
+          "SiO2": 53.2,
+          "Al2O3": 13.4,
+          "FeO": 13.3,
+          "MgO": 3.6,
+          "CaO": 7.2,
+          "Na2O": 3.6,
+          "K2O": 3.0
+        }
+      }
+    }
+  },
+  "known_manual_decisions": [
+    "Minor-oxide inclusion for some standards (e.g. BHVO-2G, BCR-2G) reflects a legacy extraction decision (TiO2 retained; trace P2O5/MnO dropped) not captured in this manifest; those standards are therefore excluded from the executable fixture. The clean 7-element standards GSE-1G and GSD-1G reproduce their stored cation proportions exactly and verify the conversion.",
+    "Fe is reported as FeO (total Fe); no Fe3+/Fe2+ split is applied.",
+    "Oxygen is excluded at match time (structural_exclude = O, Br, I)."
+  ]
+}
