@@ -34,6 +34,17 @@ def test_cached_archive_reused_when_digest_matches(tmp_path):
     assert out == dest
 
 
+def test_cached_archive_is_verified_against_official_checksum_when_not_supplied(
+        tmp_path, monkeypatch):
+    """A pre-existing archive must not bypass the integrity check."""
+    dest = tmp_path / nist_pgm.ARCHIVE_NAME
+    _write(dest, b"fake archive bytes")
+    monkeypatch.setattr(nist_pgm, "fetch_official_sha256", lambda *a, **k: "0" * 64)
+
+    with pytest.raises(nist_pgm.DatasetIntegrityError, match="mismatch"):
+        nist_pgm.download_and_verify(tmp_path)
+
+
 def test_cached_archive_mismatch_is_never_silently_replaced(tmp_path):
     dest = tmp_path / nist_pgm.ARCHIVE_NAME
     _write(dest, b"fake archive bytes")

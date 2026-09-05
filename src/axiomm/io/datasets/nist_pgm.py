@@ -89,13 +89,12 @@ def download_and_verify(cache_dir: str | Path, *, url: str = DATASET["archive_ur
     cache_dir = Path(cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
     dest = cache_dir / ARCHIVE_NAME
+    expected = expected_sha256 or fetch_official_sha256(sha256_url, timeout=timeout)
 
     if dest.exists() and not force:
-        if expected_sha256 is not None:
-            _verify(dest, expected_sha256)          # raises on mismatch (no silent replace)
+        _verify(dest, expected)
         return dest
 
-    expected = expected_sha256 or fetch_official_sha256(sha256_url, timeout=timeout)
     tmp = dest.with_suffix(dest.suffix + ".part")
     urllib.request.urlretrieve(url, tmp)
     try:
