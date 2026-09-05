@@ -381,12 +381,17 @@ Use the **basis-audited** `MINERALOGY_DEFAULT_V2`; the legacy
 without one — it is recorded prominently).
 
 The end-to-end output AXIOMM is built for — a **mineral phase map** — is shown
-by [`examples/phase_map_demo.py`](../../examples/phase_map_demo.py), which runs
-the whole pipeline (decomposition → clustering → cluster means → peaks →
-k-factors → quantification → reliability → matching) on a synthetic map built
-from this open reference chemistry and renders the phase map beside each step:
+by [`examples/phase_map_demo.py`](../../examples/phase_map_demo.py), a
+**synthetic self-consistency integration demo**: it runs the whole pipeline
+(decomposition → clustering → cluster means → peaks → k-factors →
+quantification → reliability → matching) on a *synthetic* map and renders the
+phase map beside each step. Because the observations are generated from the
+same references the pipeline consumes, it demonstrates that the stages fit
+together — **not** measurement accuracy; the spectra are synthetic
+observations, not real chemistry. For measured data see the separate real-data
+demonstration (`examples/REALDATA.md`).
 
-![AXIOMM phase-map proof of concept](../../examples/output/axiomm_phase_map_demo.png)
+![AXIOMM synthetic self-consistency phase map](../../examples/output/axiomm_phase_map_demo.png)
 
 ```python
 from axiomm.analysis.mineralogy import MINERALOGY_DEFAULT_V2 as REF

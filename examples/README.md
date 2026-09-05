@@ -1,47 +1,63 @@
 # AXIOMM examples
 
-Runnable proof-of-concept scripts. Install the extras they need:
+Runnable demonstrations. Install the extras they need:
 
 ```bash
 pip install -e ".[all,quant,viz]"
 ```
 
-## `phase_map_demo.py` — spectra → mineral phase map
+Two clearly separate kinds of demo:
 
-Runs the full stage-two pipeline end to end and renders the output AXIOMM is
-built for — a **mineral phase map** — beside each intermediate step:
+| Script | Kind | What it establishes |
+|---|---|---|
+| `phase_map_demo.py` | **synthetic self-consistency integration demo** | the pipeline stages fit together and are deterministic — **not** accuracy |
+| `nist_pgm_realdata.py` | **real-data exploratory demonstration** | the pipeline runs on measured NIST data — observational, not standards-validated |
+
+---
+
+## `phase_map_demo.py` — synthetic self-consistency integration demo
+
+Runs the whole stage-two pipeline end to end on a **synthetic** map and renders
+a mineral phase map beside each step:
 
 ```bash
 python examples/phase_map_demo.py
 # -> examples/output/axiomm_phase_map_demo.png
 ```
 
-![AXIOMM phase-map proof of concept](output/axiomm_phase_map_demo.png)
+![AXIOMM synthetic self-consistency phase map](output/axiomm_phase_map_demo.png)
 
 **The scene** is a petrographic texture, not a test pattern: an interlocking
 Voronoi grain mosaic at a realistic modal abundance, a cross-cutting apatite
-vein, and a compositionally **zoned olivine phenocryst** (forsterite core,
-fayalitic rim).
+vein, and a compositionally zoned olivine phenocryst (forsterite core, fayalitic
+rim).
 
-**Pipeline shown:** synthetic X-ray map → PCA decomposition → GMM clustering →
-per-cluster mean spectra → peak net intensities → theoretical Cliff-Lorimer
-k-factors → element/oxide wt% → reliability gate → **mineral matching** →
-phase map. The recovered phase map reproduces the grain mosaic and the vein,
-and — notably — resolves the phenocryst's **zoning** into separate Forsterite
-(core) and Fayalite (rim) phases (see the two olivine spectra: Mg-dominant vs
-Fe-dominant). A matched modal-mineralogy bar chart gives a quantitative read-out.
+**Pipeline exercised:** synthetic X-ray map → PCA → GMM clustering → cluster
+mean spectra → peak net intensities → theoretical Cliff-Lorimer k-factors →
+element/oxide wt% → reliability gate → mineral matching → phase map. The
+recovered phase map reproduces the grain mosaic and vein and resolves the
+phenocryst's zoning into separate Forsterite (core) and Fayalite (rim) phases;
+a modal-area-fraction bar chart summarises the result.
 
-**About the data.** Real hyperspectral geology maps are large and not
-pip-installable, so the *spatial texture is simulated* while the *chemistry is
-real and open*: every phase is drawn from the basis-audited
-`MINERALOGY_DEFAULT_V2` endmembers (idealised formulae plus GeoReM/EPMA-derived
-standards). Per-pixel peak areas are placed as `sensitivity × mass_fraction` so
-the **actual** Cliff-Lorimer quantifier recovers the input chemistry — the real
-pipeline runs; only the input image is synthetic. It is a proof of concept, not
-measured data. **Standards validation remains mandatory** before any
-quantitative-accuracy or validated mineral-identification claim.
+**This is a self-consistency check, not validation.** The observations are
+*generated* from the same reference compositions and fluorescence sensitivities
+the quantifier and matcher later use, so recovering the input phases shows the
+stages are internally consistent — it says nothing about measurement accuracy.
+The reference *compositions* are scientifically grounded (idealised formulae +
+GeoReM/EPMA-derived standards in `MINERALOGY_DEFAULT_V2`), but the *spectra
+generated from them are synthetic observations*, not real chemistry, and the
+modal fractions are **not** a standards-validated measurement. **Standards
+validation remains mandatory** before any quantitative-accuracy or validated
+mineral-identification claim. It doubles as a deterministic round-trip
+integration test (`tests/analysis/test_phase_map_demo_integration.py`).
 
-> Want it run on a *real* open dataset instead of a synthetic texture? Point me
-> at a redistributable source (e.g. a CC-licensed EDS/EPMA map on Zenodo) and I
-> can wire an adapter — real hyperspectral maps just aren't pip-installable, so
-> they can't be bundled here.
+---
+
+## `nist_pgm_realdata.py` — real-data exploratory demonstration
+
+Runs AXIOMM on the NIST *SEM/EDS hyperspectral data set from platinum group
+mineral ore embedded in epoxy* (DOI
+[10.18434/mds2-2471](https://doi.org/10.18434/mds2-2471), NIST open licence).
+See `examples/REALDATA.md` for the downloader, verification, what the run does
+and does **not** establish (it is pipeline testing on real data, **not**
+standards-based quantitative validation), and the exact reproducible commands.

@@ -1,25 +1,30 @@
-"""AXIOMM end-to-end proof of concept: spectra -> mineral phase map.
+"""AXIOMM synthetic self-consistency integration demo: spectra -> phase map.
 
-Runs the whole stage-two analysis pipeline on a synthetic but **geologically
-realistic** X-ray map and renders the target output — a mineral phase map —
-beside the intermediate steps.
+Runs the whole stage-two analysis pipeline on a **synthetic** X-ray map with a
+geologically shaped texture and renders a mineral phase map beside the
+intermediate steps. Its role is a **deterministic round-trip integration
+demo** — it exercises ingestion → decomposition → clustering → cluster spectra
+→ peaks → quantification → reliability → matching end to end and checks the
+pieces fit together. It is **not** empirical validation and says nothing about
+quantitative accuracy.
+
+**Self-consistency caveat.** The observations here are *generated* from the
+same reference compositions and fluorescence sensitivities that the quantifier
+and matcher later use, so recovering the input phases demonstrates internal
+consistency, not measurement accuracy. The reference *compositions* are
+scientifically grounded (idealised formulae + GeoReM/EPMA-derived standards in
+``MINERALOGY_DEFAULT_V2`), but the *spectra generated from them are synthetic
+observations*, not real chemistry. Per-pixel peak areas are placed as
+``sensitivity_i * mass_fraction_i``, which is exactly why the quantifier
+recovers the inputs. For real measured data see the separate NIST real-data
+demonstration (``examples/nist_pgm_realdata.py``). **Standards validation
+remains mandatory** before any quantitative-accuracy or validated
+mineral-identification claim; the demo makes no such claim.
 
 **The scene** is a petrographic texture, not a test pattern: interlocking
 mineral grains (a Voronoi mosaic at a realistic modal abundance), a
-cross-cutting apatite vein, and a compositionally **zoned olivine phenocryst**
-(forsterite core grading to a fayalitic rim). It exercises what AXIOMM is for:
-resolving many irregular phases and intra-grain zoning.
-
-**About the data.** Real hyperspectral geology maps are large and not
-pip-installable, so the *spatial texture is synthetic* while the *chemistry is
-real and open*: every phase is drawn from the basis-audited
-``MINERALOGY_DEFAULT_V2`` endmembers (idealised formulae + GeoReM/EPMA-derived
-standards). Per-pixel peak areas are placed as ``sensitivity_i *
-mass_fraction_i`` so the **actual** Cliff-Lorimer quantifier recovers the input
-chemistry — the full real pipeline runs; only the input image is simulated.
-This is a proof of concept, not measured data; **standards validation remains
-mandatory** before any quantitative-accuracy or validated
-mineral-identification claim.
+cross-cutting apatite vein, and a compositionally zoned olivine phenocryst
+(forsterite core grading to a fayalitic rim).
 
 Run:  python examples/phase_map_demo.py   (needs the [all] / [viz] + [quant] extras)
 Output: examples/output/axiomm_phase_map_demo.png
@@ -144,7 +149,13 @@ def build_scene(energy, sensitivities, elements, rng):
     return cube, phase
 
 
-def run():
+def run(*, save: bool = True, verbose: bool = True):
+    """Run the synthetic self-consistency pipeline; optionally render the figure.
+
+    Returns a dict with ``best`` (cluster_id -> matched mineral or 'unresolved'),
+    ``matches`` and ``means`` so it can be driven as a deterministic integration
+    test (``save=False`` skips plotting and needs no matplotlib).
+    """
     rng = np.random.default_rng(SEED)
     energy = np.arange(N_CHANNELS) * SCALE_KEV
     elements = REF.elements
@@ -153,7 +164,7 @@ def run():
 
     cube, gt_phase = build_scene(energy, k.sensitivities, elements, rng)
 
-    # --- the real AXIOMM pipeline -----------------------------------------
+    # --- the AXIOMM analysis pipeline (on synthetic observations) ---------
     axes = (
         AxisSpec("y", "navigation", NAV[0], index_in_array=0),
         AxisSpec("x", "navigation", NAV[1], index_in_array=1),
@@ -185,14 +196,16 @@ def run():
 
     best = {mres.cluster_id: (mres.best().name if mres.best() else "unresolved")
             for mres in matches}
-    print("Cluster -> best-match mineral (score):")
-    for mres in matches:
-        top = mres.best()
-        print(f"  cluster {mres.cluster_id}: "
-              f"{top.name+f' ({top.score:.3f})' if top else 'unresolved'}")
+    if verbose:
+        print("Cluster -> best-match mineral (score):")
+        for mres in matches:
+            top = mres.best()
+            print(f"  cluster {mres.cluster_id}: "
+                  f"{top.name+f' ({top.score:.3f})' if top else 'unresolved'}")
 
-    _plot(cube, energy, gt_phase, clustering, means, best, elements)
-    return best
+    if save:
+        _plot(cube, energy, gt_phase, clustering, means, best, elements)
+    return {"best": best, "matches": matches, "means": means}
 
 
 def _plot(cube, energy, gt_phase, clustering, means, best, elements):
@@ -218,7 +231,7 @@ def _plot(cube, energy, gt_phase, clustering, means, best, elements):
         return m / m.max() if m.max() else m
 
     fig, ax = plt.subplots(2, 3, figsize=(16, 9.5))
-    fig.suptitle("AXIOMM — synthetic proof of concept: X-ray spectra → mineral phase map\n"
+    fig.suptitle("AXIOMM — synthetic self-consistency integration demo: spectra → phase map\n"
                  "(petrographic texture; chemistry from open MINERALOGY_DEFAULT_V2, "
                  "spatial map simulated)", fontsize=13)
 
@@ -236,7 +249,8 @@ def _plot(cube, energy, gt_phase, clustering, means, best, elements):
     ax[1, 0].legend(handles=[Patch(facecolor=colour[n], label=n) for n in present],
                     loc="upper center", bbox_to_anchor=(0.5, -0.06), ncol=3, fontsize=8)
 
-    # matched modal mineralogy (area fraction) — a quantitative read-out
+    # matched modal mineralogy (area fraction) — a self-consistency summary,
+    # NOT a standards-validated quantitative measurement
     frac = {n: float((pred == n).mean()) for n in present}
     order = sorted(frac, key=frac.get, reverse=True)
     ax[1, 1].barh(range(len(order)), [frac[n] * 100 for n in order],
@@ -245,7 +259,7 @@ def _plot(cube, energy, gt_phase, clustering, means, best, elements):
     ax[1, 1].set_yticklabels(order, fontsize=8)
     ax[1, 1].invert_yaxis()
     ax[1, 1].set_xlabel("area %")
-    ax[1, 1].set_title("Matched modal mineralogy")
+    ax[1, 1].set_title("Modal area fraction (self-consistency, not validated)")
 
     # overlay two cluster-mean spectra that matched different olivines (zoning)
     ax[1, 2].set_title("Cluster mean spectra (olivine zoning)")
