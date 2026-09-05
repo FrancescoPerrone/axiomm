@@ -68,7 +68,10 @@ options, in order of explicitness:
 | `"auto"` *(default)*           | Iterates registered readers; picks the one whose `can_read(path)` is `True`. Raises `ReaderDetectionError` if none or more than one accept. |
 
 The registry covers AXIOMM's built-in readers (`XRMMapH5Reader`,
-`GenericHDF5MapReader`) and **any third-party readers** installed
+`GenericHDF5MapReader`, and `BrukerBCFReader` — the last reads Bruker
+`.bcf` SEM/STEM-EDS spectrum images via RosettaSciIO/HyperSpy at the
+edge, so `convert_file("map.bcf")` auto-detects it) and **any
+third-party readers** installed
 alongside AXIOMM that declare an `axiomm.readers` Python
 [entry point](#extending-axiomm-with-custom-readers-and-writers). On
 `reader="auto"` the registry is consulted in registration order and

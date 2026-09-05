@@ -11,7 +11,13 @@ Two clearly separate kinds of demo:
 | Script | Kind | What it establishes |
 |---|---|---|
 | `phase_map_demo.py` | **synthetic self-consistency integration demo** | the pipeline stages fit together and are deterministic — **not** accuracy |
-| `nist_pgm_realdata.py` | **real-data exploratory demonstration** | the pipeline runs on measured NIST data — observational, not standards-validated |
+| `bcf_inspect.py` | **real-data** (STEM-EDS `.bcf`) | inspects a real Bruker spectrum image: facts, provenance, quick-look |
+| `bcf_pipeline.py` | **real-data** (STEM-EDS `.bcf`) | runs the full pipeline on real measured data; abstains when chemistry is out of reference scope |
+| `nist_pgm_realdata.py` | **real-data** (SEM/EDS, NIST) | downloader + inspection for the NIST PGM set (blocked upstream; see REALDATA.md) |
+
+The synthetic and real-data demos are kept deliberately separate in code and
+claims. Real datasets and every generated output stay **outside** the git
+repository (licence + size).
 
 ---
 
@@ -53,7 +59,29 @@ integration test (`tests/analysis/test_phase_map_demo_integration.py`).
 
 ---
 
-## `nist_pgm_realdata.py` — real-data exploratory demonstration
+## `bcf_inspect.py` / `bcf_pipeline.py` — real STEM-EDS Bruker `.bcf`
+
+Ingest a **real** STEM-EDS spectrum image (an open Bruker `.bcf`) via the
+pluggable `bruker_bcf` reader — the same reader `convert_file` auto-detects.
+`bcf_inspect.py` records the file's facts, provenance and a quick-look; then
+`bcf_pipeline.py` runs the genuine pipeline (read → PCA → GMM → cluster spectra
+→ peaks). Both are opt-in and gated by `AXIOMM_REALDATA_BCF`:
+
+```bash
+pip install -e ".[all,quant,viz]"
+export AXIOMM_REALDATA_BCF=/abs/path/EDS_dataset.bcf
+python examples/bcf_inspect.py "$AXIOMM_REALDATA_BCF"
+python examples/bcf_pipeline.py "$AXIOMM_REALDATA_BCF"
+pytest -m realdata            # opt-in; skips cleanly without the env var / data
+```
+
+This is **real-data pipeline evidence, not standards-based validation**: it is
+STEM (not SEM), materials science (not mineral ground truth), and its chemistry
+is outside AXIOMM's silicate/oxide reference — so quantification and mineral
+matching **abstain**, which is the correct outcome. The `.bcf` is GPL-3.0; the
+binary and all outputs are kept outside the repository. See `examples/REALDATA.md`.
+
+## `nist_pgm_realdata.py` — SEM/EDS (NIST PGM), download blocked upstream
 
 Runs AXIOMM on the NIST *SEM/EDS hyperspectral data set from platinum group
 mineral ore embedded in epoxy* (DOI
