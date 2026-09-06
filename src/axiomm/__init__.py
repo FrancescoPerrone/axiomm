@@ -11,4 +11,20 @@ from __future__ import annotations
 
 __version__ = "0.1.0.dev0"
 
-__all__ = ["__version__"]
+__all__ = ["Pipeline", "__version__"]
+
+
+def __getattr__(name: str):
+    # Lazily expose the front door so `from axiomm import Pipeline` works while
+    # a bare `import axiomm` (or importing any submodule) stays minimal and free
+    # of import side effects — the pipeline + analysis backends load only when
+    # Pipeline is actually requested. See PEP 562.
+    if name == "Pipeline":
+        from axiomm.pipeline import Pipeline
+
+        return Pipeline
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    return sorted(__all__)
