@@ -18,15 +18,15 @@ work.
 > matures.
 
 > 📌 **About this README.** The **converter** (`axiomm.io.converters`)
-> is the most end-user-ready tool, so this README documents it. The
-> **analysis suite** (`axiomm.analysis.*`, stage two) has grown
-> substantially — decomposition, clustering, a mineralogy reference,
-> peak identification, theoretical k-factors, Cliff-Lorimer
-> quantification, a reliability gate, and **exploratory mineral
-> matching** are all implemented as composable tools, and the pipeline
-> now also runs on real measured EDS data (see `examples/`). It is not
-> yet a single user-facing workflow (a composed `axiomm.pipeline` and a
-> UX layer come later); see the
+> turns instrument files into analysis-ready signals; the **analysis
+> suite** (`axiomm.analysis.*`, stage two) takes it from there —
+> decomposition, clustering, a mineralogy reference, peak
+> identification, theoretical k-factors, Cliff-Lorimer quantification, a
+> reliability gate, and exploratory mineral matching, all as composable
+> tools. `axiomm.Pipeline` (below) ties the analysis chain into one
+> call and is the recommended starting point; the individual tools stay
+> available for tuning a single stage. A friendly UX layer comes later;
+> see the
 > [Roadmap](https://github.com/FrancescoPerrone/axiomm/wiki/Roadmap).
 
 ## Scientific scope
@@ -49,6 +49,39 @@ pluggable end-to-end — readers, signal builders, and writers are
 protocols, not a hard-wired pipeline — so additional instrument formats
 and analysis backends drop in alongside the existing ones rather than
 replacing them.
+
+## Quick start — the pipeline
+
+The analysis suite is meant to be reached through one object. Give
+`axiomm.Pipeline` a map and it runs the whole chain — decomposition,
+clustering, mean spectra, and (when you supply a beam energy and a
+mineral reference) quantification and mineral matching — and hands back a
+single result you can read, plot, and save:
+
+```python
+from axiomm import Pipeline
+
+# clusters + mean spectra, no chemistry required
+result = Pipeline().run("map.bcf")
+
+# add mineral identification
+result = Pipeline(beam_energy_kev=20).run("map.bcf")
+
+print(result.summary())
+for row in result.clusters:          # one plain row per mineral group
+    print(row)
+
+result.phase_map                     # per-pixel mineral name (when minerals ran)
+result.save("out/")                  # a self-describing folder you can reload
+```
+
+It does as much as the data and settings allow and **skips honestly**:
+with no beam energy or reference it stops after clustering; a cluster
+whose chemistry falls outside the reference library is reported
+`"unresolved"` rather than mislabelled. See
+[`examples/pipeline_quickstart.py`](examples/pipeline_quickstart.py) for a
+runnable end-to-end demo and [`docs/user/analysis.md`](docs/user/analysis.md)
+for the individual tools underneath.
 
 ## What's in AXIOMM today
 

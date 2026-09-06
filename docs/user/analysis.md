@@ -3,12 +3,46 @@
 The `axiomm.analysis` package is a suite of small, independent tools for
 turning a converted spectrum-image signal into decomposition, clustering,
 per-line intensities, and quantitative composition. Each tool is
-**usable on its own** and the tools **compose by hand** (a full pipeline
-object and command-line interface are not built yet).
+**usable on its own** and the tools **compose by hand**.
 
 This page shows, for every tool available today, the exact import, a
 minimal runnable example, and its real output. Every snippet below was run
 as shown.
+
+## Start here — the pipeline
+
+Most of the time you do not need to wire the tools together yourself.
+`axiomm.Pipeline` runs the whole chain in one call and hands back one
+result you can read, plot, and save:
+
+```python
+from axiomm import Pipeline
+
+# clusters + mean spectra (no chemistry needed)
+result = Pipeline().run("map.bcf")
+
+# add mineral identification: give it the beam energy and a reference library
+result = Pipeline(beam_energy_kev=20).run("map.bcf")
+
+print(result.summary())
+for row in result.clusters:      # one plain row per mineral group
+    print(row)                   # {'cluster_id': 0, 'pixels': ..., 'best_match': ..., 'score': ...}
+
+result.phase_map                 # per-pixel mineral name (when minerals ran)
+result.save("out/")              # a self-describing folder you can reload
+```
+
+The pipeline does as much as the data and your settings support and
+**skips honestly** rather than forcing a result: with no beam energy or
+reference it stops after clustering and records a diagnostic saying so; a
+cluster whose chemistry falls outside the reference library comes back as
+`"unresolved"` rather than mislabelled.
+
+A runnable end-to-end example is in
+[`examples/pipeline_quickstart.py`](../../examples/pipeline_quickstart.py).
+
+The rest of this page documents the individual tools the pipeline is built
+from — reach for them when you want to run or tune one stage on its own.
 
 ## Install
 

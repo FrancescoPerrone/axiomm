@@ -10,6 +10,7 @@ Two clearly separate kinds of demo:
 
 | Script | Kind | What it establishes |
 |---|---|---|
+| `pipeline_quickstart.py` | **start here** (synthetic) | the one-call `from axiomm import Pipeline` front door, end to end |
 | `phase_map_demo.py` | **synthetic self-consistency integration demo** | the pipeline stages fit together and are deterministic — **not** accuracy |
 | `bcf_inspect.py` | **real-data** (STEM-EDS `.bcf`) | inspects a real Bruker spectrum image: facts, provenance, quick-look |
 | `bcf_pipeline.py` | **real-data** (STEM-EDS `.bcf`) | runs the full pipeline on real measured data; abstains when chemistry is out of reference scope |
@@ -18,6 +19,24 @@ Two clearly separate kinds of demo:
 The synthetic and real-data demos are kept deliberately separate in code and
 claims. Real datasets and every generated output stay **outside** the git
 repository (licence + size).
+
+---
+
+## `pipeline_quickstart.py` — the one-call front door
+
+The shortest path into AXIOMM: `from axiomm import Pipeline`, hand it a map,
+read the result. It runs on a small synthetic two-domain map so it works
+anywhere with no data download (a real run passes a file path instead):
+
+```bash
+pip install -e ".[all,quant]"
+python examples/pipeline_quickstart.py
+```
+
+It prints the run summary, one plain row per mineral group, and the per-phase
+pixel counts. Like `phase_map_demo.py` it is a **synthetic self-consistency**
+demo — it shows the API and that the stages fit together, not measurement
+accuracy.
 
 ---
 
