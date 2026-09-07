@@ -8,6 +8,7 @@ lazily inside :meth:`Pipeline.run`, so ``from axiomm import Pipeline`` is cheap.
 
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 
 import numpy as np
@@ -61,12 +62,11 @@ class Pipeline:
         diagnostics: list[Diagnostic] = []
         payload = self._read_payload(source)
 
-        # decomposition (seeded) -> clustering -> cluster mean spectra
-        from axiomm.analysis.decomposition.sklearn_pca import SklearnPCADecomposer
-        decomp = SklearnPCADecomposer(random_state=cfg.seed).decompose(
-            payload, n_components=cfg.components)
-        clustering = GMMClusterer(
-            n_clusters=cfg.groups, config=GMMConfig(random_state=cfg.seed)).cluster(decomp)
+        # dimensional reduction -> clustering -> cluster mean spectra (pluggable)
+        reducer, n_components = self._resolve_reduction(cfg, diagnostics)
+        decomp = reducer.decompose(payload, n_components=n_components)
+        clusterer = self._resolve_clustering(cfg, diagnostics)
+        clustering = clusterer.cluster(decomp)
         means = compute_cluster_means(clustering, payload)
         diagnostics += list(decomp.diagnostics) + list(clustering.diagnostics) + list(means.diagnostics)
 
@@ -103,6 +103,63 @@ class Pipeline:
             provenance=self._provenance(cfg, decomp, clustering, reference),
         )
         return PipelineResult(**result_kwargs)
+
+    # -- pluggable stage resolution ------------------------------------------
+    def _resolve_reduction(self, cfg, diagnostics):
+        """Return ``(decomposer, n_components)`` from ``cfg.reduction``.
+
+        ``None`` -> today's seeded PCA. An instance is used as-is (it owns its
+        own randomness). A name / ``{"name": ..., **ctor_kwargs}`` dict resolves
+        through the S1 ``decomposers`` registry; the pipeline seed is threaded as
+        ``random_state`` when the backend accepts it and the caller didn't set it.
+        ``n_components`` stays the ``components`` knob unless the dict overrides it.
+        """
+        spec = cfg.reduction
+        n_components = cfg.components
+        if spec is None:
+            from axiomm.analysis.decomposition.sklearn_pca import SklearnPCADecomposer
+            return SklearnPCADecomposer(random_state=cfg.seed), n_components
+        if hasattr(spec, "decompose"):
+            diagnostics.append(Diagnostic(
+                "info", "stage_instance_supplied",
+                "reduction supplied as an instance; its own random_state governs "
+                "reproducibility (the pipeline seed is not applied to it)."))
+            return spec, n_components
+        opts = {"name": spec} if isinstance(spec, str) else dict(spec)
+        name = opts.pop("name")
+        from axiomm.analysis.decomposition import decomposers
+        cls = type(decomposers.get(name))  # registry yields instances; take the class
+        if "n_components" in opts:
+            n_components = opts.pop("n_components")
+        if "random_state" not in opts and _accepts(cls, "random_state"):
+            opts["random_state"] = cfg.seed
+        return cls(**opts), n_components
+
+    def _resolve_clustering(self, cfg, diagnostics):
+        """Return a clusterer from ``cfg.clustering``.
+
+        ``None`` -> today's seeded GMM. An instance is used as-is. A name /
+        ``{"name": ..., **ctor_kwargs}`` dict resolves through the S2
+        ``clusterers`` registry (which yields the class); ``n_clusters`` defaults
+        to the ``groups`` knob and GMM backends are seeded from the pipeline seed.
+        """
+        spec = cfg.clustering
+        if spec is None:
+            return GMMClusterer(n_clusters=cfg.groups, config=GMMConfig(random_state=cfg.seed))
+        if hasattr(spec, "cluster"):
+            diagnostics.append(Diagnostic(
+                "info", "stage_instance_supplied",
+                "clustering supplied as an instance; its own n_clusters and "
+                "random_state govern (the pipeline groups/seed are not applied to it)."))
+            return spec
+        opts = {"name": spec} if isinstance(spec, str) else dict(spec)
+        name = opts.pop("name")
+        from axiomm.analysis.clustering import clusterers
+        cls = clusterers.get(name)  # registry yields the class
+        opts.setdefault("n_clusters", cfg.groups)
+        if issubclass(cls, GMMClusterer) and "config" not in opts:
+            opts["config"] = GMMConfig(random_state=cfg.seed)
+        return cls(**opts)
 
     # -- stages --------------------------------------------------------------
     def _quantify_and_match(self, payload, means, reference, cfg, diagnostics):
@@ -158,6 +215,8 @@ class Pipeline:
     def _config_dict(self) -> dict:
         c = self.config
         return {"groups": c.groups, "components": c.components,
+                "reduction": _stage_name(c.reduction, "pca"),
+                "clustering": _stage_name(c.clustering, "gmm"),
                 "reference": c.reference if isinstance(c.reference, str) else getattr(c.reference, "name", "custom"),
                 "beam_energy_kev": c.beam_energy_kev,
                 "reference_element": c.reference_element, "seed": c.seed}
@@ -172,6 +231,25 @@ class Pipeline:
             "reference_version": getattr(reference, "version", None),
             "beam_energy_kev": cfg.beam_energy_kev,
         }
+
+
+def _accepts(cls, param: str) -> bool:
+    """Whether ``cls.__init__`` takes a keyword named ``param``."""
+    try:
+        return param in inspect.signature(cls.__init__).parameters
+    except (TypeError, ValueError):  # pragma: no cover - builtins without a signature
+        return False
+
+
+def _stage_name(spec, default: str) -> str:
+    """A short, provenance-friendly name for a stage spec."""
+    if spec is None:
+        return default
+    if isinstance(spec, str):
+        return spec
+    if isinstance(spec, dict):
+        return spec.get("name", "custom")
+    return type(spec).__name__
 
 
 def run(source, **kwargs) -> PipelineResult:
