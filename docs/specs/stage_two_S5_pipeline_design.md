@@ -113,8 +113,53 @@ readers, so HyperSpy/h5py remain optional.
 8. Reads like plain English: the one-liner and the result attributes need no
    knowledge of the underlying tool names.
 
-## 9. Deferred (not in the first build)
+## 9. Pluggable stages (refinement)
+
+The pipeline reflects the real analysis work: each stage is a decision the user
+makes, not a fixed recipe. The reader stage is already pluggable (auto-detected
+via the converter registry); this refinement makes **dimensional reduction** and
+**clustering** selectable too, behind one uniform, plain convention — while the
+one-line default stays exactly as easy.
+
+`PipelineConfig` gains two fields beside the simple `components` / `groups` knobs:
+
+- `reduction` — the dimensional-reduction backend
+- `clustering` — the clustering backend
+
+Each accepts **four forms**:
+
+1. `None` (default) — today's seeded PCA / GMM. `Pipeline().run(map)` is unchanged.
+2. a **name** (`"pca"`, `"gmm"`) — resolved through the S1/S2 backend registries,
+   built with the simple knobs (`components` / `groups` / `seed`).
+3. an **instance** (`SklearnPCADecomposer(...)`, `GMMClusterer(...)`) — used as-is;
+   the user owns its settings. An `info` diagnostic (`stage_instance_supplied`)
+   records that the pipeline's generic knobs don't govern that stage.
+4. a **dict** `{"name": ..., **options}` — name resolved via the registry,
+   remaining keys passed to the backend constructor. This form is serialisable —
+   the shape a saved-pipeline file or a future UI emits.
+
+A small internal resolver (`_resolve_reduction` / `_resolve_clustering`) absorbs
+the S1-vs-S2 registry difference (name→instance vs name→class) so the user-facing
+convention is uniform. Precedence is explicit: `seed` threads to the default/name
+paths (as `random_state` where the backend accepts it); `components` always
+applies to reduction; `groups` sets `n_clusters` on the name/dict paths; a
+hand-built instance carries its own params. Provenance records the chosen backend
+name for each stage. Unknown names raise `BackendNotFoundError`; a spec that is
+not name/instance/dict raises `PayloadValidationError` at config time.
+
+Scope: reduction + clustering only. Quantification, reliability, and matching are
+physics-bound and keep their existing typed configs; mapping/reporting is S4.
+
+**Forward-compatible by design:** this builds the socket; when S6 registers new
+backends (UMAP, HDBSCAN, …) under their names, they become selectable through the
+exact same `reduction=` / `clustering=` fields with no pipeline change. For GMM,
+the dict form reaches constructor arguments (`n_clusters`); deep GMM tuning lives
+on `GMMConfig`, so that stays the instance path.
+
+## 10. Deferred (not in this build)
 
 A GUI/notebook UX on top; streaming/lazy execution for very large maps; a
 full round-trip of the decomposition object (the manifest currently records it
-by provenance + shapes). These do not change the meaning of a stored result.
+by provenance + shapes); a class-resolving variant of the decomposition registry
+(the pipeline currently derives the class from the registry's instance). These do
+not change the meaning of a stored result.

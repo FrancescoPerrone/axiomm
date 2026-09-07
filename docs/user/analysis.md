@@ -38,6 +38,19 @@ reference it stops after clustering and records a diagnostic saying so; a
 cluster whose chemistry falls outside the reference library comes back as
 `"unresolved"` rather than mislabelled.
 
+Each stage is selectable. `reduction=` and `clustering=` each take a
+backend **name**, a constructed **backend instance**, or a
+`{"name": ..., **options}` **dict** (`None` keeps the seeded PCA / GMM
+defaults):
+
+```python
+Pipeline(reduction="pca", clustering={"name": "gmm", "n_clusters": 6}).run("map.bcf")
+```
+
+The defaults stay effortless; the same two fields are where future
+backends plug in, so a pipeline can mirror exactly the choices your
+analysis calls for.
+
 A runnable end-to-end example is in
 [`examples/pipeline_quickstart.py`](../../examples/pipeline_quickstart.py).
 

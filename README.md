@@ -75,6 +75,16 @@ result.phase_map                     # per-pixel mineral name (when minerals ran
 result.save("out/")                  # a self-describing folder you can reload
 ```
 
+Each stage is yours to choose. The defaults just work, but `reduction=`
+and `clustering=` accept a backend name, a constructed backend, or a
+`{"name": ..., **options}` dict — so a pipeline can reflect the exact
+choices your analysis calls for (and new backends plug into the same
+fields as they land):
+
+```python
+Pipeline(reduction="pca", clustering={"name": "gmm", "n_clusters": 6}).run("map.bcf")
+```
+
 It does as much as the data and settings allow and **skips honestly**:
 with no beam energy or reference it stops after clustering; a cluster
 whose chemistry falls outside the reference library is reported
