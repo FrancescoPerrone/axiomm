@@ -74,6 +74,9 @@ class ReportConfig:
     sections: tuple[str, ...] | None = None  # explicit order (None = registration order)
     embed_figures: bool = True               # figures inline as data URIs (only mode for now)
     theme: str | None = None                 # reserved for the later styling pass
+    interactive: bool = True                 # drag-to-arrange + click-to-edit in the browser
+    subtitle: str | None = None              # editable lede under the title
+    eyebrow: str | None = None               # small label above the title
     options: dict = field(default_factory=dict)  # per-section settings: {section_id: {...}}
     metadata: dict = field(default_factory=dict)
 
