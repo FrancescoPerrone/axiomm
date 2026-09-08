@@ -80,6 +80,17 @@ img, svg { max-width:100%; height:auto; display:block; margin-inline:auto; }
 .chip-good { color:var(--good); border-color:color-mix(in srgb,var(--good) 45%,transparent); }
 .chip-warn { color:var(--warn); border-color:color-mix(in srgb,var(--warn) 45%,transparent); }
 .chip-bad  { color:var(--bad);  border-color:color-mix(in srgb,var(--bad) 45%,transparent); }
+.rel-cluster { display:flex; flex-direction:column; gap:.4rem; padding:.6rem 0; }
+.rel-cluster + .rel-cluster { border-top:1px solid var(--border); }
+.rel-head { display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; }
+.rel-elems { display:flex; flex-wrap:wrap; gap:.35rem 1rem; }
+.rel-el { display:inline-flex; align-items:center; gap:.4rem; white-space:nowrap; font-size:.92em; }
+.rel-el .chip { margin:0; }
+.report-col { display:flex; flex-direction:column; gap:1.25rem; min-width:0; }
+@media (min-width:62rem){
+  .report-grid { flex-direction:row; align-items:flex-start; }
+  .report-col { flex:1 1 0; }
+}
 """.strip()
 
 
@@ -158,7 +169,8 @@ class HtmlReporter:
                              f'{escape(config.subtitle)}</p>')
 
         if sections:
-            grid_body = "".join(_render_section(s, interactive) for s in sections)
+            modules = "".join(_render_section(s, interactive) for s in sections)
+            grid_body = f'<div class="report-col">{modules}</div>'
         else:
             grid_body = '<p class="muted">No sections to display.</p>'
         grid = (f'<div class="report-grid" id="report-grid" data-report-id="{title}">'

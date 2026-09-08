@@ -48,6 +48,9 @@ def test_interactive_emits_modules_editables_and_script():
     for eid in ('page-title', 'page-lede', 'page-eyebrow', 'alpha-title', 'alpha-p1', 'beta-p1'):
         assert f'data-editable="{eid}"' in html, eid
     assert "<script>" in html and "localStorage" in html and "pointerdown" in html
+    # side-by-side columns board
+    assert 'class="report-col"' in html
+    assert "newcol-zone" in html and "state.columns" in html
 
 
 def test_static_mode_has_no_interactivity():

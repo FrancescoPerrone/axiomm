@@ -27,21 +27,20 @@ class ReliabilitySection:
         return bool(getattr(result, "reliability", None))
 
     def render(self, result, config) -> ReportSection:
-        blocks: list = ["Reliability verdicts from the quantification gate — a cluster "
+        blocks: list = ["Reliability verdicts from the quantification gate - a cluster "
                         "mean is never automatically a validated composition."]
         for rep in result.reliability:
             cid = rep.cluster_id
             elems = "".join(
-                f'<span style="white-space:nowrap;margin-right:.6em">{escape(sym)} '
-                f'{_chip(st)}</span>'
+                f'<span class="rel-el">{escape(sym)}{_chip(st)}</span>'
                 for sym, st in sorted(dict(rep.element_status).items()))
             reasons = ""
             if getattr(rep, "reasons", ()):
-                reasons = ('<span class="muted"> — ' +
-                           escape("; ".join(rep.reasons)) + "</span>")
+                reasons = f'<span class="muted">{escape("; ".join(rep.reasons))}</span>'
             blocks.append(Html(
-                f'<p><strong>cluster {cid}</strong> {_chip(rep.cluster_status)}{reasons}'
-                f'<br>{elems}</p>'))
+                f'<div class="rel-cluster"><div class="rel-head">'
+                f'<strong>cluster {cid}</strong>{_chip(rep.cluster_status)}{reasons}</div>'
+                f'<div class="rel-elems">{elems}</div></div>'))
         return ReportSection("reliability", "Reliability", blocks)
 
 

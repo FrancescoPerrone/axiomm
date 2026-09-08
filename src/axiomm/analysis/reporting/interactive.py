@@ -1,18 +1,19 @@
 """Client-side interactivity for HTML reports (stage two, S4).
 
 A self-contained, dependency-free layer the ``html`` backend injects so a report
-becomes a live workspace: modules drag to reorder (pointer events — works on
-touch and mouse), and the page title, section titles and paragraphs are edited in
-place. A viewer's arrangement and edits persist per-device in ``localStorage``;
-the default is exactly what was generated. Nothing is labelled — it is found by
-touch (a handle fades in on hover; text highlights when hovered). No external
-assets, so the report stays one offline-capable file.
+becomes a live workspace: modules drag to rearrange (pointer events — touch and
+mouse), and the page title, section titles and paragraphs edit in place. On a wide
+screen a module can be dropped on the right-edge zone to spin off a **new column**,
+so results, plots and tables sit **side by side** for comparison; columns collapse
+to a single stack on narrow screens. A viewer's arrangement and edits persist
+per-device in ``localStorage``; the default is exactly what was generated. Nothing
+is labelled — it is found by touch. No external assets, so the report stays one
+offline-capable file.
 """
 
 from __future__ import annotations
 
 INTERACTIVE_CSS = """
-.report-grid { display: flex; flex-direction: column; gap: 1.25rem; }
 .module { position: relative; }
 .module-handle { position: absolute; top: .55rem; right: .55rem; width: 1.5rem; height: 1.5rem;
   border-radius: 7px; cursor: grab; opacity: 0; transition: opacity .2s, background .2s;
@@ -24,6 +25,11 @@ INTERACTIVE_CSS = """
 @media (hover: none) { .module-handle { opacity: .35; } }
 .module.dragging { z-index: 30; box-shadow: 0 14px 34px rgba(0,0,0,.20); opacity: .98; }
 .module-placeholder { border: 2px dashed var(--border); border-radius: 10px; }
+.newcol-zone { align-self: stretch; width: .6rem; min-height: 8rem; border-radius: 8px;
+  border: 2px dashed color-mix(in srgb, var(--accent) 35%, transparent); opacity: 0;
+  transition: opacity .15s, background .15s; }
+.newcol-zone.show { opacity: .5; }
+.newcol-zone.active { opacity: 1; background: var(--accent-soft); }
 [data-editable] { border-radius: 5px; transition: background .15s; outline: none; }
 [data-editable]:hover { background: color-mix(in srgb, var(--accent) 9%, transparent); }
 [data-editable]:focus { background: color-mix(in srgb, var(--accent) 6%, transparent);
@@ -46,10 +52,10 @@ INTERACTIVE_JS = r"""
   function load() { try { return JSON.parse(localStorage.getItem(key)) || {}; } catch (e) { return {}; } }
   function save() { try { localStorage.setItem(key, JSON.stringify(state)); } catch (e) {} }
   var state = load();
-  state.order = state.order || [];
   state.edits = state.edits || {};
+  if (!state.columns && state.order) state.columns = [state.order];   // migrate old single-column
 
-  // --- editable text -------------------------------------------------------
+  // --- editable text (always on) ------------------------------------------
   document.querySelectorAll('[data-editable]').forEach(function (el) {
     var id = el.getAttribute('data-editable');
     if (state.edits[id] != null) el.textContent = state.edits[id];
@@ -61,18 +67,59 @@ INTERACTIVE_JS = r"""
     });
   });
 
-  // --- restore saved order -------------------------------------------------
-  state.order.forEach(function (id) {
-    var m = grid.querySelector('.module[data-module="' + id + '"]');
-    if (m) grid.appendChild(m);
-  });
-  function currentOrder() {
-    return Array.prototype.map.call(grid.querySelectorAll('.module'),
-      function (m) { return m.getAttribute('data-module'); });
+  // --- columns -------------------------------------------------------------
+  function cols() { return Array.prototype.slice.call(grid.querySelectorAll('.report-col')); }
+  function ensureCol() {
+    var c = grid.querySelector('.report-col');
+    if (!c) { c = document.createElement('div'); c.className = 'report-col'; grid.appendChild(c); }
+    return c;
   }
+  function moduleMap() {
+    var m = {};
+    grid.querySelectorAll('.module').forEach(function (x) { m[x.getAttribute('data-module')] = x; });
+    return m;
+  }
+  function applyColumns() {
+    if (!state.columns) return;
+    var byId = moduleMap(), used = {};
+    cols().forEach(function (c) { c.remove(); });
+    state.columns.forEach(function (ids) {
+      var real = ids.filter(function (id) { return byId[id]; });
+      if (!real.length) return;
+      var col = document.createElement('div'); col.className = 'report-col'; grid.appendChild(col);
+      real.forEach(function (id) { col.appendChild(byId[id]); used[id] = 1; });
+    });
+    var leftover = Object.keys(byId).filter(function (id) { return !used[id]; });
+    if (leftover.length) {
+      var col = grid.querySelector('.report-col') || ensureCol();
+      leftover.forEach(function (id) { col.appendChild(byId[id]); });
+    }
+    if (!cols().length) ensureCol();
+  }
+  function currentColumns() {
+    return cols().map(function (c) {
+      return Array.prototype.map.call(c.querySelectorAll('.module'),
+        function (m) { return m.getAttribute('data-module'); });
+    }).filter(function (a) { return a.length; });
+  }
+  function cleanup() {
+    cols().forEach(function (c) { if (!c.querySelector('.module')) c.remove(); });
+    if (!cols().length) ensureCol();
+  }
+  try { applyColumns(); } catch (e) {}
 
-  // --- pointer-drag reorder (touch + mouse) --------------------------------
-  var drag = null, ph = null, offY = 0;
+  // --- pointer-drag reorder + column moves --------------------------------
+  var drag = null, ph = null, offY = 0, zone = null, overZone = false;
+  function colUnder(x, y) {
+    var cs = cols(), best = null, bd = Infinity;
+    for (var i = 0; i < cs.length; i++) {
+      var r = cs[i].getBoundingClientRect();
+      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return cs[i];
+      var dx = x - (r.left + r.right) / 2, dy = y - (r.top + r.bottom) / 2, d = dx * dx + dy * dy;
+      if (d < bd) { bd = d; best = cs[i]; }
+    }
+    return best;
+  }
   grid.addEventListener('pointerdown', function (e) {
     var handle = e.target.closest('.module-handle');
     if (!handle) return;
@@ -92,6 +139,9 @@ INTERACTIVE_JS = r"""
     mod.style.left = r.left + 'px';
     mod.style.top = (e.clientY - offY) + 'px';
     mod.style.pointerEvents = 'none';
+    zone = document.createElement('div');
+    zone.className = 'newcol-zone show';
+    grid.appendChild(zone);
     if (handle.setPointerCapture) handle.setPointerCapture(e.pointerId);
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
@@ -99,25 +149,45 @@ INTERACTIVE_JS = r"""
   function onMove(e) {
     if (!drag) return;
     drag.style.top = (e.clientY - offY) + 'px';
-    var mods = Array.prototype.filter.call(grid.querySelectorAll('.module'),
+    overZone = false;
+    if (zone) {
+      var zr = zone.getBoundingClientRect();
+      overZone = e.clientX >= zr.left - 8 && e.clientX <= zr.right + 8
+                 && e.clientY >= zr.top && e.clientY <= zr.bottom;
+      zone.classList.toggle('active', overZone);
+    }
+    if (overZone) { if (ph.parentNode) ph.parentNode.removeChild(ph); return; }
+    var col = colUnder(e.clientX, e.clientY);
+    if (!col) return;
+    var mods = Array.prototype.filter.call(col.querySelectorAll('.module'),
       function (m) { return m !== drag; });
     var placed = false;
     for (var i = 0; i < mods.length; i++) {
       var r = mods[i].getBoundingClientRect();
-      if (e.clientY < r.top + r.height / 2) { grid.insertBefore(ph, mods[i]); placed = true; break; }
+      if (e.clientY < r.top + r.height / 2) { col.insertBefore(ph, mods[i]); placed = true; break; }
     }
-    if (!placed) grid.appendChild(ph);
+    if (!placed) col.appendChild(ph);
   }
   function onUp() {
     document.removeEventListener('pointermove', onMove);
     document.removeEventListener('pointerup', onUp);
     if (!drag) return;
-    grid.insertBefore(drag, ph);
-    ph.remove();
+    if (overZone) {
+      var col = document.createElement('div'); col.className = 'report-col';
+      grid.insertBefore(col, zone); col.appendChild(drag);
+    } else if (ph && ph.parentNode) {
+      ph.parentNode.insertBefore(drag, ph);
+    } else {
+      ensureCol().appendChild(drag);
+    }
+    if (ph && ph.parentNode) ph.parentNode.removeChild(ph);
+    if (zone && zone.parentNode) zone.parentNode.removeChild(zone);
     drag.classList.remove('dragging');
     drag.style.position = drag.style.top = drag.style.left = drag.style.width = drag.style.pointerEvents = '';
-    drag = null;
-    state.order = currentOrder();
+    drag = null; zone = null; overZone = false;
+    cleanup();
+    state.columns = currentColumns();
+    delete state.order;
     save();
   }
 
