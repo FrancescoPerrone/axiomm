@@ -90,6 +90,24 @@ class PipelineResult:
         run = "clusters+minerals" if self.minerals is not None else "clusters only"
         return f"<PipelineResult {run}, {len(self.clusters)} clusters>"
 
+    # --- reporting ----------------------------------------------------------
+    def report(self, *, backend: str = "html", config=None):
+        """Render this result into a :class:`~axiomm.analysis.reporting.Report`.
+
+        ``result.report(backend="html").write("run.html")`` — the general form.
+        Reporting (and matplotlib) load lazily, only when a report is asked for.
+        """
+        from axiomm.analysis.reporting import render_report
+        return render_report(self, backend=backend, config=config)
+
+    def report_html(self, path=None, *, config=None, overwrite: bool = False):
+        """Render an HTML report; write it to ``path`` when given. The friendly
+        shortcut for ``result.report(backend="html")`` + ``.write(path)``."""
+        rep = self.report(backend="html", config=config)
+        if path is not None:
+            rep.write(path, overwrite=overwrite)
+        return rep
+
     # --- persistence --------------------------------------------------------
     def save(self, directory, *, overwrite: bool = False) -> Path:
         """Write a self-describing directory (manifest + arrays + stage payloads)."""

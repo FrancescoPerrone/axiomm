@@ -14,9 +14,11 @@ from axiomm.analysis.registry import Registry
 reporters: Registry = Registry("reporter")
 reporters.register("html", "axiomm.analysis.reporting.html:HtmlReporter")
 
-#: Per-stage section renderers (id -> SectionRenderer instance).
-#: Populated as stage sections land (S4b onward).
+#: Per-stage section renderers (id -> SectionRenderer instance). Registered
+#: lazily so importing this module pulls in neither numpy nor matplotlib.
 sections: Registry = Registry("report section")
+sections.register("overview", "axiomm.analysis.reporting.sections.overview:OverviewSection")
+sections.register("phase_map", "axiomm.analysis.reporting.sections.phase_map:PhaseMapSection")
 
 
 __all__ = ["reporters", "sections"]
