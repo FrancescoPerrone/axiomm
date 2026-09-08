@@ -59,7 +59,13 @@ class ReportConfig:
     sections: tuple[str, ...] | None = None  # explicit order (None = registration order)
     embed_figures: bool = True               # figures inline as data URIs (only mode for now)
     theme: str | None = None                 # reserved for the later styling pass
+    options: dict = field(default_factory=dict)  # per-section settings: {section_id: {...}}
     metadata: dict = field(default_factory=dict)
+
+    def options_for(self, section_id: str) -> dict:
+        """Per-section options (customisation seam); ``{}`` when none given."""
+        opts = self.options.get(section_id, {})
+        return dict(opts) if isinstance(opts, dict) else {}
 
 
 @dataclass
