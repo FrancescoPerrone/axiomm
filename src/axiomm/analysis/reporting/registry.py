@@ -21,6 +21,13 @@ sections.register("overview", "axiomm.analysis.reporting.sections.overview:Overv
 sections.register("decomposition",
                   "axiomm.analysis.reporting.sections.decomposition:DecompositionSection")
 sections.register("clustering", "axiomm.analysis.reporting.sections.clustering:ClusteringSection")
+sections.register("cluster_means",
+                  "axiomm.analysis.reporting.sections.cluster_means:ClusterMeansSection")
+sections.register("peaks", "axiomm.analysis.reporting.sections.peaks:PeaksSection")
+sections.register("quant", "axiomm.analysis.reporting.sections.quant:QuantSection")
+sections.register("reliability",
+                  "axiomm.analysis.reporting.sections.reliability:ReliabilitySection")
+sections.register("minerals", "axiomm.analysis.reporting.sections.minerals:MineralsSection")
 sections.register("phase_map", "axiomm.analysis.reporting.sections.phase_map:PhaseMapSection")
 
 

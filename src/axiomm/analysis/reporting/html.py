@@ -11,7 +11,15 @@ import base64
 from html import escape
 
 from axiomm.analysis.models import AnalysisProvenance
-from axiomm.analysis.reporting.models import Figure, Report, ReportConfig, ReportSection, Table
+from axiomm.analysis.reporting.models import (
+    Figure,
+    Html,
+    Report,
+    ReportConfig,
+    ReportSection,
+    Svg,
+    Table,
+)
 
 _STYLE = """
 :root { color-scheme: light dark; }
@@ -24,8 +32,13 @@ table { border-collapse: collapse; margin: .5rem 0; }
 th, td { border: 1px solid #8886; padding: .25rem .6rem; text-align: right; }
 th:first-child, td:first-child { text-align: left; }
 figure { margin: .75rem 0; } figcaption { color: #8a8a8a; font-size: .85em; }
-img { max-width: 100%; height: auto; }
+img, svg { max-width: 100%; height: auto; }
 .muted { color: #8a8a8a; }
+.chip { display: inline-block; padding: .05em .5em; border-radius: 999px;
+        font-size: .8em; margin: 0 .2em .2em 0; border: 1px solid #8884; }
+.chip-good { color: #1a7f4b; border-color: #1a7f4b66; }
+.chip-warn { color: #b06a1a; border-color: #b06a1a66; }
+.chip-bad  { color: #b23a3a; border-color: #b23a3a66; }
 """.strip()
 
 
@@ -49,11 +62,20 @@ def _render_figure(f: Figure) -> str:
             f'alt="{escape(f.alt)}">{cap}</figure>')
 
 
+def _render_svg(s: Svg) -> str:
+    cap = f"<figcaption>{escape(s.caption)}</figcaption>" if s.caption else ""
+    return f"<figure>{s.markup}{cap}</figure>"
+
+
 def _render_block(block) -> str:
     if isinstance(block, Table):
         return _render_table(block)
     if isinstance(block, Figure):
         return _render_figure(block)
+    if isinstance(block, Svg):
+        return _render_svg(block)
+    if isinstance(block, Html):
+        return block.markup
     return f"<p>{escape(str(block))}</p>"
 
 

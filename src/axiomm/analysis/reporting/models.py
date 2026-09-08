@@ -35,8 +35,23 @@ class Table:
     caption: str = ""
 
 
+@dataclass(frozen=True)
+class Svg:
+    """An inline-SVG block (theme-aware vector graphics built by AXIOMM)."""
+
+    markup: str
+    caption: str = ""
+
+
+@dataclass(frozen=True)
+class Html:
+    """A trusted inline-HTML fragment built by AXIOMM (e.g. status chips)."""
+
+    markup: str
+
+
 #: One renderable unit of a section. ``str`` is a paragraph of plain text.
-Block = str | Figure | Table
+Block = str | Figure | Table | Svg | Html
 
 
 @dataclass
@@ -89,4 +104,4 @@ class Report:
         return path
 
 
-__all__ = ["Block", "Figure", "Report", "ReportConfig", "ReportSection", "Table"]
+__all__ = ["Block", "Figure", "Html", "Report", "ReportConfig", "ReportSection", "Svg", "Table"]
