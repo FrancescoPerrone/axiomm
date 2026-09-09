@@ -53,6 +53,26 @@ def measure_cluster_means(
     return tuple(results)
 
 
+def measure_peaks(means, energy_axis, reference=None, *, lines=None, measurer=None):
+    """Measure per-cluster peaks, deriving the line list from a reference.
+
+    The sensible-default wrapper over :func:`measure_cluster_means`: when ``lines``
+    is not given, the ``reference``'s in-range cations (structural elements such as
+    O excluded) supply the line energies — so callers do not hand-build the map —
+    and a :class:`NetIntensityMeasurer` is used unless one is passed.
+    """
+    if lines is None:
+        if reference is None:
+            from axiomm.analysis.errors import PayloadValidationError
+            raise PayloadValidationError(
+                "measure_peaks needs a reference (to derive lines) or an explicit "
+                "line_energies mapping.")
+        emin = float(energy_axis.offset)
+        emax = float(energy_axis.offset) + float(energy_axis.scale) * (int(energy_axis.size) - 1)
+        lines = reference.line_energies(reference.cations_in_range(emin, emax))
+    return measure_cluster_means(means, energy_axis, lines, measurer=measurer or NetIntensityMeasurer())
+
+
 __all__ = [
     "NetIntensityMeasurer",
     "PeakMeasurement",
@@ -61,6 +81,7 @@ __all__ = [
     "PeakWindowConfig",
     "get_peak_measurer",
     "measure_cluster_means",
+    "measure_peaks",
     "peak_measurers",
     "resolve_energy_axis",
 ]

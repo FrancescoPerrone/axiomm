@@ -77,6 +77,26 @@ class MineralogyReference(ReferenceLibrary):
         """Stable element ordering used for vector construction."""
         return tuple(self.elements.keys())
 
+    def cations_in_range(self, emin_kev: float, emax_kev: float) -> tuple[str, ...]:
+        """Cation symbols whose characteristic line falls in ``[emin, emax]`` keV.
+
+        Structural elements (``structural_exclude``, e.g. O) are omitted — they are
+        not measured cations. Order follows :meth:`element_order`.
+        """
+        return tuple(
+            s for s in self.element_order()
+            if s not in self.structural_exclude
+            and emin_kev <= self.elements[s].line_energy_kev <= emax_kev
+        )
+
+    def line_energies(self, symbols) -> dict[str, float]:
+        """Map each of ``symbols`` to its characteristic line energy (keV)."""
+        return {s: self.elements[s].line_energy_kev for s in symbols}
+
+    def element_refs(self, symbols):
+        """The :class:`ElementRef` objects for ``symbols``, in the given order."""
+        return [self.elements[s] for s in symbols]
+
     def validate(self, *, strict: bool = False) -> None:
         """Raise :class:`PayloadValidationError` on a malformed reference.
 

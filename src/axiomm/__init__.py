@@ -35,7 +35,7 @@ _EXPORTS: dict[str, str] = {
     "decompose": "axiomm.analysis.decomposition:decompose",
     "cluster": "axiomm.analysis.clustering:cluster",
     "compute_cluster_means": "axiomm.analysis.clustering:compute_cluster_means",
-    "measure_peaks": "axiomm.analysis.peaks:measure_cluster_means",
+    "measure_peaks": "axiomm.analysis.peaks:measure_peaks",
     "compute_k_factors": "axiomm.analysis.quant:compute_k_factors",
     "quantify": "axiomm.analysis.quant:quantify_cluster_means",
     "assess_reliability": "axiomm.analysis.quant:assess_cluster_reliability",
