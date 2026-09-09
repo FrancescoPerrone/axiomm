@@ -57,6 +57,38 @@ A runnable end-to-end example is in
 The rest of this page documents the individual tools the pipeline is built
 from — reach for them when you want to run or tune one stage on its own.
 
+## One import away
+
+The tools are exposed at the top level too, so the compose path reads
+cleanly and you build the input payload without hand-writing axes:
+
+```python
+import numpy as np
+from axiomm import AxiommSignalPayload, decompose, cluster
+
+rng = np.random.default_rng(0)
+data = (rng.random((12, 2)) @ rng.random((2, 8))).reshape(4, 3, 8)   # (y, x, energy)
+
+payload = AxiommSignalPayload.from_array(data, energy_scale=0.01)    # last axis = energy
+components = decompose(payload, backend="pca", n_components=2)
+groups = cluster(components, backend="gmm", n_clusters=2)            # the one-call verb
+print("axes:", [(a.name, a.role, a.index_in_array) for a in payload.axes])
+print("loadings:", components.loadings.shape, " labels:", groups.labels)
+```
+
+```text
+axes: [('y', 'navigation', 0), ('x', 'navigation', 1), ('Energy', 'signal', 2)]
+loadings: (12, 2)  labels: [1 0 0 1 1 1 1 1 0 1 0 1]
+```
+
+`from axiomm import …` gives you `convert_file`, `decompose`, `cluster`,
+`compute_cluster_means`, `measure_peaks`, `compute_k_factors`, `quantify`,
+`assess_reliability`, `match_minerals`, `render_report` and `get_reference` —
+the whole compose path one import away (each still lives in its subpackage
+too). `AxiommSignalPayload.from_array(data, energy_scale=…)` treats the last
+array axis as the energy/signal axis and the leading dimensions as navigation,
+stamping `index_in_array` for you.
+
 ## Install
 
 ```bash
@@ -65,7 +97,8 @@ python -m pip install -e ".[analysis,quant]"
 
 | Extra | Adds | Needed by |
 |-------|------|-----------|
-| `analysis` | `scikit-learn` | decomposition (PCA), clustering (GMM) |
+| `analysis` | `scikit-learn` | decomposition (PCA), clustering (GMM **and HDBSCAN**) |
+| `umap` | `umap-learn` | the UMAP decomposition backend |
 | `quant` | `xraylib` | k-factors (theoretical Cliff-Lorimer) |
 
 `numpy` is a core dependency. Optional libraries are imported lazily, so
@@ -121,6 +154,11 @@ spectra), `loadings` `(n_pixels, n_components)` (per-pixel scores),
 `loadings` is what clustering consumes next. Persist with
 `write_decomposition` / `read_decomposition`.
 
+A second backend, **UMAP** (`pip install ".[umap]"`), is selectable with
+`decompose(payload, backend="umap", n_components=2)`. UMAP is a non-linear
+embedding for clustering, not a variance decomposition, so its `loadings` hold
+the embedding while `factors` and `explained_variance_ratio` are empty.
+
 ---
 
 ## 2. Clustering — `axiomm.analysis.clustering`
@@ -128,6 +166,12 @@ spectra), `loadings` `(n_pixels, n_components)` (per-pixel scores),
 Cluster the decomposition loadings (Gaussian mixture). The clusterer is
 pure (features in, labels out); per-cluster **mean spectra** are a separate
 step over the source signal. The number of clusters is required.
+
+The one-call verb is `cluster(features, backend="gmm", n_clusters=k)`; the
+constructor form below gives finer control. A second backend, **HDBSCAN**
+(`backend="hdbscan"`, density-based, bundled with scikit-learn), discovers the
+cluster count itself — so it takes no `n_clusters`, and marks unassigned pixels
+as noise (label `-1`, carried through as a cluster id).
 
 ```python
 from axiomm.analysis.clustering import GMMClusterer, GMMConfig, compute_cluster_means
@@ -506,6 +550,15 @@ through `measure` → `quantify` with `compute_k_factors`. Because every tool
 reads and writes plain typed objects (and offers file adapters), you wire
 them together in whatever order your analysis needs — each one remains
 runnable and testable on its own.
+
+Two conveniences remove the hand-wiring. Building the input is one line —
+`AxiommSignalPayload.from_array(data, energy_scale=…)`. And the **reference
+does the element wiring for you**: `reference.cations_in_range(emin, emax)`,
+`reference.line_energies(symbols)` and `reference.element_refs(symbols)` derive
+the in-range cations (structural O/Br/I excluded), the line-energy map and the
+`ElementRef` lists — so `measure_peaks(means, energy_axis, reference)` needs no
+hand-built line map, and you build k-factor and quantification element lists
+straight from the reference instead of assembling them by hand.
 
 ---
 
