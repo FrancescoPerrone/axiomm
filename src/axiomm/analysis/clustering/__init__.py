@@ -35,6 +35,36 @@ def get_clusterer(name: str):
     return clusterers.get(name)
 
 
+def _accepts(cls, param: str) -> bool:
+    import inspect
+    try:
+        return param in inspect.signature(cls.__init__).parameters
+    except (TypeError, ValueError):  # pragma: no cover - builtins without a signature
+        return False
+
+
+def cluster(features, *, backend: str = "gmm", n_clusters: int | None = None, config=None):
+    """Cluster decomposition ``features`` with the named ``backend``, in one call.
+
+    The friendly sibling of :func:`axiomm.analysis.decomposition.decompose`.
+    Fixed-count backends (GMM) require ``n_clusters``; density backends (HDBSCAN)
+    ignore it and discover the count. Pass the backend's typed ``config`` for
+    finer control.
+    """
+    from axiomm.analysis.errors import PayloadValidationError
+
+    cls = get_clusterer(backend)
+    kwargs: dict = {}
+    if _accepts(cls, "n_clusters"):
+        if n_clusters is None:
+            raise PayloadValidationError(
+                f"clustering backend {backend!r} requires n_clusters.")
+        kwargs["n_clusters"] = n_clusters
+    if config is not None:
+        kwargs["config"] = config
+    return cls(**kwargs).cluster(features)
+
+
 __all__ = [
     "Clusterer",
     "ClusterMeanSpectra",
@@ -43,6 +73,7 @@ __all__ = [
     "GMMConfig",
     "HDBSCANClusterer",
     "HDBSCANConfig",
+    "cluster",
     "clusterers",
     "compute_cluster_means",
     "get_clusterer",
