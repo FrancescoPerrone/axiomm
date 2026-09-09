@@ -107,7 +107,7 @@ def test_decomposition_section_handles_no_explained_variance():
     from types import SimpleNamespace
 
     from axiomm.analysis.reporting import ReportConfig
-    from axiomm.analysis.reporting.sections.decomposition import DecompositionSection
+    from axiomm.analysis.reporting.section_renderers.decomposition import DecompositionSection
 
     decomp = SimpleNamespace(explained_variance_ratio=np.zeros((0,)), n_components=8,
                              provenance=SimpleNamespace(backend="umap"))

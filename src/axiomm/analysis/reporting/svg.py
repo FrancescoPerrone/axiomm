@@ -17,6 +17,88 @@ import numpy as np
 _ACCENT = "var(--accent, #0d7d88)"
 _WINDOW = "var(--peak-window, #d9a441)"
 
+#: A curated categorical palette that reads on both light and dark grounds.
+_CATEGORICAL = (
+    "#4c78a8", "#f58518", "#54a24b", "#e45756", "#72b7b2", "#b279a2",
+    "#ff9da6", "#9d755d", "#eeca3b", "#b39ddb", "#8cd17d", "#d37295",
+)
+
+
+def scatter_svg(x, y, labels, *, categories, labels_text=None, width=520, height=380,
+                title=None, axis_labels=("comp 1", "comp 2"), max_points=3000, seed=0):
+    """Inline SVG scatter of an embedding, coloured by category (cluster).
+
+    Points are drawn per category so each colour is set once; large point clouds
+    are randomly subsampled to ``max_points`` (a note is the caller's job). Axes
+    and text use ``currentColor`` so the plot adapts to the page theme; the
+    category ``-1`` (HDBSCAN noise) is drawn muted. Returns SVG markup.
+    """
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    labels = np.asarray(labels)
+    n = x.size
+    if n > max_points:
+        sel = np.random.default_rng(seed).choice(n, size=max_points, replace=False)
+        x, y, labels = x[sel], y[sel], labels[sel]
+
+    ml, mr, mt, mb = 8, 96, (22 if title else 8), 26
+    pw, ph = width - ml - mr, height - mt - mb
+    xlo, xhi = float(np.min(x)), float(np.max(x))
+    ylo, yhi = float(np.min(y)), float(np.max(y))
+    xpad = (xhi - xlo or 1.0) * 0.04
+    ypad = (yhi - ylo or 1.0) * 0.04
+    xlo, xhi, ylo, yhi = xlo - xpad, xhi + xpad, ylo - ypad, yhi + ypad
+
+    def sx(v):
+        return ml + (v - xlo) / (xhi - xlo) * pw
+
+    def sy(v):
+        return mt + ph - (v - ylo) / (yhi - ylo) * ph
+
+    labels_text = labels_text or {c: str(c) for c in categories}
+    parts = [
+        f'<svg viewBox="0 0 {width} {height}" width="100%" '
+        f'preserveAspectRatio="xMidYMid meet" role="img" '
+        f'font-family="\'IBM Plex Mono\', ui-monospace, monospace" font-size="10">'
+    ]
+    if title:
+        parts.append(f'<text x="{ml}" y="14" font-size="11" fill="currentColor" '
+                     f'font-weight="500">{escape(title)}</text>')
+    # plot frame
+    parts.append(f'<rect x="{ml}" y="{mt}" width="{pw}" height="{ph}" fill="none" '
+                 f'stroke="currentColor" stroke-opacity="0.25"/>')
+    parts.append(f'<text x="{ml + pw / 2:.0f}" y="{height - 6}" text-anchor="middle" '
+                 f'fill="currentColor" fill-opacity="0.6">{escape(axis_labels[0])}</text>')
+    parts.append(f'<text x="12" y="{mt + ph / 2:.0f}" text-anchor="middle" '
+                 f'fill="currentColor" fill-opacity="0.6" '
+                 f'transform="rotate(-90 12 {mt + ph / 2:.0f})">{escape(axis_labels[1])}</text>')
+
+    # points, grouped by category
+    for i, cat in enumerate(categories):
+        mask = labels == cat
+        if not np.any(mask):
+            continue
+        muted = (cat == -1)
+        color = "currentColor" if muted else _CATEGORICAL[i % len(_CATEGORICAL)]
+        op = "0.35" if muted else "0.8"
+        pts = "".join(f'<circle cx="{sx(px):.1f}" cy="{sy(py):.1f}" r="2"/>'
+                      for px, py in zip(x[mask], y[mask], strict=True))
+        parts.append(f'<g fill="{color}" fill-opacity="{op}">{pts}</g>')
+
+    # legend
+    ly = mt + 4
+    for i, cat in enumerate(categories):
+        muted = (cat == -1)
+        color = "currentColor" if muted else _CATEGORICAL[i % len(_CATEGORICAL)]
+        op = "0.4" if muted else "0.85"
+        parts.append(f'<rect x="{ml + pw + 12}" y="{ly}" width="9" height="9" rx="2" '
+                     f'fill="{color}" fill-opacity="{op}"/>')
+        parts.append(f'<text x="{ml + pw + 25}" y="{ly + 8}" fill="currentColor" '
+                     f'fill-opacity="0.75">{escape(str(labels_text.get(cat, cat)))}</text>')
+        ly += 15
+    parts.append("</svg>")
+    return "".join(parts)
+
 
 def _nice_ticks(lo: float, hi: float, target: int = 5) -> list[float]:
     if not np.isfinite([lo, hi]).all() or hi <= lo:
@@ -126,4 +208,4 @@ def spectrum_svg(energies, counts, peaks=(), *, y_scale: str = "linear",
     return "".join(parts)
 
 
-__all__ = ["spectrum_svg"]
+__all__ = ["scatter_svg", "spectrum_svg"]

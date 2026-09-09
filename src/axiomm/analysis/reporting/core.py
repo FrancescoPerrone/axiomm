@@ -14,7 +14,7 @@ from axiomm.analysis.reporting.registry import reporters, sections
 
 #: Canonical section order (pipeline order) used when a config gives none.
 DEFAULT_ORDER = (
-    "overview", "decomposition", "clustering", "cluster_means",
+    "overview", "decomposition", "clustering", "embedding", "cluster_means",
     "peaks", "quant", "reliability", "minerals", "phase_map",
 )
 

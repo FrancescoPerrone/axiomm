@@ -6,8 +6,8 @@ import numpy as np
 import pytest
 
 from axiomm.analysis.reporting import ReportConfig, render_report
-from axiomm.analysis.reporting.sections.clustering import ClusteringSection
-from axiomm.analysis.reporting.sections.decomposition import DecompositionSection
+from axiomm.analysis.reporting.section_renderers.clustering import ClusteringSection
+from axiomm.analysis.reporting.section_renderers.decomposition import DecompositionSection
 from axiomm.io.converters.models import AxiommSignalPayload, AxisSpec
 from axiomm.pipeline import Pipeline
 
