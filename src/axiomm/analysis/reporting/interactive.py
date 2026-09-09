@@ -1,14 +1,15 @@
 """Client-side interactivity for HTML reports (stage two, S4).
 
 A self-contained, dependency-free layer the ``html`` backend injects so a report
-becomes a live workspace: modules drag to rearrange (pointer events — touch and
-mouse), and the page title, section titles and paragraphs edit in place. On a wide
-screen a module can be dropped on the right-edge zone to spin off a **new column**,
-so results, plots and tables sit **side by side** for comparison; columns collapse
-to a single stack on narrow screens. A viewer's arrangement and edits persist
-per-device in ``localStorage``; the default is exactly what was generated. Nothing
-is labelled — it is found by touch. No external assets, so the report stays one
-offline-capable file.
+becomes a live workspace. On a wide screen it is a **free canvas**: every module
+can be dragged anywhere by its handle and resized from its corner, so results,
+plots and tables float where the user wants them and sit side by side for
+comparison; the grabbed card comes to the front. On a narrow screen (phone) it
+falls back to a readable vertical stack ordered by where cards sit on the canvas.
+Page/section titles and paragraphs edit in place. Arrangement and edits persist
+per-device in ``localStorage``; the default is exactly what was generated, and a
+subtle reset returns to it. Nothing is labelled — it is found by touch. No
+external assets, so the report stays one offline-capable file.
 """
 
 from __future__ import annotations
@@ -18,18 +19,23 @@ INTERACTIVE_CSS = """
 .module-handle { position: absolute; top: .55rem; right: .55rem; width: 1.5rem; height: 1.5rem;
   border-radius: 7px; cursor: grab; opacity: 0; transition: opacity .2s, background .2s;
   display: flex; align-items: center; justify-content: center; color: var(--muted);
-  touch-action: none; user-select: none; }
+  touch-action: none; user-select: none; z-index: 2; }
 .module-handle::before { content: "\\2059\\2059"; letter-spacing: -2px; font-size: .9rem; line-height: 1; }
 .module:hover .module-handle { opacity: .5; }
 .module-handle:hover { opacity: 1; background: var(--accent-soft); }
 @media (hover: none) { .module-handle { opacity: .35; } }
-.module.dragging { z-index: 30; box-shadow: 0 14px 34px rgba(0,0,0,.20); opacity: .98; }
+.module.dragging { z-index: 9999; box-shadow: 0 16px 40px rgba(0,0,0,.22); }
+.module.sizing { user-select: none; }
+.report-grid.canvas { position: relative; }
+.report-grid.canvas .module { position: absolute; margin: 0; }
+.module-resize { position: absolute; right: 2px; bottom: 2px; width: 20px; height: 20px;
+  cursor: nwse-resize; opacity: 0; transition: opacity .2s; touch-action: none; z-index: 2; }
+.module-resize::after { content: ""; position: absolute; right: 5px; bottom: 5px; width: 8px; height: 8px;
+  border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); }
+.report-grid:not(.canvas) .module-resize { display: none; }
+.report-grid.canvas .module:hover .module-resize { opacity: .5; }
+.module-resize:hover { opacity: 1; }
 .module-placeholder { border: 2px dashed var(--border); border-radius: 10px; }
-.newcol-zone { align-self: stretch; width: .6rem; min-height: 8rem; border-radius: 8px;
-  border: 2px dashed color-mix(in srgb, var(--accent) 35%, transparent); opacity: 0;
-  transition: opacity .15s, background .15s; }
-.newcol-zone.show { opacity: .5; }
-.newcol-zone.active { opacity: 1; background: var(--accent-soft); }
 [data-editable] { border-radius: 5px; transition: background .15s; outline: none; }
 [data-editable]:hover { background: color-mix(in srgb, var(--accent) 9%, transparent); }
 [data-editable]:focus { background: color-mix(in srgb, var(--accent) 6%, transparent);
@@ -37,7 +43,7 @@ INTERACTIVE_CSS = """
 .report-reset { position: fixed; bottom: 1rem; right: 1rem; font-family: var(--mono);
   font-size: .68rem; letter-spacing: .04em; color: var(--muted); background: var(--surface);
   border: 1px solid var(--border); border-radius: 999px; padding: .35rem .8rem; cursor: pointer;
-  opacity: 0; transition: opacity .25s; }
+  opacity: 0; transition: opacity .25s; z-index: 10000; }
 body:hover .report-reset { opacity: .55; }
 .report-reset:hover { opacity: 1; }
 @media (hover: none) { .report-reset { opacity: .4; } }
@@ -48,12 +54,13 @@ INTERACTIVE_JS = r"""
 (function () {
   var grid = document.getElementById('report-grid');
   if (!grid) return;
+  var WIDE = '(min-width: 62rem)';
   var key = 'axiomm-report:' + (grid.getAttribute('data-report-id') || document.title || 'report');
   function load() { try { return JSON.parse(localStorage.getItem(key)) || {}; } catch (e) { return {}; } }
   function save() { try { localStorage.setItem(key, JSON.stringify(state)); } catch (e) {} }
   var state = load();
   state.edits = state.edits || {};
-  if (!state.columns && state.order) state.columns = [state.order];   // migrate old single-column
+  state.pos = state.pos || {};   // { moduleId: {x,y,w,h,z} } for the canvas
 
   // --- editable text (always on) ------------------------------------------
   document.querySelectorAll('[data-editable]').forEach(function (el) {
@@ -65,130 +72,158 @@ INTERACTIVE_JS = r"""
     el.addEventListener('keydown', function (e) {
       if (e.key === 'Enter' && el.tagName !== 'P') { e.preventDefault(); el.blur(); }
     });
+    el.addEventListener('pointerdown', function (e) { e.stopPropagation(); });
   });
 
-  // --- columns -------------------------------------------------------------
-  function cols() { return Array.prototype.slice.call(grid.querySelectorAll('.report-col')); }
-  function ensureCol() {
-    var c = grid.querySelector('.report-col');
-    if (!c) { c = document.createElement('div'); c.className = 'report-col'; grid.appendChild(c); }
-    return c;
-  }
-  function moduleMap() {
-    var m = {};
-    grid.querySelectorAll('.module').forEach(function (x) { m[x.getAttribute('data-module')] = x; });
-    return m;
-  }
-  function applyColumns() {
-    if (!state.columns) return;
-    var byId = moduleMap(), used = {};
-    cols().forEach(function (c) { c.remove(); });
-    state.columns.forEach(function (ids) {
-      var real = ids.filter(function (id) { return byId[id]; });
-      if (!real.length) return;
-      var col = document.createElement('div'); col.className = 'report-col'; grid.appendChild(col);
-      real.forEach(function (id) { col.appendChild(byId[id]); used[id] = 1; });
-    });
-    var leftover = Object.keys(byId).filter(function (id) { return !used[id]; });
-    if (leftover.length) {
-      var col = grid.querySelector('.report-col') || ensureCol();
-      leftover.forEach(function (id) { col.appendChild(byId[id]); });
-    }
-    if (!cols().length) ensureCol();
-  }
-  function currentColumns() {
-    return cols().map(function (c) {
-      return Array.prototype.map.call(c.querySelectorAll('.module'),
-        function (m) { return m.getAttribute('data-module'); });
-    }).filter(function (a) { return a.length; });
-  }
-  function cleanup() {
-    cols().forEach(function (c) { if (!c.querySelector('.module')) c.remove(); });
-    if (!cols().length) ensureCol();
-  }
-  try { applyColumns(); } catch (e) {}
+  function mods() { return Array.prototype.slice.call(grid.querySelectorAll('.module')); }
+  function idOf(m) { return m.getAttribute('data-module'); }
+  function isWide() { return window.matchMedia(WIDE).matches; }
 
-  // --- pointer-drag reorder + column moves --------------------------------
-  var drag = null, ph = null, offY = 0, zone = null, overZone = false;
-  function colUnder(x, y) {
-    var cs = cols(), best = null, bd = Infinity;
-    for (var i = 0; i < cs.length; i++) {
-      var r = cs[i].getBoundingClientRect();
-      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return cs[i];
-      var dx = x - (r.left + r.right) / 2, dy = y - (r.top + r.bottom) / 2, d = dx * dx + dy * dy;
-      if (d < bd) { bd = d; best = cs[i]; }
+  // give every module a resize handle (shown only on the canvas)
+  mods().forEach(function (m) {
+    if (!m.querySelector('.module-resize')) {
+      var h = document.createElement('div'); h.className = 'module-resize'; m.appendChild(h);
     }
-    return best;
+  });
+
+  var maxZ = 1;
+  Object.keys(state.pos).forEach(function (id) { maxZ = Math.max(maxZ, state.pos[id].z || 1); });
+  function front(m) { maxZ += 1; m.style.zIndex = maxZ; }
+  function canvasHeight() {
+    if (!grid.classList.contains('canvas')) return;
+    var b = 0;
+    mods().forEach(function (m) { b = Math.max(b, m.offsetTop + m.offsetHeight); });
+    grid.style.height = (b + 28) + 'px';
   }
+  function savePos(m) {
+    state.pos[idOf(m)] = {
+      x: parseFloat(m.style.left) || 0, y: parseFloat(m.style.top) || 0,
+      w: m.style.width ? parseFloat(m.style.width) : null,
+      h: m.style.height ? parseFloat(m.style.height) : null,
+      z: parseInt(m.style.zIndex, 10) || 1
+    };
+    save();
+  }
+
+  // --- layout engine -------------------------------------------------------
+  function applyCanvas() {
+    grid.classList.add('canvas');
+    var cw = grid.clientWidth;
+    var defW = Math.min(360, cw - 16);
+    var flowY = 8;
+    mods().forEach(function (m) {
+      var p = state.pos[idOf(m)];
+      m.style.position = 'absolute';
+      if (p) {
+        m.style.left = p.x + 'px'; m.style.top = p.y + 'px';
+        m.style.width = (p.w ? p.w + 'px' : defW + 'px');
+        if (p.h) { m.style.height = p.h + 'px'; m.style.overflow = 'auto'; }
+        else { m.style.height = ''; m.style.overflow = ''; }
+        m.style.zIndex = p.z || 1;
+      } else {
+        m.style.left = Math.max(0, (cw - defW) / 2) + 'px';
+        m.style.width = defW + 'px'; m.style.height = ''; m.style.overflow = '';
+        m.style.top = flowY + 'px'; m.style.zIndex = 1;
+        flowY += m.offsetHeight + 16;
+      }
+    });
+    canvasHeight();
+  }
+  function applyStack() {
+    grid.classList.remove('canvas');
+    grid.style.height = '';
+    mods().forEach(function (m) {
+      ['position', 'left', 'top', 'width', 'height', 'overflow', 'zIndex'].forEach(
+        function (k) { m.style[k] = ''; });
+    });
+    // order by where cards sit on the canvas (top-to-bottom, then left-to-right)
+    var withPos = mods().filter(function (m) { return state.pos[idOf(m)]; });
+    if (withPos.length) {
+      withPos.sort(function (a, b) {
+        var pa = state.pos[idOf(a)], pb = state.pos[idOf(b)];
+        return (pa.y - pb.y) || (pa.x - pb.x);
+      }).forEach(function (m) { grid.appendChild(m); });
+    }
+  }
+  function layout() { if (isWide()) applyCanvas(); else applyStack(); }
+  try { layout(); } catch (e) {}
+  var rt; window.addEventListener('resize', function () {
+    clearTimeout(rt); rt = setTimeout(function () { try { layout(); } catch (e) {} }, 150);
+  });
+
+  // --- pointer interactions (drag / resize) --------------------------------
+  var act = null;
   grid.addEventListener('pointerdown', function (e) {
-    var handle = e.target.closest('.module-handle');
-    if (!handle) return;
-    var mod = handle.closest('.module');
-    if (!mod) return;
-    e.preventDefault();
-    drag = mod;
-    var r = mod.getBoundingClientRect();
-    offY = e.clientY - r.top;
-    ph = document.createElement('div');
-    ph.className = 'module-placeholder';
-    ph.style.height = r.height + 'px';
-    mod.parentNode.insertBefore(ph, mod.nextSibling);
-    mod.classList.add('dragging');
-    mod.style.width = r.width + 'px';
-    mod.style.position = 'fixed';
-    mod.style.left = r.left + 'px';
-    mod.style.top = (e.clientY - offY) + 'px';
-    mod.style.pointerEvents = 'none';
-    zone = document.createElement('div');
-    zone.className = 'newcol-zone show';
-    grid.appendChild(zone);
-    if (handle.setPointerCapture) handle.setPointerCapture(e.pointerId);
+    var rh = e.target.closest('.module-resize');
+    var hh = e.target.closest('.module-handle');
+    if (rh && isWide()) {
+      var m = rh.closest('.module'); if (!m) return;
+      e.preventDefault(); front(m); m.classList.add('sizing');
+      act = { type: 'resize', m: m, sx: e.clientX, sy: e.clientY, sw: m.offsetWidth, sh: m.offsetHeight };
+    } else if (hh) {
+      var mod = hh.closest('.module'); if (!mod) return;
+      e.preventDefault();
+      if (isWide()) {
+        front(mod); mod.classList.add('dragging');
+        act = { type: 'cdrag', m: mod, sx: e.clientX, sy: e.clientY,
+                sl: parseFloat(mod.style.left) || mod.offsetLeft,
+                st: parseFloat(mod.style.top) || mod.offsetTop };
+      } else {
+        var r = mod.getBoundingClientRect();
+        var ph = document.createElement('div'); ph.className = 'module-placeholder';
+        ph.style.height = r.height + 'px';
+        mod.parentNode.insertBefore(ph, mod.nextSibling);
+        mod.classList.add('dragging');
+        mod.style.width = r.width + 'px'; mod.style.position = 'fixed';
+        mod.style.left = r.left + 'px'; mod.style.top = r.top + 'px'; mod.style.pointerEvents = 'none';
+        act = { type: 'sdrag', m: mod, ph: ph, offY: e.clientY - r.top };
+      }
+    } else { return; }
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
   });
   function onMove(e) {
-    if (!drag) return;
-    drag.style.top = (e.clientY - offY) + 'px';
-    overZone = false;
-    if (zone) {
-      var zr = zone.getBoundingClientRect();
-      overZone = e.clientX >= zr.left - 8 && e.clientX <= zr.right + 8
-                 && e.clientY >= zr.top && e.clientY <= zr.bottom;
-      zone.classList.toggle('active', overZone);
+    if (!act) return;
+    var m = act.m;
+    if (act.type === 'cdrag') {
+      m.style.left = Math.max(0, act.sl + (e.clientX - act.sx)) + 'px';
+      m.style.top = Math.max(0, act.st + (e.clientY - act.sy)) + 'px';
+      canvasHeight();
+    } else if (act.type === 'resize') {
+      m.style.width = Math.max(220, act.sw + (e.clientX - act.sx)) + 'px';
+      m.style.height = Math.max(140, act.sh + (e.clientY - act.sy)) + 'px';
+      m.style.overflow = 'auto';
+      canvasHeight();
+    } else if (act.type === 'sdrag') {
+      m.style.top = (e.clientY - act.offY) + 'px';
+      var others = mods().filter(function (x) { return x !== m; });
+      var placed = false;
+      for (var i = 0; i < others.length; i++) {
+        var r = others[i].getBoundingClientRect();
+        if (e.clientY < r.top + r.height / 2) { grid.insertBefore(act.ph, others[i]); placed = true; break; }
+      }
+      if (!placed) grid.appendChild(act.ph);
     }
-    if (overZone) { if (ph.parentNode) ph.parentNode.removeChild(ph); return; }
-    var col = colUnder(e.clientX, e.clientY);
-    if (!col) return;
-    var mods = Array.prototype.filter.call(col.querySelectorAll('.module'),
-      function (m) { return m !== drag; });
-    var placed = false;
-    for (var i = 0; i < mods.length; i++) {
-      var r = mods[i].getBoundingClientRect();
-      if (e.clientY < r.top + r.height / 2) { col.insertBefore(ph, mods[i]); placed = true; break; }
-    }
-    if (!placed) col.appendChild(ph);
   }
   function onUp() {
     document.removeEventListener('pointermove', onMove);
     document.removeEventListener('pointerup', onUp);
-    if (!drag) return;
-    if (overZone) {
-      var col = document.createElement('div'); col.className = 'report-col';
-      grid.insertBefore(col, zone); col.appendChild(drag);
-    } else if (ph && ph.parentNode) {
-      ph.parentNode.insertBefore(drag, ph);
-    } else {
-      ensureCol().appendChild(drag);
+    if (!act) return;
+    var m = act.m;
+    if (act.type === 'cdrag' || act.type === 'resize') {
+      m.classList.remove('dragging'); m.classList.remove('sizing');
+      savePos(m);
+    } else if (act.type === 'sdrag') {
+      grid.insertBefore(m, act.ph); act.ph.remove();
+      m.classList.remove('dragging');
+      ['width', 'position', 'left', 'top', 'pointerEvents'].forEach(function (k) { m.style[k] = ''; });
+      // remember the new reading order as canvas positions (top-to-bottom)
+      var y = 0;
+      mods().forEach(function (x) { var p = state.pos[idOf(x)] || {}; p.x = 0; p.y = y; y += 1;
+        p.z = p.z || 1; p.w = p.w || null; p.h = p.h || null; state.pos[idOf(x)] = p; });
+      save();
     }
-    if (ph && ph.parentNode) ph.parentNode.removeChild(ph);
-    if (zone && zone.parentNode) zone.parentNode.removeChild(zone);
-    drag.classList.remove('dragging');
-    drag.style.position = drag.style.top = drag.style.left = drag.style.width = drag.style.pointerEvents = '';
-    drag = null; zone = null; overZone = false;
-    cleanup();
-    state.columns = currentColumns();
-    delete state.order;
-    save();
+    act = null;
   }
 
   // --- reset ---------------------------------------------------------------
