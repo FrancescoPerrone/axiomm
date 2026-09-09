@@ -4,12 +4,14 @@ A self-contained, dependency-free layer the ``html`` backend injects so a report
 becomes a live workspace. On a wide screen the **whole viewport is a free
 canvas**: every item — the section cards *and* the masthead (title + opening
 paragraph) — can be dragged anywhere by its handle and resized from its corner,
-so results, plots and tables float where the user wants and sit side by side for
-comparison; the grabbed item comes to the front. On a narrow screen (phone) it
-falls back to a readable vertical stack ordered by where items sit on the canvas.
-Titles and paragraphs edit in place. Arrangement and edits persist per-device in
-``localStorage``; the default is exactly what was generated, with a subtle reset.
-Nothing is labelled — it is found by touch. No external assets.
+and titles/paragraphs edit in place. On a narrow screen (phone) it is a readable
+vertical stack.
+
+**The report always opens in its default arrangement.** Customisation is live for
+the viewing session only — nothing is persisted, so every open or refresh shows
+the clean default view (a fresh reader never sees a rearranged/scattered layout
+and is never tipped off that it is customisable). Found by touch; no labels; no
+external assets.
 """
 
 from __future__ import annotations
@@ -43,13 +45,6 @@ body.canvas-mode { max-width: none; padding: 1.25rem; }
 [data-editable]:hover { background: color-mix(in srgb, var(--accent) 9%, transparent); }
 [data-editable]:focus { background: color-mix(in srgb, var(--accent) 6%, transparent);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 40%, transparent); }
-.report-reset { position: fixed; bottom: 1rem; right: 1rem; font-family: var(--mono);
-  font-size: .68rem; letter-spacing: .04em; color: var(--muted); background: var(--surface);
-  border: 1px solid var(--border); border-radius: 999px; padding: .35rem .8rem; cursor: pointer;
-  opacity: 0; transition: opacity .25s; z-index: 10000; }
-body:hover .report-reset { opacity: .55; }
-.report-reset:hover { opacity: 1; }
-@media (hover: none) { .report-reset { opacity: .4; } }
 """.strip()
 
 
@@ -58,20 +53,19 @@ INTERACTIVE_JS = r"""
   var grid = document.getElementById('report-grid');
   if (!grid) return;
   var WIDE = '(min-width: 62rem)';
-  var key = 'axiomm-report:' + (grid.getAttribute('data-report-id') || document.title || 'report');
-  function load() { try { return JSON.parse(localStorage.getItem(key)) || {}; } catch (e) { return {}; } }
-  function save() { try { localStorage.setItem(key, JSON.stringify(state)); } catch (e) {} }
-  var state = load();
-  state.edits = state.edits || {};
-  state.pos = state.pos || {};   // { itemId: {x,y,w,h,z} } on the canvas
 
-  // --- editable text (always on) ------------------------------------------
+  // Layout is never persisted: every open/refresh is the default view.
+  // Clear any layout data left by earlier versions so nothing lingers.
+  try {
+    Object.keys(localStorage).forEach(function (k) {
+      if (k.indexOf('axiomm-report:') === 0) localStorage.removeItem(k);
+    });
+  } catch (e) {}
+
+  // --- editable text (live for the session only) --------------------------
   document.querySelectorAll('[data-editable]').forEach(function (el) {
-    var id = el.getAttribute('data-editable');
-    if (state.edits[id] != null) el.textContent = state.edits[id];
     el.setAttribute('contenteditable', 'true');
     el.setAttribute('spellcheck', 'false');
-    el.addEventListener('blur', function () { state.edits[id] = el.textContent; save(); });
     el.addEventListener('keydown', function (e) {
       if (e.key === 'Enter' && el.tagName !== 'P') { e.preventDefault(); el.blur(); }
     });
@@ -79,7 +73,6 @@ INTERACTIVE_JS = r"""
   });
 
   function items() { return Array.prototype.slice.call(grid.querySelectorAll('.canvas-item')); }
-  function idOf(m) { return m.getAttribute('data-module'); }
   function isWide() { return window.matchMedia(WIDE).matches; }
   function isMast(m) { return m.classList.contains('masthead'); }
 
@@ -90,7 +83,6 @@ INTERACTIVE_JS = r"""
   });
 
   var maxZ = 1;
-  Object.keys(state.pos).forEach(function (id) { maxZ = Math.max(maxZ, state.pos[id].z || 1); });
   function front(m) { maxZ += 1; m.style.zIndex = maxZ; }
   function canvasHeight() {
     if (!grid.classList.contains('canvas')) return;
@@ -98,39 +90,21 @@ INTERACTIVE_JS = r"""
     items().forEach(function (m) { b = Math.max(b, m.offsetTop + m.offsetHeight); });
     grid.style.height = (b + 28) + 'px';
   }
-  function savePos(m) {
-    state.pos[idOf(m)] = {
-      x: parseFloat(m.style.left) || 0, y: parseFloat(m.style.top) || 0,
-      w: m.style.width ? parseFloat(m.style.width) : null,
-      h: m.style.height ? parseFloat(m.style.height) : null,
-      z: parseInt(m.style.zIndex, 10) || 1
-    };
-    save();
-  }
 
-  // --- layout engine -------------------------------------------------------
+  // --- default layout (always) --------------------------------------------
   function applyCanvas() {
     grid.classList.add('canvas');
     document.body.classList.add('canvas-mode');
-    var cw = grid.clientWidth;
-    var flowY = 8;
+    var cw = grid.clientWidth, flowY = 8;
     items().forEach(function (m) {
       var defW = Math.min(isMast(m) ? 720 : 360, cw - 16);
-      var p = state.pos[idOf(m)];
-      m.style.position = 'absolute';
-      if (p) {
-        m.style.left = p.x + 'px'; m.style.top = p.y + 'px';
-        m.style.width = (p.w ? p.w + 'px' : defW + 'px');
-        if (p.h) { m.style.height = p.h + 'px'; m.style.overflow = 'auto'; }
-        else { m.style.height = ''; m.style.overflow = ''; }
-        m.style.zIndex = p.z || 1;
-      } else {
-        m.style.left = Math.max(0, (cw - defW) / 2) + 'px';
-        m.style.width = defW + 'px'; m.style.height = ''; m.style.overflow = '';
-        m.style.top = flowY + 'px'; m.style.zIndex = 1;
-        flowY += m.offsetHeight + 16;
-      }
+      m.style.position = 'absolute'; m.style.height = ''; m.style.overflow = '';
+      m.style.width = defW + 'px';
+      m.style.left = Math.max(0, (cw - defW) / 2) + 'px';
+      m.style.top = flowY + 'px'; m.style.zIndex = 1;
+      flowY += m.offsetHeight + 16;
     });
+    maxZ = 1;
     canvasHeight();
   }
   function applyStack() {
@@ -141,13 +115,6 @@ INTERACTIVE_JS = r"""
       ['position', 'left', 'top', 'width', 'height', 'overflow', 'zIndex'].forEach(
         function (k) { m.style[k] = ''; });
     });
-    var withPos = items().filter(function (m) { return state.pos[idOf(m)]; });
-    if (withPos.length) {
-      withPos.sort(function (a, b) {
-        var pa = state.pos[idOf(a)], pb = state.pos[idOf(b)];
-        return (pa.y - pb.y) || (pa.x - pb.x);
-      }).forEach(function (m) { grid.appendChild(m); });
-    }
   }
   function layout() { if (isWide()) applyCanvas(); else applyStack(); }
   try { layout(); } catch (e) {}
@@ -155,7 +122,7 @@ INTERACTIVE_JS = r"""
     clearTimeout(rt); rt = setTimeout(function () { try { layout(); } catch (e) {} }, 150);
   });
 
-  // --- pointer interactions (drag / resize) --------------------------------
+  // --- pointer interactions (live; not persisted) --------------------------
   var act = null;
   grid.addEventListener('pointerdown', function (e) {
     var rh = e.target.closest('.module-resize');
@@ -216,30 +183,13 @@ INTERACTIVE_JS = r"""
     var m = act.m;
     if (act.type === 'cdrag' || act.type === 'resize') {
       m.classList.remove('dragging'); m.classList.remove('sizing');
-      savePos(m);
     } else if (act.type === 'sdrag') {
       grid.insertBefore(m, act.ph); act.ph.remove();
       m.classList.remove('dragging');
       ['width', 'position', 'left', 'top', 'pointerEvents'].forEach(function (k) { m.style[k] = ''; });
-      var y = 0;
-      items().forEach(function (x) {
-        var p = state.pos[idOf(x)] || {}; p.x = 0; p.y = y; y += 1;
-        p.z = p.z || 1; p.w = p.w || null; p.h = p.h || null; state.pos[idOf(x)] = p;
-      });
-      save();
     }
     act = null;
   }
-
-  // --- reset ---------------------------------------------------------------
-  var reset = document.createElement('button');
-  reset.className = 'report-reset';
-  reset.textContent = 'reset layout';
-  reset.addEventListener('click', function () {
-    try { localStorage.removeItem(key); } catch (e) {}
-    location.reload();
-  });
-  document.body.appendChild(reset);
 })();
 """.strip()
 
