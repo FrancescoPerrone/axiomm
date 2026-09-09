@@ -15,12 +15,15 @@ from __future__ import annotations
 
 from axiomm.analysis.reporting.base import Reporter, SectionRenderer
 from axiomm.analysis.reporting.core import render_report
+from axiomm.analysis.reporting.hub import HubEntry, build_hub
 from axiomm.analysis.reporting.models import (
     Block,
     Figure,
+    Html,
     Report,
     ReportConfig,
     ReportSection,
+    Svg,
     Table,
 )
 from axiomm.analysis.reporting.registry import reporters, sections
@@ -28,12 +31,16 @@ from axiomm.analysis.reporting.registry import reporters, sections
 __all__ = [
     "Block",
     "Figure",
+    "Html",
+    "HubEntry",
     "Report",
     "ReportConfig",
     "ReportSection",
     "Reporter",
     "SectionRenderer",
+    "Svg",
     "Table",
+    "build_hub",
     "render_report",
     "reporters",
     "sections",
