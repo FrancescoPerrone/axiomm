@@ -120,6 +120,49 @@ class AxiommSignalPayload:
     #: omits the ``"calibration"`` subkey accordingly.
     resolved_calibration: dict[str, "ResolvedValue"] | None = None
 
+    @classmethod
+    def from_array(cls, data, *, energy_scale, energy_offset=0.0, energy_units="keV",
+                   nav_names=None, signal_name="Energy", signal_kind="signal1d", **kwargs):
+        """Build a spectrum-image payload from an array whose LAST axis is spectral.
+
+        Saves callers from hand-building each :class:`AxisSpec`: the leading
+        dimensions become navigation axes (named ``nav_names``, default
+        ``y, x, z, …``) and the final dimension becomes the energy/signal axis with
+        the given calibration. ``energy_scale`` is required — no beamline value is
+        ever assumed. Axes are stamped with ``index_in_array`` (never inferred from
+        tuple position), honouring the HyperSpy axis-order caveat. Extra keyword
+        arguments (``title``, ``metadata``, ``provenance``, …) pass through.
+        """
+        import numpy as np
+
+        from axiomm.io.converters.errors import SignalValidationError
+
+        arr = np.asarray(data)
+        if arr.ndim < 2:
+            raise SignalValidationError(
+                "from_array needs at least 2 dimensions (>=1 navigation + 1 signal); "
+                f"got shape {arr.shape}.")
+        n_nav = arr.ndim - 1
+        if nav_names is None:
+            default = ("y", "x", "z")
+            nav_names = default[:n_nav] if n_nav <= len(default) else tuple(
+                f"nav{i}" for i in range(n_nav))
+        elif len(nav_names) != n_nav:
+            raise SignalValidationError(
+                f"nav_names must have {n_nav} entries for a {arr.ndim}-D array; "
+                f"got {len(nav_names)}.")
+        nav_axes = [
+            AxisSpec(name=nav_names[i], role="navigation", size=int(arr.shape[i]),
+                     index_in_array=i)
+            for i in range(n_nav)
+        ]
+        signal_axis = AxisSpec(
+            name=signal_name, role="signal", size=int(arr.shape[-1]),
+            units=energy_units, scale=float(energy_scale),
+            offset=float(energy_offset), index_in_array=arr.ndim - 1)
+        return cls(data=arr, axes=(*nav_axes, signal_axis),
+                   signal_kind=signal_kind, **kwargs)
+
 
 @dataclass(frozen=True)
 class ConversionResult:
