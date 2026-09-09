@@ -92,6 +92,49 @@ def test_top_level_measure_peaks_is_reference_aware():
 
 # --- compose without hand-building ElementRef lists ---------------------------
 
+def test_pipeline_honours_structural_exclude_for_cations():
+    """The DRY-adopt makes the pipeline use structural_exclude (not a hardcoded
+    != 'O'), so an in-range structural element is not treated as a measured cation."""
+    pytest.importorskip("sklearn")
+    pytest.importorskip("xraylib")
+    from axiomm.io.converters.models import AxiommSignalPayload
+    from axiomm.pipeline import Pipeline
+
+    # Ca is marked structural here, even though its line (3.69 keV) is in range.
+    els = {
+        "O": ElementRef("O", 0.525, 15.999, 8, None, "Ka"),
+        "Mg": ElementRef("Mg", 1.254, 24.305, 12, ("MgO", 1, 1), "Ka"),
+        "Si": ElementRef("Si", 1.740, 28.085, 14, ("SiO2", 1, 2), "Ka"),
+        "Ca": ElementRef("Ca", 3.690, 40.078, 20, ("CaO", 1, 1), "Ka"),
+    }
+    minerals = (
+        MineralEndmember("Forsterite", "olivine", {"Mg": 2, "Si": 1, "O": 4}, None, "i", basis="atom_counts"),
+    )
+    ref = MineralogyReference(
+        name="struct_ref", version="1", elements=els, minerals=minerals,
+        structural_exclude=frozenset({"O", "Ca"}), family_display={"olivine": "Ol"})
+
+    rng = np.random.default_rng(0)
+    ne, ny, nx = 300, 10, 12
+    e = np.arange(ne) * 0.02
+    cube = np.full((ny, nx, ne), 2.0)
+    cube[: ny // 2] += 400 * np.exp(-((e - 1.254) ** 2) / (2 * 0.05**2))
+    cube[ny // 2:] += 400 * np.exp(-((e - 3.690) ** 2) / (2 * 0.05**2))
+    cube = rng.poisson(np.clip(cube, 0, None)).astype(float)
+    axes = (
+        AxisSpec("y", "navigation", ny, index_in_array=0),
+        AxisSpec("x", "navigation", nx, index_in_array=1),
+        AxisSpec("Energy", "signal", ne, units="keV", scale=0.02, offset=0.0, index_in_array=2),
+    )
+    payload = AxiommSignalPayload(data=cube, axes=axes, signal_kind="signal1d")
+
+    r = Pipeline(groups=2, components=4, reference=ref,
+                 beam_energy_kev=15.0, reference_element="Si").run(payload)
+    assert r.quantification is not None
+    for q in r.quantification:
+        assert "Ca" not in q.net_intensities   # structural -> not a measured cation
+
+
 def test_quantify_wiring_from_reference_no_manual_elementrefs():
     pytest.importorskip("xraylib")
     from axiomm.analysis.quant import compute_k_factors, quantify_cluster_means

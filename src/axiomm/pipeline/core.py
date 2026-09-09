@@ -16,7 +16,7 @@ import numpy as np
 from axiomm.analysis.clustering import GMMClusterer, GMMConfig, compute_cluster_means
 from axiomm.analysis.errors import AnalysisDependencyError, PayloadValidationError
 from axiomm.analysis.models import Diagnostic
-from axiomm.analysis.peaks import NetIntensityMeasurer, measure_cluster_means
+from axiomm.analysis.peaks import measure_peaks
 from axiomm.analysis.quant import (
     ReliabilityConfig,
     assess_cluster_reliability,
@@ -168,20 +168,18 @@ class Pipeline:
         signal_axis = next(a for a in payload.axes if a.role == "signal")
         emin = float(signal_axis.offset)
         emax = float(signal_axis.offset) + float(signal_axis.scale) * (int(signal_axis.size) - 1)
-        cations = [s for s, el in reference.elements.items()
-                   if s != "O" and emin <= el.line_energy_kev <= emax]
+        # in-range cations from the reference (structural elements like O/Br/I excluded)
+        cations = reference.cations_in_range(emin, emax)
         if cfg.reference_element not in cations:
             raise PayloadValidationError(
                 f"reference_element {cfg.reference_element!r} has no line in the spectrum's "
                 f"energy range [{emin:.2f}, {emax:.2f}] keV; set reference_element to a "
                 "measurable element.")
-        lines = {s: reference.elements[s].line_energy_kev for s in cations}
-        measurer = NetIntensityMeasurer()
-        peaks = measure_cluster_means(means, signal_axis, lines, measurer=measurer)
+        peaks = measure_peaks(means, signal_axis, reference)
 
-        k = compute_k_factors([reference.elements[s] for s in cations],
+        k = compute_k_factors(reference.element_refs(cations),
                               excitation_kev=cfg.beam_energy_kev, reference=cfg.reference_element)
-        quant_elements = [reference.elements[s] for s in cations]
+        quant_elements = list(reference.element_refs(cations))
         if "O" in reference.elements:
             quant_elements.append(reference.elements["O"])
         quant = quantify_cluster_means(list(peaks), k, quant_elements, reference_name=reference.name)
