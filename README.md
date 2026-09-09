@@ -78,11 +78,20 @@ result.save("out/")                  # a self-describing folder you can reload
 Each stage is yours to choose. The defaults just work, but `reduction=`
 and `clustering=` accept a backend name, a constructed backend, or a
 `{"name": ..., **options}` dict — so a pipeline can reflect the exact
-choices your analysis calls for (and new backends plug into the same
-fields as they land):
+choices your analysis calls for. Reduction offers **PCA** and **UMAP**;
+clustering offers **GMM** and **HDBSCAN** (density-based, discovers the
+count); more plug into the same fields as they land:
 
 ```python
-Pipeline(reduction="pca", clustering={"name": "gmm", "n_clusters": 6}).run("map.bcf")
+Pipeline(reduction="umap", clustering="hdbscan").run("map.bcf")
+```
+
+The individual tools are one import away too, and building the input takes
+one line:
+
+```python
+from axiomm import AxiommSignalPayload, decompose, cluster, quantify, render_report
+payload = AxiommSignalPayload.from_array(cube, energy_scale=0.02)   # last axis = energy
 ```
 
 It does as much as the data and settings allow and **skips honestly**:
@@ -154,7 +163,8 @@ Per the AXIOMM convention each tool lives under its own subpackage:
 | Tool      | Module                    | Status                                           |
 |-----------|---------------------------|--------------------------------------------------|
 | Converter | `axiomm.io.converters`    | Phases 0–4 complete. End-to-end Python API, registry + plugin-discovery for third-party readers/writers, calibration resolution ladder with per-value provenance (`source_metadata` → `user_config` → `legacy_preset` → `inferred` → `unknown`). Reads XRM-Map HDF5 and **Bruker `.bcf`** EDS. CLI / notebook helpers still blocked on a UX-layout decision. |
-| Analysis suite | `axiomm.analysis.*`  | 🚧 Stage two, in progress. S0 foundations + `decomposition` (PCA), `clustering` (GMM), `mineralogy` reference, `peaks`, `quant` (k-factors, Cliff-Lorimer, reliability gate), and **exploratory `mineralogy.match`** are implemented as composable tools; the pipeline runs on real EDS data. Still to come: `reporting` (S4) and a composed `axiomm.pipeline` (S5). **Not yet a single user-facing workflow** — see the [Roadmap](https://github.com/FrancescoPerrone/axiomm/wiki/Roadmap) and `docs/user/analysis.md`. |
+| Analysis suite | `axiomm.analysis.*`  | 🚧 Stage two. `decomposition` (PCA **+ UMAP**), `clustering` (GMM **+ HDBSCAN**), `mineralogy` reference, `peaks`, `quant` (k-factors, Cliff-Lorimer, reliability gate), and exploratory `mineralogy.match` — composable tools, one import away (`from axiomm import decompose, cluster, quantify, …`), also runnable on real EDS data. |
+| Pipeline | `axiomm.Pipeline` | ✅ One-call front door composing the whole chain, with pluggable stages and honest abstention. `result.report_html()` produces an interactive, self-contained HTML report (per-stage sections incl. spectra with peak IDs, phase map, and a reduction embedding scatter). A friendly UX layer is next — see the [Roadmap](https://github.com/FrancescoPerrone/axiomm/wiki/Roadmap) and `docs/user/analysis.md`. |
 
 ## Examples
 
@@ -220,7 +230,8 @@ python -m pip install -e ".[dev,all,docs]"
 |--------------|--------------------------------------------------------------------|
 | `[hdf5]`     | `h5py` — required by `XRMMapH5Reader`                              |
 | `[hyperspy]` | `hyperspy` — the signal-builder backend (`Signal1D`) and the `.bcf` reader (RosettaSciIO) |
-| `[analysis]` | `scikit-learn` — PCA / GMM backends for the analysis suite         |
+| `[analysis]` | `scikit-learn` — PCA decomposition and GMM / HDBSCAN clustering    |
+| `[umap]`     | `umap-learn` — the UMAP decomposition backend                      |
 | `[quant]`    | `xraylib` — theoretical Cliff-Lorimer k-factors                    |
 | `[viz]`      | `matplotlib` — plotting for the examples                           |
 | `[all]`      | Shorthand for `[hdf5,hyperspy,analysis]` + `matplotlib`           |
