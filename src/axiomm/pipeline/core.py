@@ -156,7 +156,9 @@ class Pipeline:
         name = opts.pop("name")
         from axiomm.analysis.clustering import clusterers
         cls = clusterers.get(name)  # registry yields the class
-        opts.setdefault("n_clusters", cfg.groups)
+        # only fixed-k backends take n_clusters (GMM); density backends (HDBSCAN) don't
+        if _accepts(cls, "n_clusters") and "n_clusters" not in opts:
+            opts["n_clusters"] = cfg.groups
         if issubclass(cls, GMMClusterer) and "config" not in opts:
             opts["config"] = GMMConfig(random_state=cfg.seed)
         return cls(**opts)

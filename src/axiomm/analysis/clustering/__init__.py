@@ -16,12 +16,14 @@ from __future__ import annotations
 from axiomm.analysis.registry import Registry
 from axiomm.analysis.clustering.base import Clusterer
 from axiomm.analysis.clustering.gmm import GMMClusterer, GMMConfig
+from axiomm.analysis.clustering.hdbscan import HDBSCANClusterer, HDBSCANConfig
 from axiomm.analysis.clustering.means import compute_cluster_means
 from axiomm.analysis.clustering.models import ClusterMeanSpectra, ClusteringResult
 
 #: Registry mapping a stable name to a clusterer **class** (not instance).
 clusterers: Registry = Registry("clusterer")
 clusterers.register("gmm", lambda: GMMClusterer)
+clusterers.register("hdbscan", lambda: HDBSCANClusterer)
 
 
 def get_clusterer(name: str):
@@ -39,6 +41,8 @@ __all__ = [
     "ClusteringResult",
     "GMMClusterer",
     "GMMConfig",
+    "HDBSCANClusterer",
+    "HDBSCANConfig",
     "clusterers",
     "compute_cluster_means",
     "get_clusterer",

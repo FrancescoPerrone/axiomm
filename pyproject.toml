@@ -38,6 +38,7 @@ dependencies = [
 hdf5 = ["h5py>=3.8"]
 hyperspy = ["hyperspy>=2.0"]
 analysis = ["scikit-learn>=1.3"]
+umap = ["umap-learn>=0.5"]
 quant = ["xraylib"]
 viz = ["matplotlib>=3.7"]
 all = ["h5py>=3.8", "hyperspy>=2.0", "scikit-learn>=1.3", "matplotlib>=3.7"]

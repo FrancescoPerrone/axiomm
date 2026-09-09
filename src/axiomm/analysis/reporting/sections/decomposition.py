@@ -23,10 +23,18 @@ class DecompositionSection:
 
     def render(self, result, config) -> ReportSection:
         decomp = result.decomposition
-        ev = np.asarray(decomp.explained_variance_ratio, dtype=float)
-        kept = int(getattr(decomp, "n_components", len(ev)))
+        ev = np.asarray(decomp.explained_variance_ratio, dtype=float).ravel()
+        kept = int(getattr(decomp, "n_components", ev.size))
+
+        # some backends (e.g. UMAP) produce an embedding with no variance ratio
+        if ev.size == 0:
+            backend = getattr(getattr(decomp, "provenance", None), "backend", "this backend")
+            return ReportSection("decomposition", "Decomposition", [
+                f"{kept} components ({backend} embedding). Explained variance is not "
+                "defined for this backend."])
+
         opts = config.options_for(self.id)
-        show = min(int(opts.get("max_components", len(ev))), len(ev))
+        show = min(int(opts.get("max_components", ev.size)), ev.size)
 
         cum = np.cumsum(ev)
         blocks: list = [

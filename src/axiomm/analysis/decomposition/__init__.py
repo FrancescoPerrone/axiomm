@@ -26,6 +26,10 @@ decomposers.register(
     "pca",
     "axiomm.analysis.decomposition.sklearn_pca:SklearnPCADecomposer",
 )
+decomposers.register(
+    "umap",
+    "axiomm.analysis.decomposition.umap_backend:UMAPDecomposer",
+)
 load_into(decomposers, ENTRY_POINT_DECOMPOSERS)
 
 
