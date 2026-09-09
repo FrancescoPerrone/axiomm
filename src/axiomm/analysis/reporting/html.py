@@ -140,7 +140,8 @@ def _render_section(s: ReportSection, interactive: bool) -> str:
             parts.append(_render_block(b))
     body = "".join(parts) or '<p class="muted">(nothing to show)</p>'
     handle = '<div class="module-handle" aria-hidden="true"></div>' if interactive else ""
-    return (f'<section class="module" id="{escape(s.id)}" data-module="{escape(s.id)}">'
+    cls = "module canvas-item" if interactive else "module"
+    return (f'<section class="{cls}" id="{escape(s.id)}" data-module="{escape(s.id)}">'
             f'{handle}<h2{_editable(interactive, f"{s.id}-title")}>{escape(s.title)}</h2>'
             f'{body}</section>')
 
@@ -162,13 +163,19 @@ class HtmlReporter:
         if config.subtitle:
             head_bits.append(f'<p class="lede"{_editable(interactive, "page-lede")}>'
                              f'{escape(config.subtitle)}</p>')
+        if interactive:
+            handle = '<div class="module-handle" aria-hidden="true"></div>'
+            masthead = (f'<div class="masthead canvas-item" data-module="__masthead__">'
+                        f'{handle}{"".join(head_bits)}</div>')
+        else:
+            masthead = f'<div class="masthead">{"".join(head_bits)}</div>'
 
         if sections:
-            grid_body = "".join(_render_section(s, interactive) for s in sections)
+            modules = "".join(_render_section(s, interactive) for s in sections)
         else:
-            grid_body = '<p class="muted">No sections to display.</p>'
+            modules = '<p class="muted">No sections to display.</p>'
         grid = (f'<div class="report-grid" id="report-grid" data-report-id="{title}">'
-                f'{grid_body}</div>')
+                f'{masthead}{modules}</div>')
 
         style = _STYLE + (("\n" + INTERACTIVE_CSS) if interactive else "")
         script = f"<script>{INTERACTIVE_JS}</script>\n" if interactive else ""
@@ -177,7 +184,7 @@ class HtmlReporter:
             '<meta charset="utf-8">\n'
             '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
             f"<title>{title}</title>\n<style>{style}</style>\n</head>\n<body>\n"
-            f"{''.join(head_bits)}\n{grid}\n{script}</body>\n</html>\n"
+            f"{grid}\n{script}</body>\n</html>\n"
         )
         return Report(
             backend="html", content=content, mime="text/html", sections=list(sections),

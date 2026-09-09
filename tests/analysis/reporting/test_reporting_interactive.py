@@ -41,16 +41,18 @@ def _render(**cfg):
 def test_interactive_emits_modules_editables_and_script():
     html = _render(subtitle="a lede", eyebrow="AXIOMM")
     assert 'class="report-grid"' in html and 'id="report-grid"' in html
-    assert html.count('class="module"') == 2
+    # sections are canvas items, and the masthead is a canvas item too
+    assert html.count('class="module canvas-item"') == 2
     assert 'data-module="alpha"' in html and 'data-module="beta"' in html
+    assert 'class="masthead canvas-item" data-module="__masthead__"' in html
     assert 'class="module-handle"' in html
     # editable page + section + paragraph hooks
     for eid in ('page-title', 'page-lede', 'page-eyebrow', 'alpha-title', 'alpha-p1', 'beta-p1'):
         assert f'data-editable="{eid}"' in html, eid
     assert "<script>" in html and "localStorage" in html and "pointerdown" in html
-    # free-canvas model: resizable modules, absolute-positioning, per-device pos
+    # full-viewport free-canvas model
     assert "module-resize" in html
-    assert "canvas" in html and "state.pos" in html
+    assert "canvas-mode" in html and "state.pos" in html
 
 
 def test_static_mode_has_no_interactivity():
