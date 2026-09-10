@@ -2,13 +2,26 @@
 
 from __future__ import annotations
 
+import re
 from types import SimpleNamespace
 
 from axiomm.analysis.reporting.workflow import (
+    WorkflowEdge,
     WorkflowGraph,
+    WorkflowNode,
+    workflow_canvas_html,
     workflow_from_result,
     workflow_svg,
 )
+
+
+def _branched():
+    # a branch (hierarchical-clustering-like / general DAG): means -> {sub_a, sub_b}
+    return WorkflowGraph(
+        nodes=[WorkflowNode("means", "Cluster spectra"),
+               WorkflowNode("sub_a", "Sub-clustering A"),
+               WorkflowNode("sub_b", "Sub-clustering B")],
+        edges=[WorkflowEdge("means", "sub_a"), WorkflowEdge("means", "sub_b")])
 
 
 def _clusters_only():
@@ -67,3 +80,22 @@ def test_svg_sketch_theme_applies_the_hand_drawn_wobble():
 def test_empty_graph_renders():
     svg = workflow_svg(WorkflowGraph(), theme="clean")
     assert svg.startswith("<svg")
+
+
+def test_layout_handles_branches_side_by_side():
+    # the two branch children sit at the same depth (same y) but different x
+    html = workflow_canvas_html(_branched())
+    xs = {m.group(1): float(m.group(2)) for m in
+          re.finditer(r'data-node="(sub_[ab])" data-x="([-\d.]+)" data-y="([-\d.]+)"', html)}
+    ys = {m.group(1): float(m.group(3)) for m in
+          re.finditer(r'data-node="(sub_[ab])" data-x="([-\d.]+)" data-y="([-\d.]+)"', html)}
+    assert xs["sub_a"] != xs["sub_b"]        # branched horizontally
+    assert ys["sub_a"] == ys["sub_b"]        # same layer
+
+
+def test_canvas_html_has_editable_text_and_edge_hooks():
+    html = workflow_canvas_html(workflow_from_result(_full()))
+    assert 'class="wf-node"' in html and 'contenteditable="true"' in html
+    assert html.count('class="wf-edge"') == 8      # 8 edges in the full run
+    assert 'data-from="reduce" data-to="cluster"' in html
+    assert "http" not in html                       # self-contained
