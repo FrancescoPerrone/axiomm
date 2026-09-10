@@ -108,6 +108,23 @@ class PipelineResult:
             rep.write(path, overwrite=overwrite)
         return rep
 
+    def workflow_html(self, path=None, *, title: str = "Analysis workflow",
+                      overwrite: bool = False):
+        """The auto-generated **workflow figure** for this run — an editable-canvas
+        HTML page of the tools used and how they connect (from the run's provenance),
+        exportable as a publication vector. Written to ``path`` when given."""
+        from axiomm.analysis.reporting.workflow import render_workflow_page, workflow_from_result
+        html = render_workflow_page(workflow_from_result(self), title=title)
+        if path is not None:
+            from pathlib import Path
+            path = Path(path)
+            if path.exists() and not overwrite:
+                from axiomm.analysis.errors import OutputExistsError
+                raise OutputExistsError(f"{path} already exists; pass overwrite=True.")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(html, encoding="utf-8")
+        return html
+
     # --- persistence --------------------------------------------------------
     def save(self, directory, *, overwrite: bool = False) -> Path:
         """Write a self-describing directory (manifest + arrays + stage payloads)."""

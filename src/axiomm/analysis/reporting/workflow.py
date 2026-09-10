@@ -352,7 +352,100 @@ def render_workflow_page(graph: WorkflowGraph, *, title: str = "Analysis workflo
             f"<script>{_WF_PAGE_JS}</script>\n</body></html>\n")
 
 
+_TOOL_TITLES = {
+    "decomposition": "Decomposition", "clustering": "Clustering",
+    "peaks": "Peak intensities", "quantification": "Quantification",
+    "quant": "Quantification", "reliability": "Reliability gate",
+    "mineralogy.match": "Mineral match", "match": "Mineral match",
+    "reporting": "Report",
+}
+
+
+def _write_page(html: str, path, overwrite: bool):
+    from pathlib import Path
+
+    from axiomm.analysis.errors import OutputExistsError
+    path = Path(path)
+    if path.exists() and not overwrite:
+        raise OutputExistsError(f"{path} already exists; pass overwrite=True.")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(html, encoding="utf-8")
+    return path
+
+
+class WorkflowRecorder:
+    """Record free-composed tool calls into a :class:`WorkflowGraph`.
+
+    Unlike :func:`workflow_from_result` (which reads one pipeline run's config), the
+    recorder captures *any* composition — hierarchical clustering, custom chains — by
+    watching the objects that flow between calls. Register a raw input with
+    :meth:`source`, then wrap each call with :meth:`step` (it reads the output's
+    provenance for the tool/backend) or log one explicitly with :meth:`record`; edges
+    are inferred by which recorded output was passed as an input.
+
+        rec = WorkflowRecorder()
+        rec.source(payload)
+        comps = rec.step(decompose, payload, backend="pca", n_components=6)
+        groups = rec.step(cluster, comps, backend="gmm", n_clusters=2)
+        rec.workflow_html("workflow.html")
+    """
+
+    def __init__(self) -> None:
+        self._nodes: list[WorkflowNode] = []
+        self._edges: list[WorkflowEdge] = []
+        self._producer: dict[int, str] = {}   # id(result object) -> node id
+        self._n = 0
+
+    def _add(self, title, sublabel, kind, inputs, output) -> str:
+        nid = f"n{self._n}"
+        self._n += 1
+        self._nodes.append(WorkflowNode(nid, title, sublabel, kind))
+        for inp in inputs:
+            src = self._producer.get(id(inp))
+            if src is not None:
+                self._edges.append(WorkflowEdge(src, nid))
+        if output is not None:
+            self._producer[id(output)] = nid
+        return nid
+
+    def source(self, obj, *, title: str = "Signal", sublabel: str = "spectrum image"):
+        """Register a raw input (e.g. the payload) as a source node and return it."""
+        self._add(title, sublabel, "input", (), obj)
+        return obj
+
+    def record(self, output, *, tool: str, backend: str | None = None,
+               sublabel: str | None = None, inputs=()):
+        """Log one tool call explicitly; returns ``output`` for chaining."""
+        title = _TOOL_TITLES.get(tool, tool.replace("_", " ").title() if tool else "Step")
+        sub = sublabel if sublabel is not None else (backend or "")
+        self._add(title, sub, tool or "step", inputs, output)
+        return output
+
+    def step(self, func, *args, **kwargs):
+        """Call ``func(*args, **kwargs)``, record it (tool/backend from the output's
+        provenance), infer edges from the positional inputs, and return the output."""
+        out = func(*args, **kwargs)
+        prov = getattr(out, "provenance", None)
+        tool = getattr(prov, "tool", None) or getattr(func, "__name__", "step")
+        backend = getattr(prov, "backend", None)
+        self.record(out, tool=tool, backend=backend, inputs=list(args))
+        return out
+
+    def graph(self) -> WorkflowGraph:
+        return WorkflowGraph(list(self._nodes), list(self._edges))
+
+    def workflow_svg(self, **kwargs) -> str:
+        return workflow_svg(self.graph(), **kwargs)
+
+    def workflow_html(self, path=None, *, title: str = "Analysis workflow",
+                      overwrite: bool = False, **kwargs) -> str:
+        html = render_workflow_page(self.graph(), title=title, **kwargs)
+        if path is not None:
+            _write_page(html, path, overwrite)
+        return html
+
+
 __all__ = [
-    "WorkflowEdge", "WorkflowGraph", "WorkflowNode",
+    "WorkflowEdge", "WorkflowGraph", "WorkflowNode", "WorkflowRecorder",
     "render_workflow_page", "workflow_canvas_html", "workflow_from_result", "workflow_svg",
 ]
