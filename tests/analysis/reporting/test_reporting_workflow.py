@@ -100,12 +100,15 @@ def test_render_workflow_page_is_full_editable_canvas_with_export():
     assert "My workflow" in html
     # one full-screen editable canvas, no static export strip
     assert html.count('class="wf-canvas"') == 1
-    # opens like a report: masthead, no toolbar, no instructions
-    assert 'class="wf-head"' in html and 'class="eyebrow"' in html
-    assert "wf-bar" not in html                                 # no toolbar
-    # controls are discovered in a corner (hover-revealed), not announced
+    # masthead lives on the canvas as draggable, editable items (not a fixed header)
+    assert 'class="wf-meta eyebrow"' in html and 'class="wf-meta title"' in html
+    assert "wf-head" not in html and "wf-bar" not in html       # no fixed header, no toolbar
+    # flowchart sits below the masthead and is left-aligned with it (x=22)
+    assert 'data-node="signal" data-x="22" data-y="150"' in html
+    # controls discovered in a corner; export serialises the live flowchart (meta excluded)
     assert 'class="wf-controls"' in html
-    assert 'class="export"' in html and "buildSVG" in html      # export the live state
+    assert 'class="export"' in html and "buildSVG" in html
+    assert "querySelectorAll('.wf-node')" in html               # export reads nodes, not meta
     assert 'data-theme="sketch"' in html and 'data-theme="clean"' in html  # switch
     assert "contenteditable" in html and "pointerdown" in html  # editable + draggable
     assert "exports" not in html                                # the static strip is gone

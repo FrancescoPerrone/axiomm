@@ -76,7 +76,7 @@ def workflow_from_result(result) -> WorkflowGraph:
 _W, _H, _VGAP, _HGAP, _PAD = 230, 54, 40, 40, 22
 
 
-def _layout(graph: WorkflowGraph):
+def _layout(graph: WorkflowGraph, y0: float = _PAD):
     """Layered top-down layout by longest-path depth (renders general DAGs)."""
     depth = {n.id: 0 for n in graph.nodes}
     changed = True
@@ -95,9 +95,9 @@ def _layout(graph: WorkflowGraph):
     for lvl, ids in by_level.items():
         offset = (max_w - len(ids)) / 2
         for j, nid in enumerate(ids):
-            pos[nid] = (_PAD + (offset + j) * (_W + _HGAP), _PAD + lvl * (_H + _VGAP))
+            pos[nid] = (_PAD + (offset + j) * (_W + _HGAP), y0 + lvl * (_H + _VGAP))
     width = 2 * _PAD + max_w * _W + max(max_w - 1, 0) * _HGAP
-    height = 2 * _PAD + n_levels * _H + max(n_levels - 1, 0) * _VGAP
+    height = y0 + _PAD + n_levels * _H + max(n_levels - 1, 0) * _VGAP
     return pos, width, height
 
 
@@ -168,14 +168,15 @@ def workflow_svg(graph: WorkflowGraph, *, theme: str = "clean", title: str | Non
     return "".join(parts)
 
 
-def workflow_canvas_html(graph: WorkflowGraph) -> str:
+def workflow_canvas_html(graph: WorkflowGraph, *, y0: float = _PAD) -> str:
     """An editable-canvas fragment: HTML nodes (contenteditable) over an SVG edge layer.
 
-    The UX/demo supplies CSS + a drag layer + a clean/sketch theme switch; this only
-    emits the structure with ``data-*`` hooks (node ``data-node``/``data-x``/``data-y``,
-    edge ``data-from``/``data-to``).
+    ``y0`` shifts the flowchart down to leave room for a masthead above it. The UX/demo
+    supplies CSS + a drag layer + a clean/sketch theme switch; this only emits the
+    structure with ``data-*`` hooks (node ``data-node``/``data-x``/``data-y``, edge
+    ``data-from``/``data-to``).
     """
-    pos, width, height = _layout(graph)
+    pos, width, height = _layout(graph, y0)
     edges = "".join(
         f'<path class="wf-edge" data-from="{e.src}" data-to="{e.dst}" fill="none" '
         f'marker-end="url(#wf-arrow)"/>' for e in graph.edges)
@@ -203,17 +204,18 @@ _WF_PAGE_CSS = """
   --muted:#97a2af; --border:#29313a; --accent:#3bbcc9; --accent-soft:#123236; --wf-ink:#b7add6;}}
 :root[data-theme="dark"]{ --bg:#0e1114; --surface:#161a1f; --ink:#e7ebef; --muted:#97a2af; --border:#29313a;
   --accent:#3bbcc9; --accent-soft:#123236; --wf-ink:#b7add6;}
-body{background:var(--bg); color:var(--ink); font-family:var(--sans); margin:0; padding:2.5rem 1.25rem 4rem;}
-.wf-head{max-width:46rem; margin:0 auto 1.25rem;}
-.wf-head .eyebrow{font-family:var(--mono); font-size:.72rem; letter-spacing:.14em; text-transform:uppercase;
-  color:var(--accent); margin:0 0 .35rem;}
-.wf-head h1{font-size:1.9rem; font-weight:600; margin:0 0 .4rem; letter-spacing:-.01em;}
-.wf-head .lede{color:var(--muted); margin:0; max-width:40rem;}
-.wf-head [contenteditable]{outline:none; border-radius:5px; transition:background .15s;}
-.wf-head [contenteditable]:hover{background:color-mix(in srgb,var(--accent) 8%,transparent);}
-.wf-head [contenteditable]:focus{background:color-mix(in srgb,var(--accent) 6%,transparent);
+body{background:var(--bg); color:var(--ink); font-family:var(--sans); margin:0; padding:0;}
+.wf-canvas{position:relative; width:100%; min-height:100vh;}
+.wf-meta{position:absolute; cursor:grab; user-select:none; max-width:42rem; padding:2px 6px;
+  border-radius:6px; transition:background .15s;}
+.wf-meta:hover{background:color-mix(in srgb,var(--accent) 7%,transparent);}
+.wf-meta.editing{cursor:text; user-select:text; outline:none;
+  background:color-mix(in srgb,var(--accent) 6%,transparent);
   box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 40%,transparent);}
-.wf-canvas{position:relative; width:100%; min-height:calc(100vh - 12rem);}
+.wf-meta.eyebrow{font-family:var(--mono); font-size:1.05rem; letter-spacing:.12em; text-transform:uppercase;
+  color:var(--accent); font-weight:600;}
+.wf-meta.title{font-size:2rem; font-weight:600; letter-spacing:-.01em;}
+.wf-meta.lede{color:var(--muted); font-size:1rem;}
 .wf-edges{position:absolute; inset:0; width:100%; height:100%; overflow:visible; pointer-events:none;}
 .wf-edges .wf-edge{fill:none; stroke:var(--accent); stroke-width:1.6; stroke-linecap:round; stroke-opacity:.85;}
 .wf-edges marker path{fill:var(--accent);}
@@ -254,15 +256,25 @@ _WF_PAGE_JS = r"""
     else{var my=(sy+ty)/2;d='M '+sx+' '+sy+' C '+sx+' '+my+' '+tx+' '+my+' '+tx+' '+ty;}
     p.setAttribute('d',d);});}
   edges(); window.addEventListener('resize',edges);
-  var drag=null,sx,sy,ox,oy;
-  canvas.addEventListener('pointerdown',function(e){if(e.target.closest('.wf-title,.wf-sub'))return;
-    var d=e.target.closest('.wf-node');if(!d)return;e.preventDefault();drag=d;sx=e.clientX;sy=e.clientY;
-    ox=+d.dataset.x;oy=+d.dataset.y;d.style.cursor='grabbing';d.style.zIndex=10;
-    document.addEventListener('pointermove',mv);document.addEventListener('pointerup',up);});
-  function mv(e){if(!drag)return;var nx=Math.max(0,ox+(e.clientX-sx)),ny=Math.max(0,oy+(e.clientY-sy));
-    drag.dataset.x=nx;drag.dataset.y=ny;drag.style.left=nx+'px';drag.style.top=ny+'px';edges();}
+  var drag=null,isMeta=false,sx,sy,ox,oy,moved=false;
+  function begin(el,meta,e){drag=el;isMeta=meta;sx=e.clientX;sy=e.clientY;ox=+el.dataset.x;oy=+el.dataset.y;
+    moved=false;el.style.cursor='grabbing';el.style.zIndex=10;
+    document.addEventListener('pointermove',mv);document.addEventListener('pointerup',up);}
+  canvas.addEventListener('pointerdown',function(e){
+    var m=e.target.closest('.wf-meta');
+    if(m){if(m.getAttribute('contenteditable')==='true')return;e.preventDefault();begin(m,true,e);return;}
+    if(e.target.closest('.wf-title,.wf-sub'))return;
+    var d=e.target.closest('.wf-node');if(!d)return;e.preventDefault();begin(d,false,e);});
+  function mv(e){if(!drag)return;var dx=e.clientX-sx,dy=e.clientY-sy;
+    if(Math.abs(dx)>3||Math.abs(dy)>3)moved=true;
+    var nx=Math.max(0,ox+dx),ny=Math.max(0,oy+dy);drag.dataset.x=nx;drag.dataset.y=ny;
+    drag.style.left=nx+'px';drag.style.top=ny+'px';if(!isMeta)edges();}
   function up(){document.removeEventListener('pointermove',mv);document.removeEventListener('pointerup',up);
-    if(drag){drag.style.cursor='grab';drag.style.zIndex='';}drag=null;}
+    if(drag){drag.style.cursor='';drag.style.zIndex='';
+      if(isMeta&&!moved){var el=drag;el.setAttribute('contenteditable','true');el.classList.add('editing');el.focus();
+        var h=function(){el.removeAttribute('contenteditable');el.classList.remove('editing');el.removeEventListener('blur',h);};
+        el.addEventListener('blur',h);}}
+    drag=null;isMeta=false;}
 
   var sw=document.querySelector('.switch');
   if(sw)sw.addEventListener('click',function(e){var b=e.target.closest('button');if(!b)return;
@@ -316,19 +328,27 @@ def render_workflow_page(graph: WorkflowGraph, *, title: str = "Analysis workflo
             '<feTurbulence type="fractalNoise" baseFrequency="0.013" numOctaves="2" seed="7" '
             'result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="2.4"/></filter>'
             '</defs></svg>')
-    head = (f'<div class="wf-head"><p class="eyebrow">{escape(eyebrow)}</p>'
-            f'<h1 contenteditable="true" spellcheck="false">{escape(title)}</h1>'
-            f'<p class="lede" contenteditable="true" spellcheck="false">{escape(subtitle)}</p></div>')
     controls = ('<div class="wf-controls"><div class="switch">'
                 '<button class="on" data-theme="clean">clean</button>'
                 '<button data-theme="sketch">sketch</button></div>'
                 '<button class="export">export</button></div>')
-    # full-screen page: let the CSS size the canvas (drop canvas_html's fixed size)
-    canvas = re.sub(r'(<div class="wf-canvas") style="[^"]*"', r"\1", workflow_canvas_html(graph))
+    # masthead as draggable canvas items, left-aligned above the flowchart; excluded
+    # from the export (buildSVG reads .wf-node only, never .wf-meta).
+    meta = (f'<div class="wf-meta eyebrow" data-x="22" data-y="20" style="left:22px; top:20px">'
+            f'{escape(eyebrow)}</div>'
+            f'<div class="wf-meta title" data-x="22" data-y="46" style="left:22px; top:46px">'
+            f'{escape(title)}</div>'
+            f'<div class="wf-meta lede" data-x="22" data-y="96" style="left:22px; top:96px">'
+            f'{escape(subtitle)}</div>')
+    # full-screen page: drop canvas_html's fixed size, shift the flowchart below the masthead
+    canvas = re.sub(r'(<div class="wf-canvas") style="[^"]*"', r"\1",
+                    workflow_canvas_html(graph, y0=150))
+    before, _, _ = canvas.rpartition("</div>")
+    canvas = before + meta + "</div>"
     return (f"<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">"
             '<meta name="viewport" content="width=device-width, initial-scale=1">'
             f"<title>{escape(title)}</title><style>{_WF_PAGE_CSS}</style></head><body>\n"
-            f"{filt}{head}{canvas}<div class=\"wf-toast\"></div>{controls}\n"
+            f"{filt}{canvas}<div class=\"wf-toast\"></div>{controls}\n"
             f"<script>{_WF_PAGE_JS}</script>\n</body></html>\n")
 
 
