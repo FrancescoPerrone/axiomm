@@ -3,9 +3,10 @@
 A self-contained, dependency-free layer the ``html`` backend injects so a report
 becomes a live workspace. On a wide screen the **whole viewport is a free
 canvas**: every item — the section cards *and* the masthead (title + opening
-paragraph) — can be dragged anywhere by its handle and resized from its corner,
-and titles/paragraphs edit in place. On a narrow screen (phone) it is a readable
-vertical stack.
+paragraph) — can be dragged anywhere by its handle, resized from its corner, and
+hidden with its close control (to declutter for the session), and titles/
+paragraphs edit in place. On a narrow screen (phone) it is a readable vertical
+stack.
 
 **The report always opens in its default arrangement.** Customisation is live for
 the viewing session only — nothing is persisted, so every open or refresh shows
@@ -40,6 +41,14 @@ body.canvas-mode { max-width: none; padding: 1.25rem; }
 .report-grid:not(.canvas) .module-resize { display: none; }
 .report-grid.canvas .canvas-item:hover .module-resize { opacity: .5; }
 .module-resize:hover { opacity: 1; }
+.module-hide { position: absolute; top: .55rem; left: .55rem; width: 1.5rem; height: 1.5rem;
+  border-radius: 7px; cursor: pointer; opacity: 0; transition: opacity .2s, background .2s;
+  display: flex; align-items: center; justify-content: center; color: var(--muted);
+  user-select: none; z-index: 3; }
+.module-hide::before { content: "\\00d7"; font-size: 1.1rem; line-height: 1; }
+.canvas-item:hover .module-hide { opacity: .5; }
+.module-hide:hover { opacity: 1; background: var(--accent-soft); }
+@media (hover: none) { .module-hide { opacity: .3; } }
 .module-placeholder { border: 2px dashed var(--border); border-radius: 10px; }
 [data-editable] { border-radius: 5px; transition: background .15s; outline: none; }
 [data-editable]:hover { background: color-mix(in srgb, var(--accent) 9%, transparent); }
@@ -72,13 +81,29 @@ INTERACTIVE_JS = r"""
     el.addEventListener('pointerdown', function (e) { e.stopPropagation(); });
   });
 
-  function items() { return Array.prototype.slice.call(grid.querySelectorAll('.canvas-item')); }
+  // items() excludes cards the viewer has hidden this session (layout ignores them)
+  function items() {
+    return Array.prototype.filter.call(grid.querySelectorAll('.canvas-item'),
+      function (m) { return !m.hidden; });
+  }
   function isWide() { return window.matchMedia(WIDE).matches; }
   function isMast(m) { return m.classList.contains('masthead'); }
 
-  items().forEach(function (m) {
+  Array.prototype.forEach.call(grid.querySelectorAll('.canvas-item'), function (m) {
     if (!m.querySelector('.module-resize')) {
       var h = document.createElement('div'); h.className = 'module-resize'; m.appendChild(h);
+    }
+    if (!m.querySelector('.module-hide')) {
+      var hb = document.createElement('div');
+      hb.className = 'module-hide';
+      hb.setAttribute('aria-hidden', 'true');
+      hb.addEventListener('pointerdown', function (e) { e.stopPropagation(); });
+      hb.addEventListener('click', function (e) {
+        e.stopPropagation();
+        m.hidden = true;           // removed for this session; a refresh restores the default
+        canvasHeight();
+      });
+      m.appendChild(hb);
     }
   });
 

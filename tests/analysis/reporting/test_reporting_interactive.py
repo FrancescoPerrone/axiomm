@@ -50,9 +50,10 @@ def test_interactive_emits_modules_editables_and_script():
     for eid in ('page-title', 'page-lede', 'page-eyebrow', 'alpha-title', 'alpha-p1', 'beta-p1'):
         assert f'data-editable="{eid}"' in html, eid
     assert "<script>" in html and "pointerdown" in html
-    # full-viewport free-canvas model
-    assert "module-resize" in html
+    # full-viewport free-canvas model + per-card hide (close) affordance
+    assert "module-resize" in html and "module-hide" in html
     assert "canvas-mode" in html and "applyCanvas" in html
+    assert "m.hidden = true" in html   # click-to-hide for the session
 
 
 def test_static_mode_has_no_interactivity():
