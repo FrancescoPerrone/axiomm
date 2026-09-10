@@ -18,6 +18,7 @@ Two outputs:
 
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from html import escape
@@ -194,7 +195,124 @@ def workflow_canvas_html(graph: WorkflowGraph) -> str:
             f'</defs>{edges}</svg>{"".join(nodes)}</div>')
 
 
+_WF_PAGE_CSS = """
+:root{ --bg:#f5f7f8; --surface:#ffffff; --ink:#14181d; --muted:#5c6673; --border:#dbe1e7;
+  --accent:#0d7d88; --accent-soft:#e4f1f2; --wf-ink:#4a4363;
+  --sans:'IBM Plex Sans',system-ui,sans-serif; --mono:'IBM Plex Mono',ui-monospace,monospace; color-scheme:light dark;}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){ --bg:#0e1114; --surface:#161a1f; --ink:#e7ebef;
+  --muted:#97a2af; --border:#29313a; --accent:#3bbcc9; --accent-soft:#123236; --wf-ink:#b7add6;}}
+:root[data-theme="dark"]{ --bg:#0e1114; --surface:#161a1f; --ink:#e7ebef; --muted:#97a2af; --border:#29313a;
+  --accent:#3bbcc9; --accent-soft:#123236; --wf-ink:#b7add6;}
+body{background:var(--bg); color:var(--ink); font-family:var(--sans); margin:0;}
+.wf-bar{position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:1rem; padding:.6rem 1rem;
+  background:color-mix(in srgb,var(--bg) 86%,transparent); backdrop-filter:blur(6px); border-bottom:1px solid var(--border);}
+.wf-bar h1{font-size:1rem; font-weight:600; margin:0; flex:0 0 auto;}
+.wf-bar .sp{flex:1;}
+.wf-bar .switch{display:inline-flex; gap:.3rem; font-family:var(--mono); font-size:.68rem;}
+.wf-bar button{border:1px solid var(--border); background:var(--surface); color:var(--muted); border-radius:999px;
+  padding:.3rem .8rem; cursor:pointer; letter-spacing:.05em; text-transform:uppercase; font-family:var(--mono); font-size:.68rem;}
+.wf-bar .switch button.on{border-color:var(--accent); color:var(--accent); background:var(--accent-soft);}
+.wf-bar .export{border-color:var(--accent); color:var(--accent);}
+.wf-canvas{position:relative; width:100%; min-height:calc(100vh - 3.2rem);}
+.wf-edges{position:absolute; inset:0; width:100%; height:100%; overflow:visible; pointer-events:none;}
+.wf-edges .wf-edge{fill:none; stroke:var(--accent); stroke-width:1.6; stroke-linecap:round; stroke-opacity:.85;}
+.wf-edges marker path{fill:var(--accent);}
+.wf-node{position:absolute; width:230px; box-sizing:border-box; background:var(--surface);
+  border:1.2px solid var(--accent); border-radius:8px; padding:9px 13px; cursor:grab; user-select:none;
+  box-shadow:0 1px 3px rgba(0,0,0,.05);}
+.wf-title{font-weight:600; font-size:13px; outline:none;}
+.wf-sub{font-family:var(--mono); font-size:10.5px; color:var(--muted); outline:none; margin-top:2px; min-height:1em;}
+.wf-title[contenteditable]:focus,.wf-sub[contenteditable]:focus{background:color-mix(in srgb,var(--accent) 8%,transparent); border-radius:3px;}
+.wf-canvas.sketch{filter:url(#wf-wobble);}
+.sketch .wf-node{border:1.8px solid var(--wf-ink); border-radius:14px;
+  background:linear-gradient(180deg, rgba(138,127,174,.12), rgba(90,80,120,.28)); box-shadow:none;}
+.sketch .wf-sub{color:var(--muted);}
+.sketch .wf-edges .wf-edge{stroke:var(--wf-ink); stroke-width:2;}
+.sketch .wf-edges marker path{fill:var(--wf-ink);}
+.wf-toast{position:fixed; bottom:1.1rem; left:50%; transform:translateX(-50%); background:var(--ink); color:var(--bg);
+  font-family:var(--mono); font-size:.72rem; padding:.5rem .9rem; border-radius:8px; opacity:0; transition:opacity .25s; pointer-events:none;}
+.wf-toast.show{opacity:.94;}
+""".strip()
+
+_WF_PAGE_JS = r"""
+(function(){
+  var canvas=document.querySelector('.wf-canvas'); if(!canvas) return;
+  var W=230;
+  function rect(id){var d=canvas.querySelector('.wf-node[data-node="'+id+'"]');return {x:+d.dataset.x,y:+d.dataset.y,w:d.offsetWidth,h:d.offsetHeight};}
+  function edges(){canvas.querySelectorAll('.wf-edge').forEach(function(p){var a=rect(p.dataset.from),b=rect(p.dataset.to);
+    var sx=a.x+a.w/2,sy=a.y+a.h,tx=b.x+b.w/2,ty=b.y,d;
+    if(Math.abs(sx-tx)<0.5)d='M '+sx+' '+sy+' L '+tx+' '+ty;
+    else{var my=(sy+ty)/2;d='M '+sx+' '+sy+' C '+sx+' '+my+' '+tx+' '+my+' '+tx+' '+ty;}
+    p.setAttribute('d',d);});}
+  edges(); window.addEventListener('resize',edges);
+  var drag=null,sx,sy,ox,oy;
+  canvas.addEventListener('pointerdown',function(e){if(e.target.closest('.wf-title,.wf-sub'))return;
+    var d=e.target.closest('.wf-node');if(!d)return;e.preventDefault();drag=d;sx=e.clientX;sy=e.clientY;
+    ox=+d.dataset.x;oy=+d.dataset.y;d.style.cursor='grabbing';d.style.zIndex=10;
+    document.addEventListener('pointermove',mv);document.addEventListener('pointerup',up);});
+  function mv(e){if(!drag)return;var nx=Math.max(0,ox+(e.clientX-sx)),ny=Math.max(0,oy+(e.clientY-sy));
+    drag.dataset.x=nx;drag.dataset.y=ny;drag.style.left=nx+'px';drag.style.top=ny+'px';edges();}
+  function up(){document.removeEventListener('pointermove',mv);document.removeEventListener('pointerup',up);
+    if(drag){drag.style.cursor='grab';drag.style.zIndex='';}drag=null;}
+
+  var sw=document.querySelector('.switch');
+  if(sw)sw.addEventListener('click',function(e){var b=e.target.closest('button');if(!b)return;
+    canvas.classList.toggle('sketch',b.dataset.theme==='sketch');
+    sw.querySelectorAll('button').forEach(function(x){x.classList.toggle('on',x===b);});});
+
+  function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+  function buildSVG(){
+    var sketch=canvas.classList.contains('sketch');
+    var ns=[],minx=1e9,miny=1e9,maxx=-1e9,maxy=-1e9,pos={};
+    canvas.querySelectorAll('.wf-node').forEach(function(d){var x=+d.dataset.x,y=+d.dataset.y,h=d.offsetHeight;
+      var n={id:d.dataset.node,x:x,y:y,h:h,t:d.querySelector('.wf-title').textContent,s:d.querySelector('.wf-sub').textContent};
+      ns.push(n);pos[n.id]=n;minx=Math.min(minx,x);miny=Math.min(miny,y);maxx=Math.max(maxx,x+W);maxy=Math.max(maxy,y+h);});
+    var pad=20,ox=pad-minx,oy=pad-miny,w=(maxx-minx)+2*pad,h=(maxy-miny)+2*pad;
+    var ink=sketch?'#4a4363':'#0d7d88',fill=sketch?'#ece8f4':'#ffffff';
+    var ed='';canvas.querySelectorAll('.wf-edge').forEach(function(p){var a=pos[p.dataset.from],b=pos[p.dataset.to];if(!a||!b)return;
+      var sx=a.x+ox+W/2,sy=a.y+oy+a.h,tx=b.x+ox+W/2,ty=b.y+oy,d;
+      if(Math.abs(sx-tx)<0.5)d='M '+sx+' '+sy+' L '+tx+' '+ty;else{var my=(sy+ty)/2;d='M '+sx+' '+sy+' C '+sx+' '+my+' '+tx+' '+my+' '+tx+' '+ty;}
+      ed+='<path d="'+d+'" fill="none" stroke="'+ink+'" stroke-width="'+(sketch?2:1.5)+'" marker-end="url(#ar)"/>';});
+    var nd='';ns.forEach(function(n){var x=n.x+ox,y=n.y+oy;
+      nd+='<g transform="translate('+x+' '+y+')"><rect width="'+W+'" height="'+n.h+'" rx="'+(sketch?14:8)+'" fill="'+fill+'" stroke="'+ink+'" stroke-width="'+(sketch?1.8:1.2)+'"/>'
+        +'<text x="13" y="22" font-size="13" font-weight="600" fill="#14181d">'+esc(n.t)+'</text>'
+        +'<text x="13" y="40" font-size="10.5" fill="#5c6673" font-family="monospace">'+esc(n.s)+'</text></g>';});
+    var flt=sketch?'<filter id="wob"><feTurbulence type="fractalNoise" baseFrequency="0.013" numOctaves="2" seed="7" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="2.4"/></filter>':'';
+    var ga=sketch?' filter="url(#wob)"':'';
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+w+' '+h+'" width="'+w+'" height="'+h+'" font-family="sans-serif">'
+      +'<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="'+ink+'"/></marker>'+flt+'</defs><g'+ga+'>'+ed+nd+'</g></svg>';
+  }
+  function toast(msg){var t=document.querySelector('.wf-toast');t.textContent=msg;t.classList.add('show');setTimeout(function(){t.classList.remove('show');},1900);}
+  var ex=document.querySelector('.export');
+  if(ex)ex.addEventListener('click',function(){var svg=buildSVG();
+    if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(svg).then(function(){toast('Current figure copied as SVG — paste into a .svg file');},function(){toast('Copy blocked here; in the app this saves a file');});}
+    else toast('In the app this saves an .svg file');});
+})();
+""".strip()
+
+
+def render_workflow_page(graph: WorkflowGraph, *, title: str = "Analysis workflow") -> str:
+    """A full self-contained editable-canvas page: drag nodes (edges follow), edit any
+    label, switch clean/sketch, and export the **current** figure as a vector SVG."""
+    filt = ('<svg width="0" height="0" aria-hidden="true"><defs>'
+            '<filter id="wf-wobble" x="-4%" y="-4%" width="108%" height="108%">'
+            '<feTurbulence type="fractalNoise" baseFrequency="0.013" numOctaves="2" seed="7" '
+            'result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="2.4"/></filter>'
+            '</defs></svg>')
+    bar = (f'<div class="wf-bar"><h1>{escape(title)}</h1><div class="sp"></div>'
+           '<div class="switch"><button class="on" data-theme="clean">Clean</button>'
+           '<button data-theme="sketch">Sketch</button></div>'
+           '<button class="export">Export SVG</button></div>')
+    # full-screen page: let the CSS size the canvas (drop canvas_html's fixed size)
+    canvas = re.sub(r'(<div class="wf-canvas") style="[^"]*"', r"\1", workflow_canvas_html(graph))
+    return (f"<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">"
+            '<meta name="viewport" content="width=device-width, initial-scale=1">'
+            f"<title>{escape(title)}</title><style>{_WF_PAGE_CSS}</style></head><body>\n"
+            f"{filt}{bar}{canvas}<div class=\"wf-toast\"></div>\n"
+            f"<script>{_WF_PAGE_JS}</script>\n</body></html>\n")
+
+
 __all__ = [
     "WorkflowEdge", "WorkflowGraph", "WorkflowNode",
-    "workflow_canvas_html", "workflow_from_result", "workflow_svg",
+    "render_workflow_page", "workflow_canvas_html", "workflow_from_result", "workflow_svg",
 ]
