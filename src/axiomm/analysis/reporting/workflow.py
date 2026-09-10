@@ -203,17 +203,17 @@ _WF_PAGE_CSS = """
   --muted:#97a2af; --border:#29313a; --accent:#3bbcc9; --accent-soft:#123236; --wf-ink:#b7add6;}}
 :root[data-theme="dark"]{ --bg:#0e1114; --surface:#161a1f; --ink:#e7ebef; --muted:#97a2af; --border:#29313a;
   --accent:#3bbcc9; --accent-soft:#123236; --wf-ink:#b7add6;}
-body{background:var(--bg); color:var(--ink); font-family:var(--sans); margin:0;}
-.wf-bar{position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:1rem; padding:.6rem 1rem;
-  background:color-mix(in srgb,var(--bg) 86%,transparent); backdrop-filter:blur(6px); border-bottom:1px solid var(--border);}
-.wf-bar h1{font-size:1rem; font-weight:600; margin:0; flex:0 0 auto;}
-.wf-bar .sp{flex:1;}
-.wf-bar .switch{display:inline-flex; gap:.3rem; font-family:var(--mono); font-size:.68rem;}
-.wf-bar button{border:1px solid var(--border); background:var(--surface); color:var(--muted); border-radius:999px;
-  padding:.3rem .8rem; cursor:pointer; letter-spacing:.05em; text-transform:uppercase; font-family:var(--mono); font-size:.68rem;}
-.wf-bar .switch button.on{border-color:var(--accent); color:var(--accent); background:var(--accent-soft);}
-.wf-bar .export{border-color:var(--accent); color:var(--accent);}
-.wf-canvas{position:relative; width:100%; min-height:calc(100vh - 3.2rem);}
+body{background:var(--bg); color:var(--ink); font-family:var(--sans); margin:0; padding:2.5rem 1.25rem 4rem;}
+.wf-head{max-width:46rem; margin:0 auto 1.25rem;}
+.wf-head .eyebrow{font-family:var(--mono); font-size:.72rem; letter-spacing:.14em; text-transform:uppercase;
+  color:var(--accent); margin:0 0 .35rem;}
+.wf-head h1{font-size:1.9rem; font-weight:600; margin:0 0 .4rem; letter-spacing:-.01em;}
+.wf-head .lede{color:var(--muted); margin:0; max-width:40rem;}
+.wf-head [contenteditable]{outline:none; border-radius:5px; transition:background .15s;}
+.wf-head [contenteditable]:hover{background:color-mix(in srgb,var(--accent) 8%,transparent);}
+.wf-head [contenteditable]:focus{background:color-mix(in srgb,var(--accent) 6%,transparent);
+  box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 40%,transparent);}
+.wf-canvas{position:relative; width:100%; min-height:calc(100vh - 12rem);}
 .wf-edges{position:absolute; inset:0; width:100%; height:100%; overflow:visible; pointer-events:none;}
 .wf-edges .wf-edge{fill:none; stroke:var(--accent); stroke-width:1.6; stroke-linecap:round; stroke-opacity:.85;}
 .wf-edges marker path{fill:var(--accent);}
@@ -232,6 +232,15 @@ body{background:var(--bg); color:var(--ink); font-family:var(--sans); margin:0;}
 .wf-toast{position:fixed; bottom:1.1rem; left:50%; transform:translateX(-50%); background:var(--ink); color:var(--bg);
   font-family:var(--mono); font-size:.72rem; padding:.5rem .9rem; border-radius:8px; opacity:0; transition:opacity .25s; pointer-events:none;}
 .wf-toast.show{opacity:.94;}
+.wf-controls{position:fixed; bottom:1rem; right:1rem; display:flex; gap:.4rem; align-items:center;
+  opacity:0; transition:opacity .25s; z-index:30;}
+body:hover .wf-controls{opacity:.5;} .wf-controls:hover{opacity:1;}
+@media (hover:none){ .wf-controls{opacity:.45;} }
+.wf-controls .switch{display:inline-flex; gap:.25rem;}
+.wf-controls button{border:1px solid var(--border); background:var(--surface); color:var(--muted);
+  border-radius:999px; padding:.28rem .7rem; cursor:pointer; font-family:var(--mono); font-size:.66rem;
+  letter-spacing:.04em;}
+.wf-controls .switch button.on{border-color:var(--accent); color:var(--accent); background:var(--accent-soft);}
 """.strip()
 
 _WF_PAGE_JS = r"""
@@ -291,24 +300,35 @@ _WF_PAGE_JS = r"""
 """.strip()
 
 
-def render_workflow_page(graph: WorkflowGraph, *, title: str = "Analysis workflow") -> str:
-    """A full self-contained editable-canvas page: drag nodes (edges follow), edit any
-    label, switch clean/sketch, and export the **current** figure as a vector SVG."""
+def render_workflow_page(graph: WorkflowGraph, *, title: str = "Analysis workflow",
+                         eyebrow: str = "AXIOMM",
+                         subtitle: str = "The AXIOMM tools applied to this analysis, "
+                                         "and how they connect.") -> str:
+    """A full self-contained editable-canvas page.
+
+    Opens like a report — a clean masthead (eyebrow, editable title + lede) above the
+    workflow figure — with **no toolbar and no instructions**. Every label edits in
+    place; nodes drag (edges follow); a clean/sketch switch and an export-to-vector-SVG
+    control are discovered in a corner on hover, never announced.
+    """
     filt = ('<svg width="0" height="0" aria-hidden="true"><defs>'
             '<filter id="wf-wobble" x="-4%" y="-4%" width="108%" height="108%">'
             '<feTurbulence type="fractalNoise" baseFrequency="0.013" numOctaves="2" seed="7" '
             'result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="2.4"/></filter>'
             '</defs></svg>')
-    bar = (f'<div class="wf-bar"><h1>{escape(title)}</h1><div class="sp"></div>'
-           '<div class="switch"><button class="on" data-theme="clean">Clean</button>'
-           '<button data-theme="sketch">Sketch</button></div>'
-           '<button class="export">Export SVG</button></div>')
+    head = (f'<div class="wf-head"><p class="eyebrow">{escape(eyebrow)}</p>'
+            f'<h1 contenteditable="true" spellcheck="false">{escape(title)}</h1>'
+            f'<p class="lede" contenteditable="true" spellcheck="false">{escape(subtitle)}</p></div>')
+    controls = ('<div class="wf-controls"><div class="switch">'
+                '<button class="on" data-theme="clean">clean</button>'
+                '<button data-theme="sketch">sketch</button></div>'
+                '<button class="export">export</button></div>')
     # full-screen page: let the CSS size the canvas (drop canvas_html's fixed size)
     canvas = re.sub(r'(<div class="wf-canvas") style="[^"]*"', r"\1", workflow_canvas_html(graph))
     return (f"<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">"
             '<meta name="viewport" content="width=device-width, initial-scale=1">'
             f"<title>{escape(title)}</title><style>{_WF_PAGE_CSS}</style></head><body>\n"
-            f"{filt}{bar}{canvas}<div class=\"wf-toast\"></div>\n"
+            f"{filt}{head}{canvas}<div class=\"wf-toast\"></div>{controls}\n"
             f"<script>{_WF_PAGE_JS}</script>\n</body></html>\n")
 
 
