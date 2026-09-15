@@ -80,37 +80,47 @@ _PAGE = r"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>__TITLE__</title>
 <style>
-:root{ --bg:#0e1114; --ink:#e7ebef; --muted:#97a2af; --border:#29313a; --accent:#3bbcc9;
-  --surface:#161a1f; --sans:'IBM Plex Sans',system-ui,sans-serif; --mono:'IBM Plex Mono',ui-monospace,monospace; }
-@media (prefers-color-scheme:light){:root{ --bg:#f5f7f8; --ink:#14181d; --muted:#5c6673; --border:#dbe1e7;
-  --accent:#0d7d88; --surface:#ffffff; }}
-html,body{height:100%;} body{margin:0; background:var(--bg); color:var(--ink); font-family:var(--sans); overflow:hidden;}
-#view{position:fixed; inset:0; touch-action:none;}
-.head{position:fixed; top:1rem; left:1.25rem; z-index:5; pointer-events:none;}
-.head .eyebrow{font-family:var(--mono); font-size:.72rem; letter-spacing:.14em; text-transform:uppercase; color:var(--accent); margin:0 0 .25rem;}
-.head h1{font-size:1.3rem; font-weight:600; margin:0;}
-.head p{color:var(--muted); font-size:.82rem; margin:.3rem 0 0; max-width:34rem;}
-.panel{position:fixed; top:1rem; right:1rem; z-index:5; background:color-mix(in srgb,var(--surface) 88%,transparent);
-  border:1px solid var(--border); border-radius:10px; padding:.8rem .9rem; font-size:.72rem; font-family:var(--mono);
-  display:flex; flex-direction:column; gap:.55rem; min-width:11rem; backdrop-filter:blur(6px);}
+:root{ --bg:#f5f7f8; --ink:#14181d; --muted:#5c6673; --border:#dbe1e7; --accent:#0d7d88;
+  --surface:#ffffff; --sans:'IBM Plex Sans',system-ui,sans-serif; --mono:'IBM Plex Mono',ui-monospace,monospace; }
+@media (prefers-color-scheme:dark){:root{ --bg:#0e1114; --ink:#e7ebef; --muted:#97a2af; --border:#29313a;
+  --accent:#3bbcc9; --surface:#161a1f; }}
+body{margin:0; background:var(--bg); color:var(--ink); font-family:var(--sans); padding:2.5rem 1.25rem 3rem;}
+.wrap{max-width:52rem; margin-inline:auto;}
+.eyebrow{font-family:var(--mono); font-size:.72rem; letter-spacing:.14em; text-transform:uppercase; color:var(--accent); margin:0 0 .35rem;}
+h1{font-size:1.9rem; font-weight:600; margin:0 0 .4rem; letter-spacing:-.01em;}
+.lede{color:var(--muted); margin:0 0 1.25rem; max-width:40rem;}
+.plot-card{position:relative; border:1px solid var(--border); border-radius:12px; overflow:hidden; background:#12151a;
+  box-shadow:0 1px 3px rgba(0,0,0,.06);}
+#view{display:block; width:100%; height:clamp(360px, 62vh, 620px); touch-action:none; cursor:grab;}
+.panel{position:absolute; top:.75rem; right:.75rem; z-index:5;
+  background:color-mix(in srgb,#12151a 80%,transparent); color:#e7ebef;
+  border:1px solid #2a3038; border-radius:10px; padding:.7rem .8rem; font-size:.72rem; font-family:var(--mono);
+  display:flex; flex-direction:column; gap:.5rem; min-width:10.5rem; backdrop-filter:blur(6px);}
 .panel .row{display:flex; align-items:center; justify-content:space-between; gap:.6rem;}
-.panel button{border:1px solid var(--border); background:var(--surface); color:var(--muted); border-radius:6px;
-  padding:.25rem .55rem; cursor:pointer; font-family:var(--mono); font-size:.68rem;}
-.panel button.on{border-color:var(--accent); color:var(--accent);}
-.panel input[type=range]{width:6.5rem;}
-.legend{display:flex; flex-direction:column; gap:.3rem; margin-top:.15rem; border-top:1px solid var(--border); padding-top:.5rem;}
-.legend .item{display:flex; align-items:center; gap:.45rem; cursor:pointer; opacity:.55; transition:opacity .15s;}
+.panel button{border:1px solid #2a3038; background:#171b21; color:#97a2af; border-radius:6px;
+  padding:.24rem .55rem; cursor:pointer; font-family:var(--mono); font-size:.66rem;}
+.panel button.on{border-color:#3bbcc9; color:#3bbcc9;}
+.panel input[type=range]{width:6rem;}
+.legend{display:flex; flex-direction:column; gap:.28rem; margin-top:.1rem; border-top:1px solid #2a3038; padding-top:.45rem;}
+.legend .item{display:flex; align-items:center; gap:.45rem; cursor:pointer; opacity:.55; transition:opacity .15s; color:#c7cdd6;}
 .legend .item.on{opacity:1;} .legend .sw{width:.75rem; height:.75rem; border-radius:3px;}
+figcaption{font-family:var(--mono); font-size:.72rem; color:var(--muted); margin-top:.7rem; letter-spacing:.03em;}
 </style></head><body>
+<div class="wrap">
+<p class="eyebrow">AXIOMM · __BACKEND__ embedding</p>
+<h1>__TITLE__</h1>
+<p class="lede">Pixels in the reduction space, coloured by cluster. The axes are reduced components, not physical quantities; distances are not compositional — an exploratory view of cluster separation, not a validated result.</p>
+<figure style="margin:0"><div class="plot-card">
 <canvas id="view"></canvas>
-<div class="head"><p class="eyebrow">AXIOMM · __BACKEND__ embedding</p><h1>__TITLE__</h1>
-<p>Pixels in the reduction space, coloured by cluster. Axes are reduced components, not physical quantities — an exploratory view, not a validated result.</p></div>
 <div class="panel">
   <div class="row"><span>reset</span><button id="reset">re-fit</button></div>
   <div class="row"><span>projection</span><button id="proj">perspective</button></div>
   <div class="row"><span>point size</span><input id="size" type="range" min="1" max="12" step="0.5" value="4"></div>
   <div class="row"><span>axes</span><button id="axes" class="on">on</button></div>
   <div class="legend" id="legend"></div>
+</div></div>
+<figcaption>drag to orbit · scroll to zoom · shift-drag to pan · click a cluster to toggle it</figcaption>
+</figure>
 </div>
 <script src="__THREE__"></script>
 <script>
@@ -118,9 +128,10 @@ html,body{height:100%;} body{margin:0; background:var(--bg); color:var(--ink); f
   var D = /*DATA*/;
   var cvs = document.getElementById('view');
   var scene = new THREE.Scene();
-  var W = window.innerWidth, H = window.innerHeight;
-  var renderer = new THREE.WebGLRenderer({canvas:cvs, antialias:true, alpha:true});
-  renderer.setPixelRatio(window.devicePixelRatio||1); renderer.setSize(W,H);
+  var W = cvs.clientWidth, H = cvs.clientHeight;
+  var renderer = new THREE.WebGLRenderer({canvas:cvs, antialias:true});
+  renderer.setPixelRatio(window.devicePixelRatio||1); renderer.setSize(W,H,false);
+  renderer.setClearColor(0x12151a, 1);
 
   // build one Points object per category (for legend toggling)
   var pos = D.points, lab = D.labels;
@@ -178,8 +189,8 @@ html,body{height:100%;} body{margin:0; background:var(--bg); color:var(--ink); f
     it.innerHTML='<span class="sw" style="background:'+D.colors[ci]+'"></span>'+D.names[ci];
     it.onclick=function(){var v=!byCat[cat].visible;byCat[cat].visible=v;it.classList.toggle('on',v);render();};leg.appendChild(it);});
 
-  window.addEventListener('resize',function(){W=window.innerWidth;H=window.innerHeight;aspect=W/H;
-    renderer.setSize(W,H);persp.aspect=aspect;persp.updateProjectionMatrix();
+  window.addEventListener('resize',function(){W=cvs.clientWidth;H=cvs.clientHeight;aspect=W/H;
+    renderer.setSize(W,H,false);persp.aspect=aspect;persp.updateProjectionMatrix();
     ortho.left=-oh*aspect;ortho.right=oh*aspect;ortho.top=oh;ortho.bottom=-oh;ortho.updateProjectionMatrix();render();});
   render();   // static initial view — never auto-spins
 })();
