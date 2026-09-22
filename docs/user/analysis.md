@@ -542,6 +542,68 @@ lucky partial one (note Phlogopite's 0.43 dimension coverage above).
 
 ---
 
+## 9. Reporting — `axiomm.analysis.reporting`
+
+Once a run has finished, `PipelineResult` turns it into a **self-contained,
+shareable HTML report** — one file, no external assets — with a section per
+stage that ran: mean spectra with identified peak lines, the phase map, cluster
+tables, and, when the reduction kept two or more components, a scatter of the
+reduction embedding coloured by cluster. Sections are **conditional**: a stage
+that did not run contributes nothing, so a clustering-only run produces a report
+with no quantification or mineral sections.
+
+```python
+from axiomm import Pipeline
+
+result = Pipeline(beam_energy_kev=20).run("map.bcf")
+result.report_html("report.html")          # writes a self-contained HTML file
+```
+
+`report_html(path)` writes the file and returns the underlying
+[`Report`](https://github.com/FrancescoPerrone/axiomm/blob/main/src/axiomm/analysis/reporting/base.py)
+object; call it with no path to get the `Report` without writing. Writing never
+silently overwrites — an existing file raises `OutputExistsError` unless you pass
+`overwrite=True`. The general form is `result.report(backend="html").write(path)`,
+and `render_report(result, backend="html")` is the same one import away
+(`from axiomm import render_report`). Reporting and matplotlib load lazily, only
+when a report is requested.
+
+### The workflow figure
+
+`result.workflow_html(path)` writes a second page: an **auto-generated workflow
+diagram** of the tools this run used and how they connect, reconstructed from the
+run's provenance. It is a figure you can lay out and export as a publication
+vector.
+
+```python
+result.workflow_html("workflow.html")      # the tools used, and how they connect
+```
+
+Like the report, it refuses to overwrite an existing file unless `overwrite=True`.
+
+### Exploring the embedding in 3-D
+
+When the reduction keeps **three or more** components, the embedding can be
+viewed as an interactive 3-D scatter (in the browser, coloured by cluster,
+HDBSCAN noise shown distinctly):
+
+```python
+from axiomm.analysis.reporting.embedding_3d import (
+    embedding_3d_from_result, render_embedding_3d_page,
+)
+
+points, labels = embedding_3d_from_result(result)   # (n, 3) points + cluster labels
+open("embedding_3d.html", "w").write(render_embedding_3d_page(points, labels))
+```
+
+> The embedding axes are reduced components, **not** physical quantities, and
+> under UMAP inter-cluster distances are not metric. Treat the scatter as an
+> **exploratory** view of cluster separation, never as evidence of phase
+> validity — the reliability gate and mineral-match abstention still govern any
+> scientific claim.
+
+---
+
 ## Composing the tools
 
 The examples above already chain: a payload flows through

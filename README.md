@@ -72,6 +72,7 @@ for row in result.clusters:          # one plain row per mineral group
     print(row)
 
 result.phase_map                     # per-pixel mineral name (when minerals ran)
+result.report_html("report.html")    # one self-contained, shareable HTML report
 result.save("out/")                  # a self-describing folder you can reload
 ```
 
@@ -164,7 +165,7 @@ Per the AXIOMM convention each tool lives under its own subpackage:
 |-----------|---------------------------|--------------------------------------------------|
 | Converter | `axiomm.io.converters`    | Phases 0–4 complete. End-to-end Python API, registry + plugin-discovery for third-party readers/writers, calibration resolution ladder with per-value provenance (`source_metadata` → `user_config` → `legacy_preset` → `inferred` → `unknown`). Reads XRM-Map HDF5 and **Bruker `.bcf`** EDS. CLI / notebook helpers still blocked on a UX-layout decision. |
 | Analysis suite | `axiomm.analysis.*`  | 🚧 Stage two. `decomposition` (PCA **+ UMAP**), `clustering` (GMM **+ HDBSCAN**), `mineralogy` reference, `peaks`, `quant` (k-factors, Cliff-Lorimer, reliability gate), and exploratory `mineralogy.match` — composable tools, one import away (`from axiomm import decompose, cluster, quantify, …`), also runnable on real EDS data. |
-| Pipeline | `axiomm.Pipeline` | ✅ One-call front door composing the whole chain, with pluggable stages and honest abstention. `result.report_html()` produces an interactive, self-contained HTML report (per-stage sections incl. spectra with peak IDs, phase map, and a reduction embedding scatter). A friendly UX layer is next — see the [Roadmap](https://github.com/FrancescoPerrone/axiomm/wiki/Roadmap) and `docs/user/analysis.md`. |
+| Pipeline | `axiomm.Pipeline` | ✅ One-call front door composing the whole chain, with pluggable stages and honest abstention. `result.report_html()` produces an interactive, self-contained HTML report (per-stage sections incl. spectra with peak IDs, phase map, and a reduction embedding scatter); `result.workflow_html()` writes an auto-generated workflow figure of the tools used and how they connect. A friendly UX layer is next — see the [Roadmap](https://github.com/FrancescoPerrone/axiomm/wiki/Roadmap) and `docs/user/analysis.md`. |
 
 ## Examples
 
