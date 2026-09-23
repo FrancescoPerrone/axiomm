@@ -2,7 +2,7 @@
 
 Mirrors the converter's import-guard test. Run in a subprocess so the
 observation is clean and never mutates the parent interpreter's
-``sys.modules`` (see the Chunk-5 finding in docs/dev/STATE.md).
+``sys.modules``.
 """
 
 from __future__ import annotations

@@ -23,8 +23,7 @@ resolution ladder (precedence: source metadata → explicit user config
 is built on top of these primitives by the resolution helpers in
 :mod:`axiomm.io.converters.readers.hdf5_helpers` and wired into both
 readers; see ``docs/user/converter.md`` → *Calibration resolution*
-for the canonical user-facing reference and ``docs/dev/STATE.md`` for
-the Phase 4 chunk plan.
+for the canonical user-facing reference.
 """
 
 from __future__ import annotations

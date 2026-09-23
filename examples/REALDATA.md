@@ -42,9 +42,11 @@ order `height, width, Energy`; nav axes 0.216 nm/px; energy axis 0.01001 keV/ch,
 offset −0.4838 keV; `beam_energy` 200 keV, EDS `live_time` 974.5 s, `real_time`
 1015.6 s, detector elevation 22°/azimuth 45°; `Sample.elements` in the file are
 `[Er, Hf, Ho, O, Y]` (this differs from the repo README's REBCO/SrTiO₃
-description — recorded as a diagnostic, not reconciled). Next chunk (only after
-review): a small pluggable `BrukerBCFReader` building AXIOMM's neutral payload
-by `index_in_array`; no reader is implemented yet.
+description — recorded as a diagnostic, not reconciled). A small pluggable
+`BrukerBCFReader` now builds AXIOMM's neutral payload from this file, mapping
+axes by `index_in_array` and recording present/absent metadata as diagnostics;
+it is auto-detected by `convert_file(reader="auto")`. Run the full pipeline on it
+with `examples/bcf_pipeline.py` (see below).
 
 ---
 

@@ -221,21 +221,31 @@ For development (tests + lints) on top of the converter runtime:
 python -m pip install -e ".[dev,hdf5,hyperspy]"
 ```
 
-For everything — dev tools, docs builder, every backend:
+For a full development setup — the common scientific runtime, dev tools, and
+the docs builder — plus UMAP:
 
 ```bash
-python -m pip install -e ".[dev,all,docs]"
+python -m pip install -e ".[dev,all,umap,docs]"
 ```
+
+`[all]` is the **common, pip-reliable scientific runtime** (readers, the
+HyperSpy signal builder, scikit-learn, matplotlib). It deliberately does **not**
+pull in `[quant]`, `[umap]`, or `[vtk]`, because those are either fragile or
+heavy: `xraylib` (`[quant]`) usually needs conda (`conda install -c conda-forge
+xraylib`) rather than pip; `umap-learn` (`[umap]`) drags in numba/llvmlite; and
+`vtk` (`[vtk]`) is a large, desktop-only viewer. Add whichever of those you need
+explicitly.
 
 | Extra        | What it adds                                                       |
 |--------------|--------------------------------------------------------------------|
 | `[hdf5]`     | `h5py` — required by `XRMMapH5Reader`                              |
 | `[hyperspy]` | `hyperspy` — the signal-builder backend (`Signal1D`) and the `.bcf` reader (RosettaSciIO) |
 | `[analysis]` | `scikit-learn` — PCA decomposition and GMM / HDBSCAN clustering    |
-| `[umap]`     | `umap-learn` — the UMAP decomposition backend                      |
-| `[quant]`    | `xraylib` — theoretical Cliff-Lorimer k-factors                    |
+| `[umap]`     | `umap-learn` — the UMAP decomposition backend (heavy; not in `[all]`) |
+| `[quant]`    | `xraylib` — theoretical Cliff-Lorimer k-factors (usually conda-only; not in `[all]`) |
 | `[viz]`      | `matplotlib` — plotting for the examples                           |
-| `[all]`      | Shorthand for `[hdf5,hyperspy,analysis]` + `matplotlib`           |
+| `[vtk]`      | `vtk` — optional native desktop 3-D embedding viewer (heavy; not in `[all]`) |
+| `[all]`      | The common scientific runtime: `[hdf5,hyperspy,analysis]` + `matplotlib` (see note above — not `quant`/`umap`/`vtk`) |
 | `[dev]`      | `pytest`, `pytest-cov`, `ruff` — for running tests and lints       |
 | `[docs]`     | Sphinx + furo + sphinx-autoapi + myst-parser — for building the docs |
 | `[notebook]` | `ipywidgets`, `jupyter` — for the (planned) notebook helpers       |
