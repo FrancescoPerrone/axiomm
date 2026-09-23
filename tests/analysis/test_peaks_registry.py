@@ -5,8 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from axiomm.analysis.errors import BackendNotFoundError
 from axiomm.analysis.clustering.models import ClusterMeanSpectra
+from axiomm.analysis.errors import BackendNotFoundError
 from axiomm.io.converters.models import AxisSpec
 
 

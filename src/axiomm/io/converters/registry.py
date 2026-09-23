@@ -29,18 +29,17 @@ from __future__ import annotations
 import importlib
 import importlib.metadata
 import logging
-from collections.abc import Iterator
-from typing import Any, Callable, Union
+from collections.abc import Callable, Iterator
+from typing import Any
 
 from axiomm.io.converters.errors import UnsupportedFormatError
-
 
 logger = logging.getLogger(__name__)
 
 
 #: A factory either is a callable returning an instance, or a
 #: ``"module:attr"`` string resolved lazily to such a callable.
-Factory = Union[Callable[[], Any], str]
+Factory = Callable[[], Any] | str
 
 
 #: Entry-point group names third-party packages declare in their
@@ -126,7 +125,7 @@ class Registry:
         for name, factory in self._factories.items():
             try:
                 yield factory()
-            except Exception as exc:  # noqa: BLE001 — plugin-loading boundary
+            except Exception as exc:
                 logger.warning(
                     "axiomm: %s plugin %r failed to instantiate: %s",
                     self._kind, name, exc,
@@ -213,8 +212,8 @@ def find_writer_plugins() -> Iterator[tuple[str, str]]:
 
 def load_plugins(
     *,
-    into_readers: "Registry | None" = None,
-    into_writers: "Registry | None" = None,
+    into_readers: Registry | None = None,
+    into_writers: Registry | None = None,
 ) -> None:
     """Discover all installed AXIOMM plugins and register them.
 
@@ -236,7 +235,7 @@ def load_plugins(
     for name, spec in find_reader_plugins():
         try:
             target_readers.register(name, spec)
-        except Exception as exc:  # noqa: BLE001 — plugin-loading boundary
+        except Exception as exc:
             logger.warning(
                 "axiomm: skipping reader plugin %r=%r: %s",
                 name, spec, exc,
@@ -245,7 +244,7 @@ def load_plugins(
     for name, spec in find_writer_plugins():
         try:
             target_writers.register(name, spec)
-        except Exception as exc:  # noqa: BLE001 — plugin-loading boundary
+        except Exception as exc:
             logger.warning(
                 "axiomm: skipping writer plugin %r=%r: %s",
                 name, spec, exc,

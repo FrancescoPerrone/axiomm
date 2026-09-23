@@ -101,6 +101,6 @@ XRMMAP_H5_SCHEMA: HDF5MapSchema = HDF5MapSchema(
 
 
 __all__ = [
-    "HDF5MapSchema",
     "XRMMAP_H5_SCHEMA",
+    "HDF5MapSchema",
 ]

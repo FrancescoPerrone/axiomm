@@ -8,8 +8,8 @@ import pytest
 
 from axiomm.analysis.errors import OutputExistsError
 from axiomm.analysis.models import AnalysisProvenance, Diagnostic
-from axiomm.analysis.peaks.models import PeakMeasurement, PeakMeasurementSet
 from axiomm.analysis.peaks.io import SCHEMA_VERSION, read_peaks, write_peaks
+from axiomm.analysis.peaks.models import PeakMeasurement, PeakMeasurementSet
 
 
 def _pset():

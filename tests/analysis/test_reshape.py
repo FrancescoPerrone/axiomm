@@ -7,7 +7,7 @@ import pytest
 
 from axiomm.analysis.errors import PayloadValidationError
 from axiomm.analysis.reshape import FlattenedSignal, pixels_by_channels
-from axiomm.io.converters.models import AxisSpec, AxiommSignalPayload
+from axiomm.io.converters.models import AxiommSignalPayload, AxisSpec
 
 
 def _payload(data, axes):

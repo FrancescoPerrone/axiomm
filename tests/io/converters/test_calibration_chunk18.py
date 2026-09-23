@@ -25,19 +25,18 @@ from __future__ import annotations
 import pytest
 
 from axiomm.io.converters import (
+    XRMMAP_H5_SCHEMA,
     CalibrationSource,
     CalibrationUnresolvedError,
     ConversionMode,
     GenericHDF5MapReader,
     HDF5MapCalibration,
-    XRMMAP_H5_SCHEMA,
     XRMMapH5Calibration,
     XRMMapH5Reader,
 )
 from axiomm.io.converters.readers.hdf5_helpers import (
     compute_roi_scale_from_units,
 )
-
 
 # ---------------------------------------------------------------------------
 # compute_roi_scale_from_units — pure-function unit conversion table

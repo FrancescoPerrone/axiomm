@@ -23,7 +23,6 @@ from axiomm.io.converters.signals.hyperspy_builder import (
 )
 from axiomm.io.converters.signals.validation import validate_axes
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

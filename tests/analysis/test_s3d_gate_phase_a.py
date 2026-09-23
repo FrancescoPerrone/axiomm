@@ -206,6 +206,7 @@ def test_finding4_roundtrip_preserves_raw_score(tmp_path):
 # ---- Finding 5: exact-zero observations -----------------------------------
 
 def test_finding5_quantify_populates_observation_status():
+    pytest.importorskip("xraylib")  # needs real k-factors; matches the other quant tests
     from axiomm.analysis.mineralogy.reference import ElementRef as ER
     from axiomm.analysis.peaks.models import PeakMeasurement, PeakMeasurementSet
     from axiomm.analysis.quant import compute_k_factors, quantify

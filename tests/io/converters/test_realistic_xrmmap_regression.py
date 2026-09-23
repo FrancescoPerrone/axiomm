@@ -25,7 +25,6 @@ from axiomm.io.converters.writers.manifest import (
     MANIFEST_SUFFIX,
 )
 
-
 # ---------------------------------------------------------------------------
 # End-to-end pipeline
 # ---------------------------------------------------------------------------
@@ -38,7 +37,7 @@ def test_realistic_round_trip_produces_loadable_hspy(
     src = realistic_xrmmap_h5("realistic.h5", shape=(8, 6, 1024))
     out = tmp_path / "out.hspy"
 
-    result = convert_file(src, output_path=out, reader="xrmmap_h5")
+    convert_file(src, output_path=out, reader="xrmmap_h5")
 
     loaded = hs.load(str(out))
     assert loaded.data.shape == (8, 6, 1024)

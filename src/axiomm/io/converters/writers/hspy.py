@@ -20,7 +20,6 @@ from typing import Any
 
 from axiomm.io.converters.errors import OutputExistsError
 
-
 logger = logging.getLogger(__name__)
 
 

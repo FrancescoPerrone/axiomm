@@ -20,7 +20,6 @@ from axiomm.io.converters.readers.hdf5_helpers import (
     resolve_navigation_scale,
 )
 
-
 # ---------------------------------------------------------------------------
 # read_environ_table
 # ---------------------------------------------------------------------------
@@ -255,7 +254,7 @@ def test_resolve_navigation_scale_unit_when_no_beam_size_and_no_fallback():
 def test_resolve_navigation_scale_none_key_skips_beam_lookup_entirely():
     """When the schema has no beam_size_key, the function must not try to
     look anything up — it falls back directly."""
-    scale, diags, tag = resolve_navigation_scale(
+    scale, _diags, tag = resolve_navigation_scale(
         {"Experiment.Beam_Size__Nominal": "2um"},
         beam_size_key=None,
         fallback_field_width_um=500.0,

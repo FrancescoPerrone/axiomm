@@ -5,8 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from axiomm.analysis.errors import PayloadValidationError
 from axiomm.analysis.decomposition.models import DecompositionResult
+from axiomm.analysis.errors import PayloadValidationError
 
 
 def _features(n_pixels=40, nav_shape=(8, 5)):

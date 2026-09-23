@@ -37,7 +37,7 @@ def test_mineral_vectors_exclude_o_and_sum_to_one():
     vectors = dict(ref.mineral_vectors())
     order = ref.element_order()
     o_idx = order.index("O")
-    for name, vec in vectors.items():
+    for _name, vec in vectors.items():
         assert vec[o_idx] == 0.0                      # O excluded
         assert vec.sum() == pytest.approx(1.0)        # normalized over retained cations
 

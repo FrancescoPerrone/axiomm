@@ -35,7 +35,6 @@ from axiomm.io.converters.models import (
     Diagnostic,
 )
 
-
 logger = logging.getLogger(__name__)
 
 

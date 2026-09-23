@@ -12,9 +12,9 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from axiomm.analysis.clustering.models import ClusteringResult
 from axiomm.analysis.errors import PayloadValidationError
 from axiomm.analysis.models import AnalysisProvenance
-from axiomm.analysis.clustering.models import ClusteringResult
 
 
 @dataclass(frozen=True)

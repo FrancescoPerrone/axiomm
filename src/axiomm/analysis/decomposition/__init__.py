@@ -10,9 +10,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from axiomm.analysis.registry import Registry, load_into
 from axiomm.analysis.decomposition.base import Decomposer
 from axiomm.analysis.decomposition.models import DecompositionResult
+from axiomm.analysis.registry import Registry, load_into
 
 if TYPE_CHECKING:
     from axiomm.io.converters.models import AxiommSignalPayload
@@ -39,7 +39,7 @@ def get_decomposer(name: str) -> Decomposer:
 
 
 def decompose(
-    payload: "AxiommSignalPayload",
+    payload: AxiommSignalPayload,
     *,
     backend: str = "pca",
     n_components: int | None = None,

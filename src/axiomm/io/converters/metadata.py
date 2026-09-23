@@ -22,15 +22,14 @@ The builder (`HyperSpyBuilder`) and the manifest writer
 
 from __future__ import annotations
 
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 from axiomm.io.converters.calibration import ResolvedValue
 from axiomm.io.converters.models import (
     AxisSpec,
-    Diagnostic,
     SourceProvenance,
 )
-
 
 # ---------------------------------------------------------------------------
 # Composable transformers — each does one thing, independently usable

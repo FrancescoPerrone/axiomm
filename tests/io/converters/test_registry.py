@@ -31,7 +31,6 @@ from axiomm.io.converters.registry import (
     writers,
 )
 
-
 # ---------------------------------------------------------------------------
 # Registry — generic behaviour
 # ---------------------------------------------------------------------------
@@ -421,12 +420,11 @@ def test_load_plugins_skips_malformed_entry_points(caplog):
     with patch(
         "axiomm.io.converters.registry.importlib.metadata.entry_points",
         _fake_entry_points_factory(fake_eps),
-    ):
-        with caplog.at_level("WARNING"):
-            load_plugins(
-                into_readers=reader_registry,
-                into_writers=writer_registry,
-            )
+    ), caplog.at_level("WARNING"):
+        load_plugins(
+            into_readers=reader_registry,
+            into_writers=writer_registry,
+        )
 
     # Good one made it in; broken one didn't.
     assert "good" in reader_registry
@@ -459,7 +457,6 @@ def test_registry_module_import_does_not_trigger_h5py():
     is the same lazy-import invariant the package as a whole guards via
     the side-effects test.
     """
-    import importlib
     import subprocess
     import sys
     import textwrap

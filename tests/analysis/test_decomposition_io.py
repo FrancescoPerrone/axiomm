@@ -5,10 +5,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from axiomm.analysis.decomposition.io import read_decomposition, write_decomposition
+from axiomm.analysis.decomposition.models import DecompositionResult
 from axiomm.analysis.errors import OutputExistsError
 from axiomm.analysis.models import AnalysisProvenance, Diagnostic
-from axiomm.analysis.decomposition.models import DecompositionResult
-from axiomm.analysis.decomposition.io import read_decomposition, write_decomposition
 
 
 def _result():

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 
 import numpy as np
 import pytest
@@ -30,7 +29,6 @@ from axiomm.io.converters.readers.xrmmap_h5 import (
     decode_hdf5_string_array,
     parse_micrometre_value,
 )
-
 
 # -- parse_micrometre_value (spec §7.7) --------------------------------------
 
@@ -643,6 +641,7 @@ def test_importing_reader_module_does_not_load_tkinter():
 
     # Re-import to be sure.
     import importlib
+
     import axiomm.io.converters.readers.xrmmap_h5 as mod
 
     importlib.reload(mod)

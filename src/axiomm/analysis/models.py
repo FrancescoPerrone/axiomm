@@ -9,8 +9,9 @@ provenance patterns). Tool-specific payloads (``DecompositionResult``,
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any, Literal, Mapping
+from typing import Any, Literal
 
 Severity = Literal["info", "warning", "error"]
 """Severity levels for :class:`Diagnostic`."""

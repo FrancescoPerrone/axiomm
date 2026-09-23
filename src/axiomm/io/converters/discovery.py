@@ -16,7 +16,6 @@ from pathlib import Path
 
 from axiomm.io.converters.errors import InputDiscoveryError
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -113,9 +112,7 @@ def _matches(
         wanted = tuple(ext.lower() for ext in extensions)
         if candidate.suffix.lower() not in wanted:
             return False
-    if sample is not None and sample not in candidate.name:
-        return False
-    return True
+    return not (sample is not None and sample not in candidate.name)
 
 
 def _describe_no_match(

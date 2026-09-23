@@ -56,7 +56,6 @@ from axiomm.io.converters.calibration import (
     ResolvedValue,
 )
 from axiomm.io.converters.errors import (
-    CalibrationUnresolvedError,
     DatasetNotFoundError,
     MetadataParseError,
 )
@@ -75,8 +74,8 @@ from axiomm.io.converters.presets import (
     XRMMapH5Calibration,
 )
 from axiomm.io.converters.readers.hdf5_schema import (
-    HDF5MapSchema,
     XRMMAP_H5_SCHEMA,
+    HDF5MapSchema,
 )
 
 try:

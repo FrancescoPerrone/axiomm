@@ -22,7 +22,6 @@ from pathlib import Path
 from axiomm.io.converters.errors import (
     OutputExistsError,
     ReaderDetectionError,
-    UnsupportedFormatError,
 )
 from axiomm.io.converters.models import (
     ConversionResult,
@@ -32,7 +31,6 @@ from axiomm.io.converters.readers.base import Reader
 from axiomm.io.converters.registry import readers as _readers_registry
 from axiomm.io.converters.registry import writers as _writers_registry
 from axiomm.io.converters.writers.base import Writer
-
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +49,7 @@ def _auto_resolve_reader(path: Path) -> Reader:
     for instance in _readers_registry:
         try:
             accepts = instance.can_read(path)
-        except Exception:  # noqa: BLE001 - workflow boundary: see spec §13
+        except Exception:
             accepts = False
         if accepts:
             candidates.append(instance)

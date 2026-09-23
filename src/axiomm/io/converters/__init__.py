@@ -119,7 +119,7 @@ __all__ = [
 
 # Re-export validate_axes and convert_file eagerly: neither pulls heavy deps
 # at module load time (h5py / hyperspy are imported inside call sites).
-from axiomm.io.converters.registry import (  # noqa: E402
+from axiomm.io.converters.registry import (
     ENTRY_POINT_READERS,
     ENTRY_POINT_WRITERS,
     Registry,
@@ -133,9 +133,8 @@ from axiomm.io.converters.registry import (  # noqa: E402
     register_reader,
     register_writer,
 )
-from axiomm.io.converters.signals.validation import validate_axes  # noqa: E402
-from axiomm.io.converters.workflows import convert_file  # noqa: E402
-
+from axiomm.io.converters.signals.validation import validate_axes
+from axiomm.io.converters.workflows import convert_file
 
 # Lazy attribute imports (PEP 562). Concrete readers, builders and writers
 # may carry optional runtime dependencies (h5py, hyperspy, …). Importing

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import sys
-from pathlib import Path
 
 import pytest
 
@@ -22,7 +21,6 @@ from axiomm.io.converters.writers.manifest import (
     MANIFEST_SCHEMA_VERSION,
     MANIFEST_SUFFIX,
 )
-
 
 # ---------------------------------------------------------------------------
 # Happy path

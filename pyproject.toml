@@ -47,7 +47,7 @@ notebook = ["ipywidgets", "jupyter"]
 dev = [
     "pytest>=7",
     "pytest-cov",
-    "ruff",
+    "ruff==0.16.8",   # pinned so lint is reproducible across machines and CI
 ]
 docs = [
     "sphinx>=7",
@@ -83,7 +83,25 @@ markers = [
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+# The legacy prototype is preserved reference material only (spec §18); it is
+# not part of the package and is intentionally frozen, so it is not linted.
+extend-exclude = ["docs/specs/_legacy"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
 ignore = ["E501"]  # line length handled by formatter
+
+# Scientific text uses these characters intentionally (µm, A×B ranges, en-dash
+# numeric ranges, Greek line/phase symbols); keep the homoglyph check on for
+# anything unexpected but allow the ones this domain actually needs.
+allowed-confusables = ["×", "–", "µ", "α", "β", "γ", "λ", "Å"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests guard optional-dependency modules with importorskip at module top and
+# then import (E402); assert broad raises and use bare-attribute access to
+# trigger validation (B017/B018); hold mutable defaults in throwaway helper
+# classes (RUF012); and pass plain unescaped substrings to raises(match=)
+# (RUF043). These are intentional test idioms, not defects.
+"tests/**" = ["E402", "B017", "B018", "RUF012", "RUF043"]
+# __all__ here is grouped by tool/topic on purpose, not alphabetical.
+"src/axiomm/io/converters/__init__.py" = ["RUF022"]

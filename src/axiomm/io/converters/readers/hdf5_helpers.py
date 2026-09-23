@@ -46,13 +46,13 @@ from axiomm.io.converters.errors import (
 )
 from axiomm.io.converters.models import Diagnostic
 from axiomm.io.converters.presets import RoiLimitUnits
+
 # Pure data-decoding helpers — defined in xrmmap_h5 because that
 # module landed first; importable from either location.
 from axiomm.io.converters.readers.xrmmap_h5 import (
     decode_hdf5_string_array,
     parse_micrometre_value,
 )
-
 
 logger = logging.getLogger(__name__)
 
@@ -126,7 +126,7 @@ def read_environ_table(
                 ),
             )
         )
-    return dict(zip(names, values)), diagnostics
+    return dict(zip(names, values, strict=False)), diagnostics
 
 
 def read_roi_table(

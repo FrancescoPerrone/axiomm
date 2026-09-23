@@ -18,8 +18,8 @@ from __future__ import annotations
 import importlib
 import importlib.metadata
 import logging
-from collections.abc import Iterator
-from typing import Any, Callable, Union
+from collections.abc import Callable, Iterator
+from typing import Any
 
 from axiomm.analysis.errors import BackendNotFoundError
 
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 #: A factory is a callable returning an instance, or a ``"module:attr"``
 #: string resolved lazily to such a callable.
-Factory = Union[Callable[[], Any], str]
+Factory = Callable[[], Any] | str
 
 
 class Registry:
@@ -120,7 +120,7 @@ def load_into(registry: Registry, group: str) -> None:
     for name, spec in discover_entry_points(group):
         try:
             registry.register(name, spec)
-        except Exception as exc:  # noqa: BLE001 — plugin-loading boundary
+        except Exception as exc:
             logger.warning(
                 "axiomm.analysis: skipping %s plugin %r=%r: %s",
                 group, name, spec, exc,

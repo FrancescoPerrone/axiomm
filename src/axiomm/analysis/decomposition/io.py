@@ -12,9 +12,9 @@ from pathlib import Path
 
 import numpy as np
 
+from axiomm.analysis.decomposition.models import DecompositionResult
 from axiomm.analysis.errors import OutputExistsError
 from axiomm.analysis.models import AnalysisProvenance, Diagnostic
-from axiomm.analysis.decomposition.models import DecompositionResult
 
 
 def _paths(directory: Path, stem: str) -> tuple[Path, Path]:

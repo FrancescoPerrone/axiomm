@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 
 from axiomm.io.converters.readers.hdf5_schema import (
-    HDF5MapSchema,
     XRMMAP_H5_SCHEMA,
+    HDF5MapSchema,
 )
 
 

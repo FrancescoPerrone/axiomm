@@ -23,13 +23,12 @@ from __future__ import annotations
 import pytest
 
 from axiomm.io.converters import (
+    XRMMAP_H5_SCHEMA,
     CalibrationSource,
     CalibrationUnresolvedError,
     ConversionMode,
     GenericHDF5MapReader,
     HDF5MapCalibration,
-    XRMMAP_H5_SCHEMA,
-    XRMMAP_LEGACY_APS_13_ID_E_PRESET_V1,
     XRMMapH5Calibration,
     XRMMapH5Reader,
 )
@@ -38,7 +37,6 @@ from axiomm.io.converters.readers.hdf5_helpers import (
     resolve_navigation_scale_calibration,
     resolve_roi_limit_interpretation,
 )
-
 
 # ---------------------------------------------------------------------------
 # Module-level helpers — tested directly per the modularity rule

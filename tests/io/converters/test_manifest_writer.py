@@ -26,7 +26,6 @@ from axiomm.io.converters.writers.manifest import (
     manifest_path_for,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -271,7 +270,9 @@ def test_extract_reader_config_returns_dataclass_dict():
     pair as of Chunk 17 and builds the combined manifest dict inline."""
     pytest.importorskip("h5py")
     from axiomm.io.converters import (
-        GenericHDF5MapReader, HDF5MapCalibration, XRMMAP_H5_SCHEMA,
+        XRMMAP_H5_SCHEMA,
+        GenericHDF5MapReader,
+        HDF5MapCalibration,
     )
 
     reader = GenericHDF5MapReader(

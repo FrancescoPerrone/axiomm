@@ -27,7 +27,6 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-
 DEFAULT_SHAPE: tuple[int, int, int] = (4, 3, 16)
 
 _DEFAULT_ENVIRON: dict[str, str] = {

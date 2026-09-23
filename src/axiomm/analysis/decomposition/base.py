@@ -11,8 +11,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from axiomm.io.converters.models import AxiommSignalPayload
     from axiomm.analysis.decomposition.models import DecompositionResult
+    from axiomm.io.converters.models import AxiommSignalPayload
 
 
 @runtime_checkable
@@ -28,10 +28,10 @@ class Decomposer(Protocol):
 
     def decompose(
         self,
-        payload: "AxiommSignalPayload",
+        payload: AxiommSignalPayload,
         *,
         n_components: int | None = None,
-    ) -> "DecompositionResult": ...
+    ) -> DecompositionResult: ...
 
 
 __all__ = ["Decomposer"]

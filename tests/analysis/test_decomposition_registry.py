@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from axiomm.analysis.errors import BackendNotFoundError
-from axiomm.io.converters.models import AxisSpec, AxiommSignalPayload
+from axiomm.io.converters.models import AxiommSignalPayload, AxisSpec
 
 
 def test_get_decomposer_returns_pca():

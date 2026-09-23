@@ -21,7 +21,6 @@ from axiomm.io.converters import (
     register_preset,
 )
 
-
 # ---------------------------------------------------------------------------
 # XRMMapH5Calibration — split off from the old XRMMapH5Config
 # ---------------------------------------------------------------------------

@@ -30,7 +30,6 @@ import importlib
 from dataclasses import dataclass
 from typing import Literal
 
-
 #: Token type for the ``roi_limit_units`` field. Three documented
 #: tokens disambiguate how integer ROI limits at
 #: ``/xrmmap/config/rois/limits`` should be interpreted:
@@ -188,9 +187,9 @@ def register_preset(name: str, target: str) -> None:
 
 
 __all__ = [
+    "XRMMAP_LEGACY_APS_13_ID_E_PRESET_V1",
     "RoiLimitUnits",
     "XRMMapH5Calibration",
-    "XRMMAP_LEGACY_APS_13_ID_E_PRESET_V1",
     "get_preset",
     "iter_presets",
     "register_preset",

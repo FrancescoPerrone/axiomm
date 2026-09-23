@@ -13,12 +13,12 @@ clusterers is deferred until a class-resolving registry variant is needed
 
 from __future__ import annotations
 
-from axiomm.analysis.registry import Registry
 from axiomm.analysis.clustering.base import Clusterer
 from axiomm.analysis.clustering.gmm import GMMClusterer, GMMConfig
 from axiomm.analysis.clustering.hdbscan import HDBSCANClusterer, HDBSCANConfig
 from axiomm.analysis.clustering.means import compute_cluster_means
-from axiomm.analysis.clustering.models import ClusterMeanSpectra, ClusteringResult
+from axiomm.analysis.clustering.models import ClusteringResult, ClusterMeanSpectra
+from axiomm.analysis.registry import Registry
 
 #: Registry mapping a stable name to a clusterer **class** (not instance).
 clusterers: Registry = Registry("clusterer")
@@ -66,8 +66,8 @@ def cluster(features, *, backend: str = "gmm", n_clusters: int | None = None, co
 
 
 __all__ = [
-    "Clusterer",
     "ClusterMeanSpectra",
+    "Clusterer",
     "ClusteringResult",
     "GMMClusterer",
     "GMMConfig",

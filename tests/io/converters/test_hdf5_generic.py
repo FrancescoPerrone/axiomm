@@ -23,7 +23,6 @@ import pytest
 
 h5py = pytest.importorskip("h5py")
 
-from axiomm.io.converters.calibration import ConversionMode
 from axiomm.io.converters.errors import DatasetNotFoundError
 from axiomm.io.converters.models import AxiommSignalPayload
 from axiomm.io.converters.readers.hdf5_generic import (
@@ -31,10 +30,9 @@ from axiomm.io.converters.readers.hdf5_generic import (
     HDF5MapCalibration,
 )
 from axiomm.io.converters.readers.hdf5_schema import (
-    HDF5MapSchema,
     XRMMAP_H5_SCHEMA,
+    HDF5MapSchema,
 )
-
 
 # ---------------------------------------------------------------------------
 # Constructor + protocol attributes
@@ -261,6 +259,7 @@ def test_importing_generic_reader_does_not_load_tkinter():
         if m in ("tkinter", "_tkinter") or m.startswith("tkinter."):
             del sys.modules[m]
     import importlib
+
     import axiomm.io.converters.readers.hdf5_generic as mod
     importlib.reload(mod)
     leaked = [

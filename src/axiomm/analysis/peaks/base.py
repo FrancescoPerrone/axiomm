@@ -11,8 +11,8 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from axiomm.io.converters.models import AxisSpec
     from axiomm.analysis.peaks.models import PeakMeasurementSet
+    from axiomm.io.converters.models import AxisSpec
 
 
 @runtime_checkable
@@ -22,9 +22,9 @@ class PeakMeasurer(Protocol):
     def measure(
         self,
         spectrum,
-        energy_axis: "AxisSpec",
+        energy_axis: AxisSpec,
         line_energies: Mapping[str, float],
-    ) -> "PeakMeasurementSet": ...
+    ) -> PeakMeasurementSet: ...
 
 
 __all__ = ["PeakMeasurer"]

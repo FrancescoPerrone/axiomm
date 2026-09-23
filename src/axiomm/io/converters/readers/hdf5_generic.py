@@ -33,10 +33,8 @@ from axiomm.io.converters.calibration import (
     ResolvedValue,
 )
 from axiomm.io.converters.errors import (
-    CalibrationUnresolvedError,
     DatasetNotFoundError,
 )
-from axiomm.io.converters.presets import RoiLimitUnits
 from axiomm.io.converters.metadata import (
     nest_classification,
     nest_converter_section,
@@ -47,13 +45,13 @@ from axiomm.io.converters.models import (
     Diagnostic,
     SourceProvenance,
 )
+from axiomm.io.converters.presets import RoiLimitUnits
 from axiomm.io.converters.readers.hdf5_helpers import (
     compute_roi_scale_from_units,
     raise_if_strict_unresolved,
     read_environ_table,
     read_roi_table,
     resolve_energy_scale,
-    resolve_navigation_scale,
     resolve_navigation_scale_calibration,
     resolve_roi_limit_interpretation,
 )

@@ -10,9 +10,10 @@ See spec §8.3 (signal model) and §9.6 (conversion result).
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Mapping
+from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     from axiomm.io.converters.calibration import ResolvedValue
@@ -118,7 +119,7 @@ class AxiommSignalPayload:
     #: .CalibrationSource`. ``None`` until a reader populates it; readers
     #: pre-dating Chunk 16 leave it as ``None`` and the metadata namespace
     #: omits the ``"calibration"`` subkey accordingly.
-    resolved_calibration: dict[str, "ResolvedValue"] | None = None
+    resolved_calibration: dict[str, ResolvedValue] | None = None
 
     @classmethod
     def from_array(cls, data, *, energy_scale, energy_offset=0.0, energy_units="keV",
@@ -177,9 +178,9 @@ class ConversionResult:
 
 
 __all__ = [
+    "AxiommSignalPayload",
     "AxisRole",
     "AxisSpec",
-    "AxiommSignalPayload",
     "ConversionResult",
     "Diagnostic",
     "Severity",

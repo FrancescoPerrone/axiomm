@@ -35,7 +35,6 @@ from axiomm.io.converters.metadata import (
 from axiomm.io.converters.models import AxiommSignalPayload, AxisSpec
 from axiomm.io.converters.writers.manifest import build_manifest_dict
 
-
 # ---------------------------------------------------------------------------
 # CalibrationSource — StrEnum-style enum
 # ---------------------------------------------------------------------------
@@ -336,9 +335,13 @@ def test_manifest_calibration_round_trips_through_json():
 def test_calibration_primitives_are_reexported_at_package_level():
     """Surface check: hand-coding ergonomics rule — top-level imports
     must Just Work for the documented primitives."""
-    from axiomm.io.converters import (  # noqa: F401
+    from axiomm.io.converters import (
         CalibrationSource as _CS,
+    )
+    from axiomm.io.converters import (
         ConversionMode as _CM,
+    )
+    from axiomm.io.converters import (
         ResolvedValue as _RV,
     )
     assert _CS is CalibrationSource

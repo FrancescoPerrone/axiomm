@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from axiomm.analysis.models import AnalysisProvenance
 from axiomm.analysis.decomposition.models import DecompositionResult
+from axiomm.analysis.models import AnalysisProvenance
 
 
 def test_decomposition_result_holds_arrays_and_provenance():

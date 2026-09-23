@@ -14,7 +14,6 @@ To build locally::
 
 from __future__ import annotations
 
-import os
 import sys
 from importlib.metadata import version as _pkg_version
 from pathlib import Path
