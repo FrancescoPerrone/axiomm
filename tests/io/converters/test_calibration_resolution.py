@@ -340,3 +340,55 @@ def test_calibration_unresolved_error_is_in_public_api():
 def test_calibration_unresolved_error_inherits_axiomm_base():
     from axiomm.io.converters import AxiommConverterError
     assert issubclass(CalibrationUnresolvedError, AxiommConverterError)
+
+
+# ---------------------------------------------------------------------------
+# Energy offset: ROI channel-index intercept (F1) + strict policy (F2)
+# ---------------------------------------------------------------------------
+
+def test_channel_index_roi_bounds_include_energy_offset(synthetic_xrmmap_h5):
+    """channel_index ROI [640, 670] at scale 0.01, offset -0.4838 → energies
+    640*0.01 - 0.4838 = 5.9162 and 670*0.01 - 0.4838 = 6.2162."""
+    payload = XRMMapH5Reader(
+        calibration=XRMMapH5Calibration(
+            energy_scale=0.01, energy_offset=-0.4838, roi_limit_units="channel_index",
+        ),
+    ).read(synthetic_xrmmap_h5("roi_off.h5", rois=[("Fe Ka", 640, 670)]))
+    roi = payload.original_metadata["rois"][0]
+    assert roi["start"] == pytest.approx(5.9162)
+    assert roi["end"] == pytest.approx(6.2162)
+
+
+def test_kev_roi_bounds_do_not_receive_energy_offset(synthetic_xrmmap_h5):
+    """keV limits are already energies — the MCA intercept must NOT be added."""
+    payload = XRMMapH5Reader(
+        calibration=XRMMapH5Calibration(
+            energy_scale=0.01, energy_offset=-0.4838, roi_limit_units="keV",
+        ),
+    ).read(synthetic_xrmmap_h5("roi_kev.h5", rois=[("band", 6, 7)]))
+    roi = payload.original_metadata["rois"][0]
+    assert (roi["start"], roi["end"]) == pytest.approx((6.0, 7.0))
+
+
+def test_strict_mode_requires_explicit_energy_offset(synthetic_xrmmap_h5):
+    """F2: strict mode refuses an assumed/preset offset, naming energy_offset
+    (consistent with energy_scale's strict contract)."""
+    reader = XRMMapH5Reader(
+        calibration=XRMMapH5Calibration(
+            energy_scale=0.01, roi_limit_units="channel_index",
+        ),
+        mode=ConversionMode.STRICT,
+    )
+    with pytest.raises(CalibrationUnresolvedError, match="energy_offset"):
+        reader.read(synthetic_xrmmap_h5("strict_no_off.h5"))
+
+
+def test_strict_mode_accepts_explicit_energy_offset(synthetic_xrmmap_h5):
+    reader = XRMMapH5Reader(
+        calibration=XRMMapH5Calibration(
+            energy_scale=0.01, energy_offset=0.0, roi_limit_units="channel_index",
+        ),
+        mode=ConversionMode.STRICT,
+    )
+    payload = reader.read(synthetic_xrmmap_h5("strict_ok.h5"))
+    assert payload.resolved_calibration["energy_offset"].source is CalibrationSource.USER_CONFIG

@@ -38,10 +38,16 @@ def test_resolve_energy_offset_falls_back_to_preset():
     assert r.source is CalibrationSource.LEGACY_PRESET
 
 
-def test_resolve_energy_offset_assumes_zero_when_unresolved_even_in_strict():
-    # Unlike energy_scale, a missing offset is assumed 0.0 (INFERRED), never
-    # UNKNOWN — so it does not fail strict mode.
-    r = resolve_energy_offset(None, None, mode=ConversionMode.STRICT)
+def test_resolve_energy_offset_strict_returns_unknown_even_with_preset():
+    # Mirrors energy_scale: strict refuses preset/assumed fallback (so the reader
+    # raises) rather than silently inheriting an intercept.
+    r = resolve_energy_offset(None, 0.0, mode=ConversionMode.STRICT)
+    assert r.value is None
+    assert r.source is CalibrationSource.UNKNOWN
+
+
+def test_resolve_energy_offset_assumes_zero_only_in_non_strict():
+    r = resolve_energy_offset(None, None, mode=ConversionMode.GENERIC)
     assert r.value == 0.0
     assert r.source is CalibrationSource.INFERRED
 

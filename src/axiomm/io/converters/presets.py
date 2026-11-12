@@ -75,11 +75,15 @@ class XRMMapH5Calibration:
         that value as ``40.96 / 4096``.
     energy_offset
         Energy of MCA channel 0 in keV (the intercept, ``E = scale*i +
-        offset``). ``None`` means not user-supplied; the reader then
-        uses the preset value, or assumes ``0.0`` when no preset applies
-        (a zero offset is the common, safe default). Supply a real
-        intercept here for a detector whose channel 0 is not at 0 keV —
-        otherwise the whole energy axis is shifted.
+        offset``). ``None`` means not user-supplied. In non-strict modes
+        the reader then uses the preset value, or **assumes** ``0.0`` when
+        no preset applies — an assumption whose suitability must be
+        confirmed for the dataset, not a guaranteed default. In
+        :class:`~axiomm.io.converters.calibration.ConversionMode.STRICT`
+        an omitted offset is unresolved and the reader raises, exactly as
+        for ``energy_scale``: supply the real intercept here (``0.0`` is a
+        valid explicit value) for a detector whose channel 0 is not at
+        0 keV, otherwise the whole energy axis is shifted.
     roi_limit_units
         Explicit unit interpretation of the integer ROI limits at
         ``/xrmmap/config/rois/limits``. One of

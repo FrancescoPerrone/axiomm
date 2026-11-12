@@ -433,6 +433,19 @@ class XRMMapH5Reader:
             )
             diagnostics.extend(roi_diag)
             if rois:
+                # channel_index ROI bounds are channel numbers: finish the
+                # energy-axis transform E = scale*channel + offset by adding the
+                # resolved intercept. keV / centi_keV limits are already energies
+                # and must NOT receive the MCA intercept.
+                roi_offset_applied = (
+                    roi_units_resolved.value == "channel_index"
+                    and bool(energy_offset_resolved.value)
+                )
+                if roi_offset_applied:
+                    off = energy_offset_resolved.value
+                    for roi in rois:
+                        roi["start"] += off
+                        roi["end"] += off
                 original_metadata["rois"] = rois
                 classification["observed"].append(
                     f"metadata.rois ({len(rois)} entries from HDF5; "
@@ -441,7 +454,10 @@ class XRMMapH5Reader:
                 )
                 classification["assumed"].append(
                     f"metadata.rois.*.start/end (effective scale="
-                    f"{effective_roi_scale} applied to raw integer limits)"
+                    f"{effective_roi_scale} applied to raw integer limits"
+                    + (f", then energy offset {energy_offset_resolved.value} "
+                       f"added for channel_index units" if roi_offset_applied else "")
+                    + ")"
                 )
 
         # --- navigation scale (after the file is closed) -----------------

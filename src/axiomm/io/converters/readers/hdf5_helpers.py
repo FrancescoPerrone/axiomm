@@ -400,18 +400,31 @@ def resolve_energy_offset(
 ) -> ResolvedValue:
     """Resolve the energy-axis offset (keV at channel 0).
 
-    Ladder ``USER_CONFIG`` → ``LEGACY_PRESET`` → an assumed ``0.0``. Unlike
-    :func:`resolve_energy_scale`, a zero offset is a safe, standard default, so
-    this never leaves the value ``UNKNOWN`` and never fails strict mode: a user
-    who needs a non-zero intercept supplies it via
-    ``XRMMapH5Calibration(energy_offset=...)``; silence means a zero intercept,
-    recorded as :attr:`CalibrationSource.INFERRED` so the assumption is auditable.
+    Ladder, mirroring :func:`resolve_energy_scale`: ``USER_CONFIG`` → (in
+    ``STRICT``, ``UNKNOWN``) → ``LEGACY_PRESET`` → an assumed ``0.0``.
+
+    * Explicit ``user_value`` (including ``0.0``) always wins, as ``USER_CONFIG``.
+    * In :class:`ConversionMode.STRICT` an omitted offset is returned ``UNKNOWN``
+      — the reader then raises, exactly as for an omitted scale, so strict callers
+      never silently inherit a preset or assumed intercept.
+    * Otherwise the preset value applies (``LEGACY_PRESET``), or — with no preset —
+      ``0.0`` is **assumed** (``INFERRED``). A zero intercept is the usual case but
+      is not guaranteed; its suitability must be confirmed for the dataset.
     """
     if user_value is not None:
         return ResolvedValue(
             value=float(user_value),
             source=CalibrationSource.USER_CONFIG,
             note=f"user-supplied via calibration field (mode={mode.value})",
+        )
+    if mode is ConversionMode.STRICT:
+        return ResolvedValue(
+            value=None,
+            source=CalibrationSource.UNKNOWN,
+            note=(
+                "strict mode: energy_offset must be supplied explicitly "
+                "via XRMMapH5Calibration(energy_offset=...)."
+            ),
         )
     if preset_value is not None:
         return ResolvedValue(
@@ -424,7 +437,8 @@ def resolve_energy_offset(
         source=CalibrationSource.INFERRED,
         note=(
             "assumed zero offset (no user value, no preset) — supply "
-            f"XRMMapH5Calibration(energy_offset=...) to override (mode={mode.value})"
+            f"XRMMapH5Calibration(energy_offset=...) to override and confirm "
+            f"the intercept against the dataset (mode={mode.value})"
         ),
     )
 
