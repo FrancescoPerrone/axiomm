@@ -10,6 +10,25 @@ from __future__ import annotations
 from axiomm.analysis.reporting.models import ReportSection, Table
 
 
+def _oxide_key_map(q) -> dict[str, str]:
+    """Map each element symbol to the key under which its oxide wt% is stored.
+
+    ``wt_percent_oxide`` is mixed-keyed: oxide-forming cations live under the
+    oxide *formula* (``"SiO2"``) while halogens / elements carried as-is live
+    under the element *symbol*. The element→formula mapping is recorded in the
+    quantifier's provenance (``params["oxide_forms"]``); without it, the symbol
+    is the only available key (correct for halogens, degraded for oxides).
+    """
+    prov = getattr(q, "provenance", None)
+    params = getattr(prov, "params", None) or {}
+    forms = params.get("oxide_forms", {}) or {}
+    out: dict[str, str] = {}
+    for sym, form in forms.items():
+        if isinstance(form, (list, tuple)) and form:
+            out[sym] = form[0]
+    return out
+
+
 class QuantSection:
     id = "quant"
 
@@ -21,10 +40,14 @@ class QuantSection:
         for q in result.quantification:
             cid = q.cluster_id
             status = dict(getattr(q, "observation_status", {}) or {})
+            oxide_key = _oxide_key_map(q)
             for el in sorted(q.wt_percent_element):
+                # wt_percent_oxide is keyed by oxide formula for oxide-formers,
+                # by element symbol for halogens — resolve the right key per element.
+                name = oxide_key.get(el, el)
                 rows.append([cid, el,
                              round(float(q.wt_percent_element.get(el, 0.0)), 2),
-                             round(float(q.wt_percent_oxide.get(el, 0.0)), 2),
+                             round(float(q.wt_percent_oxide.get(name, 0.0)), 2),
                              status.get(el, "")])
         table = Table(["cluster", "element", "wt% element", "wt% oxide", "observed as"],
                       rows, "uncorrected wt% estimate")
