@@ -278,7 +278,14 @@ which the 2026-06-12 metadata audit confirmed against
 $0.00 \to 40.95\ \mathrm{keV}$.
 
 Override per-experiment with
-`XRMMapH5Calibration(energy_scale=...)`.
+`XRMMapH5Calibration(energy_scale=..., energy_offset=...)`. The offset
+follows the same ladder as the scale — user value → legacy preset
+(`0.0`) → an **assumed** `0.0` in non-strict modes — with one deliberate
+parallel to `energy_scale`: in `ConversionMode.STRICT` an omitted
+`energy_offset` is *unresolved* and the read raises, so a strict run never
+inherits an assumed intercept. Pass it explicitly for a detector whose
+channel 0 is not at 0 keV (`0.0` is a valid explicit value); a nonzero
+intercept shifts the whole energy axis.
 
 ### ROI limits: explicit `roi_limit_units`
 
@@ -292,11 +299,13 @@ resolved unit:
 |-------------------|--------------------|------------------|
 | `"centi_keV"`     | $0.01$              | $E_\text{ROI} = 0.01 \cdot n_\text{ROI,int}$ |
 | `"keV"`           | $1.0$               | $E_\text{ROI} = n_\text{ROI,int}$ |
-| `"channel_index"` | $E_\text{scale}$    | $E_\text{ROI} = E_\text{scale} \cdot n_\text{ROI,int}$ |
+| `"channel_index"` | $E_\text{scale}$    | $E_\text{ROI} = E_\text{scale} \cdot n_\text{ROI,int} + E_\text{offset}$ |
 
-So in general:
+So in general (the intercept applies only to `channel_index` limits, which
+are channel numbers; `keV` / `centi_keV` limits are already energies):
 
-$$E_\text{ROI} = c(\texttt{roi\_limit\_units}) \cdot n_\text{ROI,int}.$$
+$$E_\text{ROI} = c(\texttt{roi\_limit\_units}) \cdot n_\text{ROI,int}
+  + [\![\,\texttt{channel\_index}\,]\!]\, E_\text{offset}.$$
 
 The audit-confirmed value for the inherited dataset is
 `"channel_index"` — `/xrmmap/config/rois/limits` stores MCA
@@ -346,6 +355,7 @@ from axiomm.io.converters import (
 reader = XRMMapH5Reader(
     calibration=XRMMapH5Calibration(
         energy_scale=0.005,              # keV per MCA channel
+        energy_offset=0.0,               # keV at channel 0 (STRICT requires it)
         roi_limit_units="keV",           # your XRM stores keV directly
         pixel_size_um=1.5,               # direct navigation pixel scale
     ),

@@ -23,12 +23,14 @@ calibration is wrong. For a paper we must supply explicit calibration and prefer
    `XRMMapH5Calibration(energy_scale=...)`, or every peak identification is wrong.
    **Confirm the true per-channel width.**
 
-2. **Energy offset (keV at channel 0).** Hardwired to `0.0` for the XRM reader
-   (`readers/xrmmap_h5.py:611`) with **no override path**. If the real MCA has a
-   nonzero offset the whole energy axis is shifted. **Confirm the offset is truly
-   0**; if not, this is an un-plumbed gap requiring a small code change (add offset
-   to `XRMMapH5Calibration`) or offset-corrected input. (BCF files get the offset
-   from HyperSpy metadata, so this blocker is XRM-specific.)
+2. **Energy offset (keV at channel 0).** Now a first-class parameter:
+   `XRMMapH5Calibration(energy_offset=...)` (resolved user → preset → assumed 0.0;
+   in **STRICT** mode an omitted offset is unresolved and the reader raises, like
+   `energy_scale`). A nonzero intercept shifts the whole energy axis, so **confirm
+   the real offset and pass it explicitly** — do not rely on the assumed 0.0. (BCF
+   files get the offset from HyperSpy metadata, so this is XRM-specific.) Note:
+   channel-index ROI bounds now include the intercept too; keV/centi_keV ROI limits
+   do not.
 
 3. **Beam / excitation energy (keV).** Required for quantification and the
    phase/composition maps. Default `None` → quantification, mineral matching and
@@ -86,7 +88,7 @@ calibration is wrong. For a paper we must supply explicit calibration and prefer
 | # | Item | Needed for | Blocker? |
 |---|------|-----------|----------|
 | 1 | Energy scale (keV/channel) | correct energy axis / peak IDs | **yes** |
-| 2 | Energy offset (keV @ ch 0) | correct energy axis | **yes** (also code gap if ≠ 0) |
+| 2 | Energy offset (keV @ ch 0) | correct energy axis | **yes** (now a parameter; STRICT requires it) |
 | 3 | Beam energy (keV) | any composition / phase map | **yes** |
 | 4 | Counts path + (x,y,channel) order | correct, non-transposed maps | **yes** |
 | 5 | Reference library + `reference_element` in range | quantification / matching | **yes** |
@@ -99,25 +101,37 @@ calibration is wrong. For a paper we must supply explicit calibration and prefer
 ## Recommended run recipe (once the blockers are answered)
 
 ```python
-from axiomm.io.converters.readers.xrmmap_h5 import XRMMapH5Calibration, ConversionMode
+from axiomm.io.converters import convert_file
+from axiomm.io.converters.calibration import ConversionMode
+from axiomm.io.converters.presets import XRMMapH5Calibration
+from axiomm.io.converters.readers.xrmmap_h5 import XRMMapH5Reader
 from axiomm import Pipeline
 
-# 1) Convert with EXPLICIT calibration in STRICT mode (fail loud on anything
-#    unresolved) — values below are placeholders to be replaced by confirmed ones.
-cal = XRMMapH5Calibration(energy_scale=<keV_per_channel>)   # offset currently 0-only
-# ... convert_file(..., calibration=cal, mode=ConversionMode.STRICT)
+# 1) Convert with EXPLICIT calibration in STRICT mode (fails loud on anything
+#    unresolved). convert_file takes a configured *reader instance* via reader=;
+#    it has no calibration=/mode= kwargs. All values below are placeholders to be
+#    replaced by independently confirmed dataset values (including energy_offset —
+#    STRICT requires it explicitly; 0.0 is a valid explicit value).
+reader = XRMMapH5Reader(
+    calibration=XRMMapH5Calibration(
+        energy_scale=confirmed_scale,
+        energy_offset=confirmed_offset,
+        roi_limit_units=confirmed_roi_units,
+    ),
+    mode=ConversionMode.STRICT,
+)
+result = convert_file(input_path, output_path=output_path, reader=reader)
 
 # 2) Run the analysis with the confirmed beam energy and reference.
-result = Pipeline(
-    beam_energy_kev=<keV>,
+analysis = Pipeline(
+    beam_energy_kev=confirmed_beam_kev,
     reference="minerals_default_v2",   # confirm coverage
     seed=0,
-).run(<converted_or_payload>)
+).run(result.output_path)
 
-result.report_html("run_report.html")
-result.save("run_out/")
+analysis.report_html("run_report.html")
+analysis.save("run_out/")
 ```
 
-If energy offset ≠ 0 is confirmed, plumb an `energy_offset` through
-`XRMMapH5Calibration` before the run (small, well-scoped code change) rather than
-accepting the hardwired 0.
+Other STRICT requirements (navigation calibration, ROI units) still apply. The
+snippet carries no real-dataset values — fill each from the owner's confirmation.
