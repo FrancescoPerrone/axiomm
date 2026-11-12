@@ -101,6 +101,20 @@ def test_all_kissel_method_when_no_fallback(monkeypatch):
     assert not any(d.code == "kfactor_fallback" for d in ks.diagnostics)
 
 
+def test_default_reference_is_si(monkeypatch):
+    # Freeze the reference="Si" default: all other tests pass reference explicitly,
+    # so a *successful* call with no reference= is what pins the default.
+    fake = _FakeXraylib(kissel_fails_for={26})  # Fe falls back to CS_FluorLine=50
+    monkeypatch.setattr(kfactors, "_import_xraylib", lambda: fake)
+    ks = compute_k_factors([_si(), _fe()], excitation_kev=18.0)   # no reference=
+    assert ks.reference_element == "Si"
+    assert ks.provenance.params["reference"] == "Si"
+    assert ks.sensitivities["Si"] == pytest.approx(100.0)
+    assert ks.sensitivities["Fe"] == pytest.approx(50.0)
+    assert ks.k_factors["Si"] == pytest.approx(1.0)   # S_ref/S_i = 100/100
+    assert ks.k_factors["Fe"] == pytest.approx(2.0)    # 100/50
+
+
 class _ZeroSensitivityXraylib(_FakeXraylib):
     """xraylib stub returning a non-positive sensitivity for one element."""
 

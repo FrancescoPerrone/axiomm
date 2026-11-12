@@ -71,6 +71,21 @@ def test_no_signal_diagnostic():
     assert any(d.code == "no_signal" for d in qr.diagnostics)
 
 
+def test_observation_status_distinguishes_positive_zero_and_not_measured():
+    # Baseline freeze: pin the observation_status mapping (positive peak vs a
+    # measured-but-zero peak vs an element with no peak window at all).
+    qr = quantify(
+        _peaks({"Si": 100.0, "Fe": 0.0}),          # Si positive, Fe measured but zero
+        _kf({"Si": 1.0, "Fe": 1.0, "Ca": 1.0}),    # Ca requested but never measured
+        _elements(),
+    )
+    assert qr.observation_status == {
+        "Si": "measured_positive",
+        "Fe": "measured_zero",
+        "Ca": "not_measured",
+    }
+
+
 def test_reference_not_in_kfactors_raises():
     with pytest.raises(PayloadValidationError, match="reference"):
         quantify(_peaks({"Fe": 50.0}), _kf({"Fe": 2.0}, ref="Si"), _elements())

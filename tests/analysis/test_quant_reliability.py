@@ -8,6 +8,8 @@ identity is validated rather than sequence position.
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pytest
 
@@ -32,6 +34,42 @@ def test_config_and_report_construct():
     r = ReliabilityReport(cluster_status="reportable_estimate",
                           element_status={"Si": "reportable"}, reasons=())
     assert r.cluster_status == "reportable_estimate"
+
+
+def test_reliability_config_defaults_are_frozen():
+    # Baseline freeze: lock the default thresholds so a change is deliberate.
+    cfg = ReliabilityConfig()
+    assert cfg.min_pixel_count == 20
+    assert cfg.max_heterogeneity == 0.15
+    assert cfg.min_total_counts == 1.0e4
+    assert cfg.count_floor == 50.0
+    assert dict(cfg.element_count_floors) == {}
+
+
+def test_reliability_thresholds_are_inclusive_at_the_boundary():
+    # Exactly at every default threshold -> reportable_estimate.
+    r = assess_reliability(_quant({"Si": 50.0}), pixel_count=20,
+                           heterogeneity=0.15, total_counts=1.0e4)
+    assert r.cluster_status == "reportable_estimate"
+    assert r.element_status["Si"] == "reportable"
+
+
+@pytest.mark.parametrize("pc,het,tc", [
+    (19, 0.15, 1.0e4),                                   # one below pixel floor
+    (20, math.nextafter(0.15, math.inf), 1.0e4),         # just over heterogeneity
+    (20, 0.15, math.nextafter(1.0e4, -math.inf)),        # just under total counts
+])
+def test_reliability_boundary_misses_are_exploratory(pc, het, tc):
+    r = assess_reliability(_quant({"Si": 50.0}), pixel_count=pc,
+                           heterogeneity=het, total_counts=tc)
+    assert r.cluster_status == "exploratory_only"
+
+
+def test_si_just_below_floor_is_below_count_floor_and_exploratory():
+    r = assess_reliability(_quant({"Si": math.nextafter(50.0, -math.inf)}),
+                           pixel_count=20, heterogeneity=0.15, total_counts=1.0e4)
+    assert r.element_status["Si"] == "below_count_floor"
+    assert r.cluster_status == "exploratory_only"   # its only element is below floor
 
 
 def test_element_below_floor_flagged():
