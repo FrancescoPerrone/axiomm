@@ -209,8 +209,12 @@ def test_xrmmap_reader_attaches_resolved_calibration(synthetic_xrmmap_h5):
     preset, just at warning severity."""
     payload = XRMMapH5Reader().read(synthetic_xrmmap_h5("ok.h5"))
     rc = payload.resolved_calibration
-    assert set(rc) == {"energy_scale", "navigation_scale", "roi_limit_units"}
+    assert set(rc) == {"energy_scale", "energy_offset", "navigation_scale",
+                       "roi_limit_units"}
     assert rc["energy_scale"].source is CalibrationSource.LEGACY_PRESET
+    # energy_offset comes from the legacy preset (0.0) in default GENERIC mode.
+    assert rc["energy_offset"].source is CalibrationSource.LEGACY_PRESET
+    assert rc["energy_offset"].value == 0.0
     # Synthetic fixture's environ table has Experiment.Beam_Size__Nominal,
     # so the navigation scale comes from source metadata.
     assert rc["navigation_scale"].source is CalibrationSource.SOURCE_METADATA
@@ -265,8 +269,10 @@ def test_xrmmap_reader_resolved_calibration_propagates_to_manifest(
         payload=payload,
     )
     cal = manifest["axiomm_metadata"]["calibration"]
-    assert set(cal) == {"energy_scale", "navigation_scale", "roi_limit_units"}
+    assert set(cal) == {"energy_scale", "energy_offset", "navigation_scale",
+                        "roi_limit_units"}
     assert cal["energy_scale"]["source"] == "legacy_preset"
+    assert cal["energy_offset"]["source"] == "legacy_preset"
     assert cal["roi_limit_units"]["source"] == "legacy_preset"
 
 

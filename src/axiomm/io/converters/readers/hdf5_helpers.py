@@ -392,6 +392,43 @@ def resolve_energy_scale(
     )
 
 
+def resolve_energy_offset(
+    user_value: float | None,
+    preset_value: float | None,
+    *,
+    mode: ConversionMode,
+) -> ResolvedValue:
+    """Resolve the energy-axis offset (keV at channel 0).
+
+    Ladder ``USER_CONFIG`` → ``LEGACY_PRESET`` → an assumed ``0.0``. Unlike
+    :func:`resolve_energy_scale`, a zero offset is a safe, standard default, so
+    this never leaves the value ``UNKNOWN`` and never fails strict mode: a user
+    who needs a non-zero intercept supplies it via
+    ``XRMMapH5Calibration(energy_offset=...)``; silence means a zero intercept,
+    recorded as :attr:`CalibrationSource.INFERRED` so the assumption is auditable.
+    """
+    if user_value is not None:
+        return ResolvedValue(
+            value=float(user_value),
+            source=CalibrationSource.USER_CONFIG,
+            note=f"user-supplied via calibration field (mode={mode.value})",
+        )
+    if preset_value is not None:
+        return ResolvedValue(
+            value=float(preset_value),
+            source=CalibrationSource.LEGACY_PRESET,
+            note=f"applied from legacy preset (mode={mode.value})",
+        )
+    return ResolvedValue(
+        value=0.0,
+        source=CalibrationSource.INFERRED,
+        note=(
+            "assumed zero offset (no user value, no preset) — supply "
+            f"XRMMapH5Calibration(energy_offset=...) to override (mode={mode.value})"
+        ),
+    )
+
+
 def resolve_roi_limit_interpretation(
     user_units: RoiLimitUnits | None,
     preset_units: RoiLimitUnits | None,
@@ -660,6 +697,7 @@ __all__ = [
     "raise_if_strict_unresolved",
     "read_environ_table",
     "read_roi_table",
+    "resolve_energy_offset",
     "resolve_energy_scale",
     "resolve_navigation_scale",
     "resolve_navigation_scale_calibration",

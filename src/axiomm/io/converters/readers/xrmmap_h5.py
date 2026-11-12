@@ -340,6 +340,7 @@ class XRMMapH5Reader:
             raise_if_strict_unresolved,
             read_environ_table,
             read_roi_table,
+            resolve_energy_offset,
             resolve_energy_scale,
             resolve_navigation_scale_calibration,
             resolve_roi_limit_interpretation,
@@ -348,6 +349,11 @@ class XRMMapH5Reader:
         energy_scale_resolved = resolve_energy_scale(
             user_value=self.calibration.energy_scale,
             preset_value=_LEGACY_PRESET.energy_scale,
+            mode=self.mode,
+        )
+        energy_offset_resolved = resolve_energy_offset(
+            user_value=self.calibration.energy_offset,
+            preset_value=_LEGACY_PRESET.energy_offset,
             mode=self.mode,
         )
         roi_units_resolved = resolve_roi_limit_interpretation(
@@ -482,6 +488,7 @@ class XRMMapH5Reader:
         resolved_calibration: dict[str, ResolvedValue] = {
             "navigation_scale": nav_scale_resolved,
             "energy_scale": energy_scale_resolved,
+            "energy_offset": energy_offset_resolved,
             "roi_limit_units": roi_units_resolved,
         }
 
@@ -607,7 +614,7 @@ class XRMMapH5Reader:
                 size=n_channels,
                 units=self.schema.energy_axis_units,
                 scale=energy_scale_resolved.value,
-                offset=0.0,
+                offset=energy_offset_resolved.value,
                 index_in_array=2,
             ),
         )

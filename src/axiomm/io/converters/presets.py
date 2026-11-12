@@ -73,6 +73,13 @@ class XRMMapH5Calibration:
         dataset stores ``0.01 keV/channel`` at
         ``/xrmmap/config/mca_calib/slope``; the preset reproduces
         that value as ``40.96 / 4096``.
+    energy_offset
+        Energy of MCA channel 0 in keV (the intercept, ``E = scale*i +
+        offset``). ``None`` means not user-supplied; the reader then
+        uses the preset value, or assumes ``0.0`` when no preset applies
+        (a zero offset is the common, safe default). Supply a real
+        intercept here for a detector whose channel 0 is not at 0 keV —
+        otherwise the whole energy axis is shifted.
     roi_limit_units
         Explicit unit interpretation of the integer ROI limits at
         ``/xrmmap/config/rois/limits``. One of
@@ -105,6 +112,7 @@ class XRMMapH5Calibration:
     """
 
     energy_scale: float | None = None
+    energy_offset: float | None = None
     roi_limit_units: RoiLimitUnits | None = None
     field_width_um: float | None = None
     field_height_um: float | None = None
@@ -132,6 +140,7 @@ class XRMMapH5Calibration:
 #: every preset-derived value apart from user-supplied ones.
 XRMMAP_LEGACY_APS_13_ID_E_PRESET_V1: XRMMapH5Calibration = XRMMapH5Calibration(
     energy_scale=40.96 / 4096,
+    energy_offset=0.0,   # APS 13-IDE MCA: channel 0 at 0 keV (mca_calib offset = 0)
     roi_limit_units="channel_index",
     legacy_field_width_um=500.0,
     roi_variant_index=0,

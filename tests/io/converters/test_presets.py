@@ -25,12 +25,13 @@ from axiomm.io.converters import (
 # XRMMapH5Calibration — split off from the old XRMMapH5Config
 # ---------------------------------------------------------------------------
 
-def test_calibration_has_seven_documented_fields():
-    """Phase 4, Chunk 18: added roi_limit_units, field_width_um,
-    field_height_um, pixel_size_um; renamed fallback → legacy."""
+def test_calibration_has_eight_documented_fields():
+    """Phase 4: roi_limit_units, field_width_um, field_height_um,
+    pixel_size_um (Chunk 18); energy_offset (2026-11, plumbed intercept)."""
     fields = {f.name for f in dataclasses.fields(XRMMapH5Calibration)}
     assert fields == {
         "energy_scale",
+        "energy_offset",
         "roi_limit_units",
         "field_width_um",
         "field_height_um",
@@ -43,6 +44,7 @@ def test_calibration_has_seven_documented_fields():
 def test_calibration_defaults_are_all_none():
     cal = XRMMapH5Calibration()
     assert cal.energy_scale is None
+    assert cal.energy_offset is None
     assert cal.roi_limit_units is None
     assert cal.field_width_um is None
     assert cal.field_height_um is None

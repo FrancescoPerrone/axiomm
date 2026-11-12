@@ -14,11 +14,36 @@ import pytest
 
 h5py = pytest.importorskip("h5py")
 
+from axiomm.io.converters.calibration import CalibrationSource, ConversionMode
 from axiomm.io.converters.readers.hdf5_helpers import (
     read_environ_table,
     read_roi_table,
+    resolve_energy_offset,
     resolve_navigation_scale,
 )
+
+# ---------------------------------------------------------------------------
+# resolve_energy_offset — user -> preset -> assumed 0.0 (never UNKNOWN)
+# ---------------------------------------------------------------------------
+
+def test_resolve_energy_offset_prefers_user_value():
+    r = resolve_energy_offset(-0.4838, 0.0, mode=ConversionMode.GENERIC)
+    assert r.value == pytest.approx(-0.4838)
+    assert r.source is CalibrationSource.USER_CONFIG
+
+
+def test_resolve_energy_offset_falls_back_to_preset():
+    r = resolve_energy_offset(None, 0.0, mode=ConversionMode.GENERIC)
+    assert r.value == 0.0
+    assert r.source is CalibrationSource.LEGACY_PRESET
+
+
+def test_resolve_energy_offset_assumes_zero_when_unresolved_even_in_strict():
+    # Unlike energy_scale, a missing offset is assumed 0.0 (INFERRED), never
+    # UNKNOWN — so it does not fail strict mode.
+    r = resolve_energy_offset(None, None, mode=ConversionMode.STRICT)
+    assert r.value == 0.0
+    assert r.source is CalibrationSource.INFERRED
 
 # ---------------------------------------------------------------------------
 # read_environ_table
