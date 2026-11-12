@@ -59,6 +59,15 @@ Add two per-cluster arrays to `axiomm.analysis.clustering.models.ClusterMeanSpec
 `cosine_distance(a, b) = 1 − (a·b)/(|a||b|)`; a zero-norm vector → distance
 0 contribution guarded.
 
+> ⚠️ **Superseded snippets below (§3.2–§3.4).** The code blocks in this section
+> show the *original* design vocabulary. Per the S3d gate-review revision (see the
+> notice at the top), the shipped implementation renamed `min_net_counts` →
+> `count_floor` (plus `element_count_floors`), and the status literals to
+> `reportable_estimate`/`exploratory_only`/`invalid` and
+> `reportable`/`below_count_floor`/`invalid`. The authoritative, runnable
+> description is `docs/user/analysis.md` and the frozen values are pinned in
+> `tests/analysis/test_quant_reliability.py`.
+
 ### 3.2 `ReliabilityConfig` — `quant/reliability.py`
 
 ```python
@@ -67,7 +76,7 @@ class ReliabilityConfig:
     min_pixel_count: int = 20        # clusters with fewer member pixels -> exploratory
     max_heterogeneity: float = 0.15  # median cosine distance above this -> exploratory
     min_total_counts: float = 1.0e4  # mean-spectrum total below this -> exploratory
-    min_net_counts: float = 50.0     # per-element detection floor
+    min_net_counts: float = 50.0     # per-element detection floor  [shipped: count_floor]
 ```
 
 Defaults are **documented examples**, not recommendations — every value is

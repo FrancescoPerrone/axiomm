@@ -71,10 +71,12 @@ cluster can earn at best `reportable_estimate`, never `"quantitative"`.
 
 Pinning tests / changes required so the baseline cannot move under validation:
 
-- [ ] **Pin `reference="Si"` default** in `compute_k_factors` with an explicit test
-      (every existing test passes `reference=` explicitly).
-- [ ] **Pin `ReliabilityConfig` defaults** `min_pixel_count=20`,
-      `max_heterogeneity=0.15`, `min_total_counts=1.0e4` (currently unpinned).
+- [x] **Pin `reference="Si"` default** in `compute_k_factors` with an explicit test
+      — done 2026-11-12 (`test_quant_kfactors.py::test_default_reference_is_si`,
+      via the fake backend).
+- [x] **Pin `ReliabilityConfig` defaults** `min_pixel_count=20`,
+      `max_heterogeneity=0.15`, `min_total_counts=1.0e4` — done 2026-11-12
+      (`test_quant_reliability.py`: defaults + inclusive-boundary tests).
 - [ ] **Add a golden, xraylib-version-tagged k-factor value test.** The only
       xraylib-dependent test is `importorskip`'d and asserts structure, not
       numbers (`test_quant_kfactors.py:46`); k-factor values are xraylib-version
@@ -84,16 +86,22 @@ Pinning tests / changes required so the baseline cannot move under validation:
       than accepting `getattr(xl, "__version__", "unknown")` (`kfactors.py:128`).
 - [ ] **Freeze the provenance parameter schema** (exact key set + values) for
       k-factors/quantify/reliability so the audit trail cannot drift.
-- [ ] **Pin `OBSERVATION_STATUSES` assignment** (`measured_positive` /
-      `measured_zero` / `not_measured` / `invalid`, `cliff_lorimer.py:100-126`) —
-      currently only the vocabulary is validated by IO, not the mapping path.
-- [ ] **Add an explicit calibration-state field** (e.g. `calibration =
-      "theoretical_uncorrected"`) on `KFactorSet`/`QuantResult` so downstream code
-      and the report can *gate* on it once standards-validated results exist. This
-      is the single structural change worth making before validation.
-- [ ] **Reconcile stale spec**: `docs/specs/stage_two_S3c3_reliability_design.md:80`
-      still uses the retired `"quantitative"` status literal; the implementation
-      uses `"reportable_estimate"` (`reliability.py:39,43`).
+- [x] **Pin `OBSERVATION_STATUSES` assignment** (`measured_positive` /
+      `measured_zero` / `not_measured`) — done 2026-11-12
+      (`test_quant_cliff_lorimer.py::test_observation_status_distinguishes_...`).
+      Note: `invalid` is vocabulary only — negative/non-finite/incoherent facts
+      raise before a result is returned, so it is not a normal production branch.
+- [ ] **Freeze the provenance parameter schema** (exact key set per kind) — still
+      open; pin against the fake backend + a deterministic reliability fixture.
+- [ ] **Add an explicit calibration-state field** on `KFactorSet`/`QuantResult`.
+      **Deferred** (2026-11-12, Francesco): sound and matches this plan, but it
+      changes no numbers and its schema-v4 persistence break is not on the critical
+      path to the first-paper (Isra) deliverables. Do the lean in-memory version in
+      a post-Isra chunk; only break persistence when a second calibration state
+      actually exists (or decouple the shared quant schema first).
+- [x] **Reconcile stale spec**: done 2026-11-12 — `stage_two_S3c3_reliability_design.md`
+      §3.2–§3.4 snippets now carry a "superseded" marker pointing at the shipped
+      vocabulary (`count_floor`, `reportable_estimate`, …).
 
 ## 6. Validation procedure (outline, after freeze)
 
