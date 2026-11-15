@@ -392,3 +392,77 @@ def test_strict_mode_accepts_explicit_energy_offset(synthetic_xrmmap_h5):
     )
     payload = reader.read(synthetic_xrmmap_h5("strict_ok.h5"))
     assert payload.resolved_calibration["energy_offset"].source is CalibrationSource.USER_CONFIG
+
+
+# ---------------------------------------------------------------------------
+# Navigation-scale scientific-safety diagnostics (metadata-review audit)
+# ---------------------------------------------------------------------------
+
+def test_navigation_scale_from_beam_size_warns_it_is_nominal():
+    """A beam-size environ value is a nominal spot size, not confirmed scan
+    pitch — resolving the nav scale from it must emit a warning."""
+    rv, diags = resolve_navigation_scale_calibration(
+        {"Experiment.Beam_Size__Nominal": "2 um"},
+        beam_size_key="Experiment.Beam_Size__Nominal",
+        user_pixel_size_um=None,
+        user_field_width_um=None,
+        preset_legacy_field_width_um=500.0,
+        xdim=10,
+        mode=ConversionMode.LEGACY,
+    )
+    assert rv.source is CalibrationSource.SOURCE_METADATA
+    assert any(
+        d.code == "navigation_scale_from_nominal_beam_size" and d.severity == "warning"
+        for d in diags
+    )
+
+
+def test_beam_size_currently_outranks_explicit_pixel_size():
+    """KNOWN precedence (SOURCE_METADATA > USER_CONFIG): a file's nominal
+    beam_size currently wins even over an explicit user pixel_size_um. Pinned so
+    the surprising precedence is deliberate, not accidental; the warning still fires."""
+    rv, diags = resolve_navigation_scale_calibration(
+        {"Experiment.Beam_Size__Nominal": "2 um"},
+        beam_size_key="Experiment.Beam_Size__Nominal",
+        user_pixel_size_um=1.5,   # explicit pitch supplied, but...
+        user_field_width_um=None,
+        preset_legacy_field_width_um=500.0,
+        xdim=10,
+        mode=ConversionMode.LEGACY,
+    )
+    assert rv.source is CalibrationSource.SOURCE_METADATA   # beam_size wins
+    assert rv.value == pytest.approx(2.0)                   # not the 1.5 pitch
+    assert any(
+        d.code == "navigation_scale_from_nominal_beam_size" for d in diags
+    )
+
+
+def test_disabling_beam_size_key_lets_explicit_pixel_size_win():
+    """The audit's recommended workaround: disable the beam_size lookup
+    (beam_size_key=None) so a confirmed pitch is honoured, with no nominal warning."""
+    rv, diags = resolve_navigation_scale_calibration(
+        {"Experiment.Beam_Size__Nominal": "2 um"},
+        beam_size_key=None,
+        user_pixel_size_um=1.5,
+        user_field_width_um=None,
+        preset_legacy_field_width_um=500.0,
+        xdim=10,
+        mode=ConversionMode.LEGACY,
+    )
+    assert rv.source is CalibrationSource.USER_CONFIG
+    assert rv.value == pytest.approx(1.5)
+    assert not any(
+        d.code == "navigation_scale_from_nominal_beam_size" for d in diags
+    )
+
+
+def test_field_height_um_supplied_emits_ignored_warning(synthetic_xrmmap_h5):
+    """field_height_um is accepted but not consumed — it must not be silently
+    ignored; the reader flags it."""
+    payload = XRMMapH5Reader(
+        calibration=XRMMapH5Calibration(
+            energy_scale=0.01, energy_offset=0.0, roi_limit_units="channel_index",
+            field_height_um=400.0,
+        ),
+    ).read(synthetic_xrmmap_h5("field_height.h5"))
+    assert any(d.code == "field_height_um_ignored" for d in payload.diagnostics)

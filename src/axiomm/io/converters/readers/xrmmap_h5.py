@@ -475,6 +475,21 @@ class XRMMapH5Reader:
         nav_scale_um = nav_scale_resolved.value
         diagnostics.extend(scale_diag)
 
+        # field_height_um is accepted by the calibration dataclass but not yet
+        # consumed: both navigation axes share one scale, so a value supplied
+        # here would be silently ignored. Flag it rather than mislead.
+        if self.calibration.field_height_um is not None:
+            diagnostics.append(
+                Diagnostic(
+                    "warning",
+                    "field_height_um_ignored",
+                    "field_height_um was supplied but is not used: the XRM reader "
+                    "applies one navigation scale to both axes (no independent "
+                    "y-axis scale). Anisotropic x/y spacing is not yet supported; "
+                    "use pixel_size_um or field_width_um for the shared scale.",
+                )
+            )
+
         # Map nav scale source to the legacy provenance-classification bucket.
         nav_scale_bucket = (
             "observed"

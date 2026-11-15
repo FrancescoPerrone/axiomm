@@ -92,15 +92,21 @@ class XRMMapH5Calibration:
         the resolved ``energy_scale`` when units are
         ``"channel_index"``, fixed at ``0.01`` for ``"centi_keV"``,
         and identity for ``"keV"``.
-    field_width_um, field_height_um
-        Total map extent in µm along the navigation X / Y axes.
-        When set, the reader uses ``field_width_um / xdim`` as the
-        navigation pixel scale rather than consulting the environ
-        beam-size key. Either may be omitted independently.
+    field_width_um
+        Total map extent in µm along the navigation X axis. When set,
+        the reader uses ``field_width_um / xdim`` as the navigation
+        pixel scale rather than consulting the environ beam-size key.
+    field_height_um
+        Intended total extent in µm along the navigation Y axis.
+        **Not yet consumed:** the reader applies one navigation scale
+        to *both* axes, so an independent y-axis scale is not
+        constructed. A value supplied here is flagged with a
+        ``field_height_um_ignored`` warning rather than silently used.
+        Anisotropic x/y spacing is a deferred feature.
     pixel_size_um
         Direct navigation pixel scale in µm. If set, takes priority
-        over ``field_width_um`` / ``field_height_um`` / environ-table
-        ``beam_size`` for the reported axis scale.
+        over ``field_width_um`` / environ-table ``beam_size`` for the
+        reported axis scale.
     legacy_field_width_um
         Total map width in µm used as the legacy fallback when no
         beam size is in the environ table and no explicit

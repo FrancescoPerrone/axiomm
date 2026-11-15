@@ -570,6 +570,20 @@ def resolve_navigation_scale_calibration(
     if beam_size_str is not None:
         try:
             parsed = parse_micrometre_value(beam_size_str)
+            # A beam-size key records the NOMINAL spot size, which is not
+            # necessarily the raster scan pitch (pixel spacing). They may
+            # coincide, but that must be confirmed — flag it so calibrated
+            # scale bars are not trusted blindly.
+            diagnostics.append(
+                Diagnostic(
+                    "warning",
+                    "navigation_scale_from_nominal_beam_size",
+                    f"navigation pixel scale taken from environ {beam_size_key!r} "
+                    f"(= {parsed} µm): this is a nominal beam/spot size, not "
+                    f"necessarily the raster scan pitch. Confirm they match — or "
+                    f"pass an explicit pixel_size_um — before publishing scale bars.",
+                )
+            )
             return (
                 ResolvedValue(
                     value=parsed,
