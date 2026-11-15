@@ -343,6 +343,19 @@ applies to the inherited `ISE_500sqaures_…` files only. The 2026-06-12
 audit confirmed this is **scan-field extent**, not beam size — the
 draft paper's XRF beam is $2 \times 2$ µm.
 
+> ⚠️ **Nominal beam size ≠ scan pitch.** Step 1 uses the environ **beam size**,
+> which is a *nominal spot size*, not necessarily the raster **scan pitch** (pixel
+> spacing). Because it is `SOURCE_METADATA`, it currently **outranks even an
+> explicit `pixel_size_um`** — so to publish a confirmed pitch you must *disable the
+> lookup* with a schema `beam_size_key=None` and then pass `pixel_size_um`. When the
+> beam-size path is taken the reader emits a `navigation_scale_from_nominal_beam_size`
+> warning. Do not publish calibrated scale bars until the pitch is confirmed.
+>
+> **One scale, both axes.** The reader applies a single $s_\text{nav}$ to x *and* y.
+> `field_height_um` is accepted by the calibration dataclass but **not yet used** —
+> supplying it emits a `field_height_um_ignored` warning; anisotropic x/y spacing is
+> a deferred feature.
+
 ### Worked example — overriding the calibration for your instrument
 
 ```python

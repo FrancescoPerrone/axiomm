@@ -40,6 +40,12 @@ cross-sections (`kfactors.py:117`).
   geometry, absorption / self-absorption, and secondary fluorescence are all
   omitted; oxygen is derived by stoichiometry (no measured-O mode). These
   omissions are exactly what standards validation will quantify.
+- **Single excitation energy (monochromatic assumption).** `compute_k_factors`
+  passes one `excitation_kev` to xraylib, which assumes an effectively
+  monochromatic incident beam. For a polychromatic (e.g. tube) source, the tube
+  voltage is not automatically an adequate effective energy — a validated run may
+  need an incident-spectrum or effective-energy model. Confirm the source is
+  monochromatic (or justify the effective energy) before trusting the k-factors.
 
 ## 3. Outputs and provenance
 

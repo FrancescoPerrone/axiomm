@@ -13,6 +13,17 @@ diagnostic. A run therefore *succeeds and produces maps* even when the
 calibration is wrong. For a paper we must supply explicit calibration and prefer
 `STRICT` mode.
 
+> **`STRICT` and `USER_CONFIG` are not validation.** `STRICT` only forces values to
+> be supplied *explicitly* (fail-loud on anything unresolved); a `USER_CONFIG`
+> provenance tag means a value was supplied, **not** that it was measured, verified,
+> or scientifically appropriate. A `STRICT` conversion can complete with physically
+> wrong numbers if wrong numbers are entered. Record each supplied value's evidence
+> in an acquisition record — see
+> [`acquisition_record_template.md`](acquisition_record_template.md) — and confirm
+> which files (if any) are covered by the 12 June 2026 legacy audit; filename,
+> directory, HDF5 structure, instrument family or beamline are **not** sufficient
+> evidence of coverage on their own.
+
 ## Hard blockers — a run is wrong or impossible without these
 
 1. **Energy scale (keV/channel).** Source-metadata extraction is *not yet
@@ -49,14 +60,26 @@ calibration is wrong. For a paper we must supply explicit calibration and prefer
    (`pipeline/config.py:51`); `reference_element` default `"Si"` must have a line
    in the spectrum's energy range or `_quantify_and_match` raises
    (`pipeline/core.py:172-177`). **Confirm the library covers the sample's
-   expected phases and the measured energy range.**
+   expected phases and the measured energy range.** Known coverage gap for ore
+   material: the default includes **Pyrite and Pyrrhotite but no sphalerite,
+   galena, or Pb** — if Zn/Pb sulfides are expected, the library is incomplete and
+   matching will abstain on them (adding phases needs scientific grounding, not a
+   quick edit). `reference_element="Si"` is an analysis default, not an acquisition
+   result — confirm the Si line is excitable and reliably measured for this specimen.
 
 ## Should confirm — a safe-ish default exists but it affects the figures
 
 6. **Navigation pixel scale (µm).** Resolution ladder: environ beam-size key →
    `pixel_size_um` → `field_width_um/xdim` → legacy `500 µm/xdim` → 1.0 (warns).
    Wrong or absent → wrong scale bars. **Confirm pixel size / field width and the
-   environ key name.**
+   environ key name.** Two scientific cautions (the reader now warns on the first):
+   (a) a file's **`Experiment.Beam_Size__Nominal` is a nominal spot size, not the
+   raster scan pitch** — and it currently *outranks* an explicit `pixel_size_um`
+   (`SOURCE_METADATA` > `USER_CONFIG`); to use a confirmed pitch you must disable the
+   lookup with a schema `beam_size_key=None`, then pass `pixel_size_um`. (b) the
+   reader applies **one scale to both axes** — `field_height_um` is not yet used
+   (it emits a `field_height_um_ignored` warning); anisotropic x/y is unsupported.
+   Don't publish calibrated scale bars until pitch (and anisotropy) are confirmed.
 7. **ROI limit units.** `centi_keV` / `keV` / `channel_index` (preset assumes
    `channel_index`). ROIs are stored as metadata only — not consumed by the
    analysis pipeline — so this is low priority, but confirm for a faithful manifest.
