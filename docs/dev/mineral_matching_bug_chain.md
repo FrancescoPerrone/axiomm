@@ -25,17 +25,28 @@ document the physical limits as the scientific boundary.
 - **Verified fix:** removing Ba from quantification turned cluster 1 into
   TiO₂ 85.8 % → **Rutile score 1.00**, and cleaned every composition.
 
-### Cause 2 (physical limitation, documented, not a code bug) — uncorrected absorption + single energy
-- The theoretical k-factors omit absorption / self-absorption (see
-  `quantification_validation_freeze.md`): the result is an *uncorrected* estimate.
-- At a single 13.55 keV excitation, low-Z lines (P 2.0, Si 1.74, Al, Na, Mg) are
-  weakly excited **and** strongly absorbed relative to Fe/Ti/Ca → **under-measured**.
-- **Effect:** compositions are biased toward Fe/Ti/K. Even the (spatially correct)
-  apatite cluster reads Fe/K/Ti-heavy after Ba removal (CaO 34, FeO 24, K₂O 14,
-  TiO₂ 12, SiO₂ 9, P₂O₅ 5.6) — P and Si are suppressed.
-- Proper fix is matrix (ZAF / absorption) correction and/or **dual-energy fusion**
-  (bring in the companion 2.9 keV map for light elements). Both are future work;
-  until then, high-excitation light-element-poor readings are a known bias.
+### Cause 2 (a property of the DATA / acquisition — not an AXIOMM limit) — single excitation under-excites low-Z
+- At a single 13.55 keV excitation, low-Z lines (P 2.0, Si 1.74, Al, Na, Mg) sit far
+  above their absorption edges → low fluorescence cross-section → **weakly excited**,
+  and what is emitted is more strongly self-absorbed than Fe/Ti/Ca.
+- **This is a designed property of the experiment, verified:** the *same sample*
+  mapped at **2.9 keV** vs **13.55 keV** has a low-Z/mid-Z count ratio of **29.9 vs
+  0.01** — the light elements are ~3000× stronger in the low-energy map. The 2.9 keV
+  map was acquired precisely to capture them (dual-energy by design). See
+  `melts/axiomm_figures/dual_energy_compare.png`.
+- **Effect:** the 13.55 keV map is genuinely light-element-poor, so single-map
+  compositions are biased toward Fe/Ti/K; even the (spatially correct) apatite cluster
+  reads Fe/K/Ti-heavy after Ba removal (CaO 34, FeO 24, K₂O 14, TiO₂ 12, SiO₂ 9,
+  P₂O₅ 5.6).
+- **This is not AXIOMM being bad at light elements** — AXIOMM correctly reports what
+  the 13.55 keV data contains. The scientific-software obligation is that AXIOMM
+  **detect and report** the condition (an excitation-coverage diagnostic: "elements
+  below ~X keV are weakly excited at this beam energy; composition under-represents
+  them; use the complementary low-energy map"), and abstain rather than over-claim.
+- The path to a *complete* composition for this experiment is **dual-energy fusion**
+  (combine the 2.9 + 13.55 keV maps); matrix (ZAF) correction and standards further
+  validate it. These get *better science from the data*, they do not fix an AXIOMM
+  flaw. To be reported to Isra and verified scientifically.
 
 ### Cause 3 (matcher flaw) — rewards partial explanation (asymmetric coverage)
 - The cosine is scored over the **shared** elements; the eligibility gate
@@ -50,6 +61,24 @@ document the physical limits as the scientific boundary.
 - `MatchConfig.min_score` defaults to **0.0** → the best candidate is always
   eligible → `UNRESOLVED` only fires when a cluster is out-of-coverage → the matcher
   **never abstains on weak or ambiguous matches**.
+
+## Design principles (these govern every fix)
+
+1. **General, not dataset-specific.** The fixes must produce **correct labels when
+   the data supports them** and abstain only when it does not. Nothing is tuned to
+   "always abstain on A21_066." Regression guard: the synthetic self-consistency demo
+   (clean, well-measured phases) must still name its phases correctly after the fix —
+   if it starts abstaining, the gates are too strict.
+2. **AXIOMM is the honest instrument, never the limit.** A limitation lives in the
+   *data / acquisition* (a line overlap unresolvable at this resolution; light
+   elements under-excited at this beam energy; a mixed cluster; out-of-reference
+   chemistry). AXIOMM's job is to **detect and report** that condition (diagnostics)
+   and abstain — not to silently corrupt the result, and not to be blamed for the
+   data. Every "limit" we document is a property of the data, surfaced by an AXIOMM
+   diagnostic.
+3. **Everything configurable.** Detector resolution, exclusions, and all match
+   thresholds are parameters with defensible defaults, overridable per run and
+   recorded in the acquisition record.
 
 ## Fix plan (defensible, layered, all thresholds configurable)
 
@@ -76,13 +105,17 @@ document the physical limits as the scientific boundary.
   Clinopyroxene) survive and mixed / absorption-biased clusters abstain. The phase
   map becomes **"named where confident, unresolved elsewhere."**
 
-### Layer C — documentation
-- This record.
-- User docs + report caveats: the phase map names only confident single-phase
-  matches; `unresolved` = mixed / weak / ambiguous / out-of-reference; the
-  quantification is uncorrected theoretical (absorption omitted), so at high
-  excitation light elements are under-measured.
-- Record per-run decisions (Ba exclusion, detector resolution) in the
+### Layer C — AXIOMM reports the data's limits (diagnostics first, docs second)
+- **Excitation-coverage diagnostic:** when elements are quantified whose lines are
+  weakly excited at the beam energy (line energy far above the edge / low cross-section
+  at `excitation_kev`), emit a diagnostic naming them — so a single-energy map's
+  light-element under-representation is a **reported data property**, not a silent bias.
+- The **`line_overlap`** diagnostic (Layer A) and the **`unresolved`** labels
+  (Layer B) are AXIOMM honestly reporting what the data supports.
+- Docs then describe these as **data / acquisition** properties and the scientific
+  remedies (dual-energy fusion, standards, matrix correction) — framed as getting more
+  from the data, never as an AXIOMM shortcoming.
+- Record per-run decisions (Ba exclusion, detector resolution, dual-energy pairing) in
   `acquisition_record_template.md`.
 
 ## Scientific decisions (defensible defaults; configurable)
