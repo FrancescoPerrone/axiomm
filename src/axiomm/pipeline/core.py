@@ -195,9 +195,9 @@ class Pipeline:
         if cfg.reference_element not in cations:
             raise PayloadValidationError(
                 f"reference_element {cfg.reference_element!r} is not available for "
-                f"quantification in [{emin:.2f}, {emax:.2f}] keV (no line in range, "
-                "excluded, or lost to a line overlap); choose a measurable, resolved "
-                "reference_element.")
+                f"quantification: no line in the energy range [{emin:.2f}, {emax:.2f}] "
+                "keV, or it was excluded / lost to a line overlap; choose a measurable, "
+                "resolved reference_element.")
         peaks = measure_peaks(means, signal_axis, reference)
 
         k = compute_k_factors(reference.element_refs(cations),
