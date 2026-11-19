@@ -120,14 +120,34 @@ INTERACTIVE_JS = r"""
   function applyCanvas() {
     grid.classList.add('canvas');
     document.body.classList.add('canvas-mode');
-    var cw = grid.clientWidth, flowY = 8;
-    items().forEach(function (m) {
-      var defW = Math.min(isMast(m) ? 720 : 360, cw - 16);
+    var cw = grid.clientWidth, GAP = 16, PAD = 8, COLW = 360;
+    var all = items();
+    // How many card columns fit across the canvas (>=1). Tiling the modules into
+    // columns — instead of one tall centred stack — means a reader sees every
+    // available module on open, without a long vertical scroll.
+    var ncol = Math.max(1, Math.floor((cw - 2 * PAD + GAP) / (COLW + GAP)));
+    // Masthead (title / eyebrow / lede) stays full-width at the very top.
+    var topY = PAD;
+    all.filter(isMast).forEach(function (m) {
+      var w = Math.min(cw - 2 * PAD, 1040);
       m.style.position = 'absolute'; m.style.height = ''; m.style.overflow = '';
-      m.style.width = defW + 'px';
-      m.style.left = Math.max(0, (cw - defW) / 2) + 'px';
-      m.style.top = flowY + 'px'; m.style.zIndex = 1;
-      flowY += m.offsetHeight + 16;
+      m.style.width = w + 'px';
+      m.style.left = Math.max(PAD, (cw - w) / 2) + 'px';
+      m.style.top = topY + 'px'; m.style.zIndex = 1;
+      topY += m.offsetHeight + GAP;
+    });
+    // The section cards pack into the columns (masonry: each card drops into the
+    // currently-shortest column), so the layout stays compact and balanced.
+    var usedW = ncol * COLW + (ncol - 1) * GAP;
+    var x0 = Math.max(PAD, (cw - usedW) / 2);
+    var colY = []; for (var i = 0; i < ncol; i++) colY.push(topY);
+    all.filter(function (m) { return !isMast(m); }).forEach(function (m) {
+      var ci = 0; for (var i = 1; i < ncol; i++) { if (colY[i] < colY[ci]) ci = i; }
+      m.style.position = 'absolute'; m.style.height = ''; m.style.overflow = '';
+      m.style.width = COLW + 'px';
+      m.style.left = (x0 + ci * (COLW + GAP)) + 'px';
+      m.style.top = colY[ci] + 'px'; m.style.zIndex = 1;
+      colY[ci] += m.offsetHeight + GAP;
     });
     maxZ = 1;
     canvasHeight();
