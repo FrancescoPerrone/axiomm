@@ -130,6 +130,7 @@ _TMPL = r"""<div class="axm-nav">
     drawSpec(px,py,pin);
   }
   async function openModal(){
+    document.body.appendChild(modal);   // escape the report card's stacking context
     modal.hidden=false;
     if(!cube){
       cube=await gunzip(unb64("__CUBE__"));

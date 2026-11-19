@@ -3,10 +3,11 @@
 A self-contained, dependency-free layer the ``html`` backend injects so a report
 becomes a live workspace. On a wide screen the **whole viewport is a free
 canvas**: every item — the section cards *and* the masthead (title + opening
-paragraph) — can be dragged anywhere by its handle, resized from its corner, and
-hidden with its close control (to declutter for the session), and titles/
-paragraphs edit in place. On a narrow screen (phone) it is a readable vertical
-stack.
+paragraph) — can be dragged anywhere by its handle, resized from its corner,
+raised above its neighbours by hovering or clicking it (so a covered card's
+controls surface), and minimised to a dock of pills along the bottom of the
+window (click a pill to restore it). Titles/paragraphs edit in place. On a narrow
+screen (phone) it is a readable vertical stack.
 
 **The report always opens in its default arrangement.** Customisation is live for
 the viewing session only — nothing is persisted, so every open or refresh shows
@@ -45,11 +46,22 @@ body.canvas-mode { max-width: none; padding: 1.25rem; }
   border-radius: 7px; cursor: pointer; opacity: 0; transition: opacity .2s, background .2s;
   display: flex; align-items: center; justify-content: center; color: var(--muted);
   user-select: none; z-index: 3; }
-.module-hide::before { content: "\\00d7"; font-size: 1.1rem; line-height: 1; }
+.module-hide::before { content: "\\2212"; font-size: 1.15rem; line-height: 1; }
 .canvas-item:hover .module-hide { opacity: .5; }
 .module-hide:hover { opacity: 1; background: var(--accent-soft); }
 @media (hover: none) { .module-hide { opacity: .3; } }
 .module-placeholder { border: 2px dashed var(--border); border-radius: 10px; }
+/* Minimised modules dock as pills along the bottom of the viewport. */
+.module-dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 9998;
+  display: flex; flex-wrap: wrap; gap: 6px; padding: 7px 12px; pointer-events: none; }
+.module-dock:empty { display: none; }
+.dock-tab { pointer-events: auto; cursor: pointer; display: inline-flex; align-items: center;
+  gap: .4rem; max-width: 15rem; padding: .3rem .7rem; border-radius: 999px;
+  background: var(--panel, #fff); border: 1px solid var(--border, #dadce0);
+  color: var(--fg); font-size: .82rem; box-shadow: 0 6px 18px rgba(0,0,0,.14);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dock-tab:hover { border-color: var(--accent, #5aa9e6); }
+.dock-tab::before { content: "\\25A2"; color: var(--muted); font-size: .9rem; }
 [data-editable] { border-radius: 5px; transition: background .15s; outline: none; }
 [data-editable]:hover { background: color-mix(in srgb, var(--accent) 9%, transparent); }
 [data-editable]:focus { background: color-mix(in srgb, var(--accent) 6%, transparent);
@@ -100,8 +112,7 @@ INTERACTIVE_JS = r"""
       hb.addEventListener('pointerdown', function (e) { e.stopPropagation(); });
       hb.addEventListener('click', function (e) {
         e.stopPropagation();
-        m.hidden = true;           // removed for this session; a refresh restores the default
-        canvasHeight();
+        minimize(m);               // -> a pill in the bottom dock; click it to restore
       });
       m.appendChild(hb);
     }
@@ -115,6 +126,42 @@ INTERACTIVE_JS = r"""
     items().forEach(function (m) { b = Math.max(b, m.offsetTop + m.offsetHeight); });
     grid.style.height = (b + 28) + 'px';
   }
+
+  // --- minimise to a bottom dock (a hidden module is one click to restore) ----
+  var dock = document.createElement('div'); dock.className = 'module-dock';
+  document.body.appendChild(dock);
+  function titleOf(m) {
+    var h = m.querySelector('h1, h2, h3, [data-editable]');
+    var t = ((h && h.textContent) || 'Module').trim();
+    return t.length > 26 ? t.slice(0, 25) + '…' : (t || 'Module');
+  }
+  function minimize(m) {
+    if (m._tab) return;
+    m.hidden = true;
+    var tab = document.createElement('button'); tab.type = 'button';
+    tab.className = 'dock-tab'; tab.textContent = titleOf(m);
+    tab.title = 'Restore “' + titleOf(m) + '”';
+    tab.addEventListener('click', function () { restore(m); });
+    dock.appendChild(tab); m._tab = tab;
+    canvasHeight();
+  }
+  function restore(m) {
+    m.hidden = false;
+    if (m._tab) { m._tab.remove(); m._tab = null; }
+    front(m);            // reappears where it was, raised above its neighbours
+    canvasHeight();
+  }
+
+  // Hover a card (after a short rest) to raise it, so an overlapped card's
+  // controls become reachable without hunting; a click on it also raises it.
+  Array.prototype.forEach.call(grid.querySelectorAll('.canvas-item'), function (m) {
+    var ht;
+    m.addEventListener('pointerenter', function () {
+      if (!grid.classList.contains('canvas')) return;
+      clearTimeout(ht); ht = setTimeout(function () { front(m); }, 160);
+    });
+    m.addEventListener('pointerleave', function () { clearTimeout(ht); });
+  });
 
   // --- default layout (always) --------------------------------------------
   function applyCanvas() {
@@ -194,7 +241,12 @@ INTERACTIVE_JS = r"""
         mod.style.left = r.left + 'px'; mod.style.top = r.top + 'px'; mod.style.pointerEvents = 'none';
         act = { type: 'sdrag', m: mod, ph: ph, offY: e.clientY - r.top };
       }
-    } else { return; }
+    } else {
+      // Click anywhere on a card to raise it (so a covered card's controls surface).
+      var card = e.target.closest('.canvas-item');
+      if (card && isWide()) front(card);
+      return;
+    }
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
   });
