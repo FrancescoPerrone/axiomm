@@ -54,6 +54,8 @@ class PipelineConfig:
     seed: int = 0
     match: object = None                 # optional MatchConfig
     reliability: object = None           # optional ReliabilityConfig
+    exclude_elements: frozenset[str] = frozenset()   # elements to drop from quant (e.g. a line interferent)
+    line_resolution_kev: float = 0.13    # detector FWHM proxy; lines closer than this overlap
     extra: dict = field(default_factory=dict)   # reserved for future settings
 
     def __post_init__(self) -> None:
@@ -63,6 +65,16 @@ class PipelineConfig:
         _check_stage("clustering", self.clustering, "cluster")
         if not (isinstance(self.seed, int) and not isinstance(self.seed, bool)):
             raise PayloadValidationError(f"Pipeline seed must be an integer; got {self.seed!r}.")
+        if not all(isinstance(e, str) and e for e in self.exclude_elements):
+            raise PayloadValidationError(
+                f"Pipeline exclude_elements must be element symbols (non-empty strings); "
+                f"got {self.exclude_elements!r}.")
+        self.exclude_elements = frozenset(self.exclude_elements)
+        lr = self.line_resolution_kev
+        if not (isinstance(lr, (int, float)) and not isinstance(lr, bool)
+                and math.isfinite(float(lr)) and lr >= 0):
+            raise PayloadValidationError(
+                f"Pipeline line_resolution_kev must be a finite number >= 0; got {lr!r}.")
         if self.beam_energy_kev is not None:
             b = self.beam_energy_kev
             if not (isinstance(b, (int, float)) and not isinstance(b, bool)

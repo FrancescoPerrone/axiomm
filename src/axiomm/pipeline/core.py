@@ -23,6 +23,7 @@ from axiomm.analysis.quant import (
     compute_k_factors,
     quantify_cluster_means,
 )
+from axiomm.analysis.quant.overlaps import detect_line_overlaps
 from axiomm.pipeline.config import PipelineConfig
 from axiomm.pipeline.result import UNRESOLVED, PipelineResult
 
@@ -169,12 +170,34 @@ class Pipeline:
         emin = float(signal_axis.offset)
         emax = float(signal_axis.offset) + float(signal_axis.scale) * (int(signal_axis.size) - 1)
         # in-range cations from the reference (structural elements like O/Br/I excluded)
-        cations = reference.cations_in_range(emin, emax)
+        cations = list(reference.cations_in_range(emin, emax))
+        # Honest quantification: drop user-excluded interferents, then refuse to
+        # quantify emission lines the detector cannot resolve (report them, never
+        # guess which element a blended peak belongs to).
+        if cfg.exclude_elements:
+            dropped = sorted(c for c in cations if c in cfg.exclude_elements)
+            cations = [c for c in cations if c not in cfg.exclude_elements]
+            if dropped:
+                diagnostics.append(Diagnostic(
+                    "info", "elements_excluded",
+                    f"excluded from quantification by request: {dropped}."))
+        for group in detect_line_overlaps(reference.line_energies(cations),
+                                          cfg.line_resolution_kev):
+            es = reference.line_energies(group)
+            diagnostics.append(Diagnostic(
+                "warning", "line_overlap",
+                "emission lines overlap within "
+                f"{cfg.line_resolution_kev} keV and cannot be resolved ("
+                + ", ".join(f"{s} {es[s]:.3f} keV" for s in group)
+                + "); excluded from the composition — resolve by excluding the "
+                "interfering element via exclude_elements."))
+            cations = [c for c in cations if c not in group]
         if cfg.reference_element not in cations:
             raise PayloadValidationError(
-                f"reference_element {cfg.reference_element!r} has no line in the spectrum's "
-                f"energy range [{emin:.2f}, {emax:.2f}] keV; set reference_element to a "
-                "measurable element.")
+                f"reference_element {cfg.reference_element!r} is not available for "
+                f"quantification in [{emin:.2f}, {emax:.2f}] keV (no line in range, "
+                "excluded, or lost to a line overlap); choose a measurable, resolved "
+                "reference_element.")
         peaks = measure_peaks(means, signal_axis, reference)
 
         k = compute_k_factors(reference.element_refs(cations),
