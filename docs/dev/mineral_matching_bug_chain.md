@@ -118,11 +118,23 @@ document the physical limits as the scientific boundary.
 - Record per-run decisions (Ba exclusion, detector resolution, dual-energy pairing) in
   `acquisition_record_template.md`.
 
-## Scientific decisions (defensible defaults; configurable)
-- `line_resolution_kev = 0.13` keV (typical SDD FWHM near Mn Kα).
-- Ba excluded for the West Kimberley / Basanite / Gaussie suite (trace; Ti overlap).
-- `min_observation_coverage`, `min_score`, ambiguity margin — set from the real run
-  so strong matches survive and weak abstain; recorded here once chosen.
+## Scientific decisions (defensible defaults; configurable) — FINAL
+- `line_resolution_kev = 0.13` keV (typical SDD FWHM near Mn Kα). [Layer A, shipped]
+- `exclude_elements = {"Ba"}` for the West Kimberley / Basanite / Gaussie suite
+  (trace; the 4.5 keV peak is Ti). Recorded per run in the acquisition record.
+- `min_observation_coverage = 0.6` (a single-phase ID must account for ≥60 % of the
+  observed cations). [Layer B, shipped]. `min_score` left at 0.0 (ranking floor stays
+  user-configurable); add a floor to additionally abstain the weakest labels.
+- Chosen from the real A21_066 sweep: these recover Phlogopite + Clinopyroxene and
+  reject the implausible Fe-Ti-oxide labels, while the synthetic self-consistency demo
+  still names its phases (no over-abstention on good data).
+
+## Validation (A21_066, after Layers A+B)
+Fixed phase map = **Phlogopite (mica) + Clinopyroxene + Rutile + Amphibole** (a coherent
+ultrapotassic-mafic assemblage). Against Isra's annotations: **Phlogopite ✅,
+Clinopyroxene ✅** (the two dominant phases); **Apatite not recoverable from the 13.55 keV
+map alone** (P suppressed — a data property, Figure 2 of the report). Full write-up with
+figures + the dual-energy proof: `melts/axiomm_figures/REPORT_mineral_phase_map_bugfix.md`.
 
 ## What this does and does not claim
 Even fully fixed, this is still **candidate ranking, not validated identification**,
