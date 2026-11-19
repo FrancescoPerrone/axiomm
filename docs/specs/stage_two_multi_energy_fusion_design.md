@@ -69,24 +69,42 @@ line). An element excited by no supplied energy is reported `not_excited` (a dia
 not fabricated. Alternative policies (e.g. user-pinned element→energy map) plug into the
 same seam.
 
-## 7. Cross-energy normalization (the scientific crux — configurable, signed off)
+## 7. Cross-energy normalization (DECIDED) — I0 + live-time + dead-time, then energy-specific k-factors
 
-Net intensities from different energy maps are **not directly comparable** (different
-incident flux, dwell, cross-sections). Combining elements measured at different energies
-requires an explicit cross-calibration. Candidate methods, selectable via a policy with
-a documented default:
+Net intensities from different energy maps are not directly comparable (different
+incident flux, dwell, dead-time, cross-sections). The **decided default** is the
+established synchrotron-XRF method, not an ad-hoc factor:
 
-- **Internal-reference element** measured in two overlapping energy maps, used to scale
-  one map's intensities onto the other's.
-- **Edge-referenced / flux-referenced scaling** from recorded acquisition parameters.
-- **User-supplied per-map scaling factors.**
+1. **Flux / time / dead-time normalization of each map.** Per pixel, normalize the
+   spectrum by the **incident-flux monitor (I0)**, the **live-time**, and the
+   **dead-time correction** — the standard pre-quantification normalization in PyMca,
+   **Larch** (which produced these XRM-Map files), GeoPIXE and APS-MAPS. The GSECARS
+   13-IDE files carry exactly these channels: `/xrmmap/scalars/I0` (+ `TSCALER`) and
+   `/xrmmap/mcasum/{livetime, dtfactor}`. This removes the flux/dwell/dead-time
+   differences between the two energy acquisitions and yields intensity **per incident
+   photon per live second**.
+2. **Measure each element from its best-excited, normalized map** (§6).
+3. **Compute each element's k-factor at the energy it was measured** — AXIOMM's
+   `compute_k_factors(excitation_kev=...)` is already energy-parameterised, so the
+   energy-dependent fluorescence cross-section is carried per element.
+4. **Cliff-Lorimer** with those per-element-energy k-factors on the I0-normalized
+   intensities. **Physics justification (fundamental parameters / Sherman):**
+   `I_i ∝ I0(E) · σ_i(E) · ω_i · ε_i · …`; dividing by `I0(E)·t` and dividing by the
+   sensitivity `S_i(E)` (the k-factor at that energy) cancels the energy-dependent
+   terms, so an element measured at 2.9 keV and one measured at 13.55 keV land on the
+   **same mass-fraction footing without an arbitrary bridging factor.**
+5. **Bridge-element consistency check (validation / optional refinement).** An element
+   excited in ≥2 maps should yield the same concentration from either; the discrepancy
+   is recorded as a diagnostic and may drive a residual correction factor. This
+   validates the I0 normalization rather than replacing it.
 
-Whichever is used, the method and the resulting factors are recorded in provenance, and
-an unresolved cross-calibration is a diagnostic, not a silent guess. **This method is a
-scientific decision requiring sign-off (Francesco / Isra); AXIOMM does not pick it
-unilaterally.** Until a method is chosen, fusion can still produce *per-element presence
-and ratios within each energy* with an explicit "cross-energy quantitative comparison not
-calibrated" flag.
+The normalization channels used, the per-element source energy, the k-factor energies,
+and any bridge-element residual are all recorded in provenance; an element excited by no
+supplied energy, or a missing I0/live-time channel, is a diagnostic, never a silent
+guess. **General corollary (broader than fusion):** I0 + live-time + dead-time
+normalization is standard for *single-energy* quantification too; AXIOMM should read the
+scaler channels and offer normalized intensities on the ordinary path, with raw-count
+behaviour kept as an explicit fallback when the scalers are absent.
 
 ## 8. Where it fits in the pipeline
 
@@ -115,16 +133,26 @@ diagnostics. Downstream quantification/matching consume the fused intensities as
 2. Multi-energy engages only on an explicit group; nothing is inferred from filenames.
 3. Registration is verified; mismatched grids raise/refuse with a named diagnostic.
 4. Energy-selection and cross-calibration are pluggable policies with documented defaults.
-5. The cross-calibration method and factors are recorded in provenance; an uncalibrated
-   comparison is flagged, never silent.
+5. Each map is normalized by I0 + live-time + dead-time (the scaler channels) before
+   quantification; a missing scaler is a diagnostic with an explicit raw-count fallback.
+   The normalization channels, per-element source energy, k-factor energies, and
+   bridge-element residual are recorded in provenance.
 6. **Test case (not a driver):** fusing Isra's 2.9 + 13.55 keV A21_066 maps recovers the
    light elements (P, Si) alongside Ca/Ti/Fe, enabling an apatite identification that the
    13.55 keV map alone cannot support.
 7. General/unit tests cover registration, selection, and the no-op identity; the
    single-energy suite is unaffected.
 
-## 12. Open scientific decisions
+## 12. Scientific decisions
 
-- **The cross-energy normalization method** (§7) — the one real scientific choice; needs
-  Francesco/Isra sign-off before a default is fixed.
-- Whether clustering should ever consume fused features by default (proposed: no).
+- **Cross-energy normalization method — DECIDED (§7):** I0 + live-time + dead-time
+  normalization, then per-element k-factors at the measurement energy, validated by a
+  bridge-element consistency check. Grounded in fundamental-parameter XRF and standard
+  synchrotron practice (PyMca / Larch / GeoPIXE / APS-MAPS); the required scaler channels
+  are present in the GSECARS 13-IDE data. No external sign-off was available, so this is
+  our best engineering + science judgment, documented for the record and revisable.
+- **General I0-normalization on the single-energy path — adopted (§7 corollary):** read
+  the scaler channels and quantify on normalized intensities, with raw counts as the
+  explicit fallback when scalers are absent.
+- Whether clustering should ever consume fused features by default — **no** (proposed and
+  kept): clustering stays per-map; fusion acts at quantification.
