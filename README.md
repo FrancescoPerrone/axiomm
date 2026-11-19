@@ -5,6 +5,14 @@
   </picture>
 </p>
 
+<p align="left">
+  <a href="https://github.com/FrancescoPerrone/axiomm/actions/workflows/ci.yml"><img src="https://github.com/FrancescoPerrone/axiomm/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
+  <img src="https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-informational" alt="License: PolyForm Noncommercial 1.0.0">
+  <img src="https://img.shields.io/badge/status-pre--alpha-orange" alt="Status: pre-alpha">
+  <img src="https://img.shields.io/badge/lint-ruff-261230" alt="Linted with ruff">
+</p>
+
 **AXIOMM** — *Automated X-ray Intelligence for Organising Mineral Mapping* — is a
 Python package for spectroscopy. It targets workflows that begin with
 high-dimensional X-ray spectroscopy data acquired as spatial maps (one
@@ -28,6 +36,21 @@ work.
 > available for tuning a single stage. A friendly UX layer comes later;
 > see the
 > [Roadmap](https://github.com/FrancescoPerrone/axiomm/wiki/Roadmap).
+
+> 🔬 **Scientific recalibration in progress (stage two — quantification & mineral
+> matching).** Treat this step as **exploratory and under active scientific
+> recalibration.** A real-data run surfaced an emission-line overlap artifact
+> (Ba Lα ≈ Ti Kα) that corrupted compositions; it has been **fixed** — AXIOMM now
+> detects unresolvable line overlaps and the matcher **abstains when a candidate
+> cannot explain the observed composition** (full record:
+> [`docs/dev/mineral_matching_bug_chain.md`](docs/dev/mineral_matching_bug_chain.md)).
+> Nonetheless, quantification remains an **uncorrected theoretical
+> sensitivity-ratio estimate** and mineral matches are **candidate rankings, not
+> validated identifications.** Some phases are only resolvable with **multi-energy
+> acquisition** — a planned, **optional** capability
+> ([design](docs/specs/stage_two_multi_energy_fusion_design.md)); single-energy
+> analysis stays the default. Validated maps require matrix correction,
+> multi-energy fusion, and standards.
 
 ## Scientific scope
 
