@@ -404,3 +404,19 @@ def test_result_is_ranking_never_identification():
     assert result.best() is None or isinstance(result.best(), MineralCandidate)
     # numpy import kept meaningful (silences unused import if trimmed later)
     assert np.isfinite(result.candidates[0].score)
+
+
+def test_observation_coverage_gates_a_candidate_explaining_a_minority():
+    """A candidate that accounts for only a minority of the OBSERVED composition is
+    not a credible single-phase ID, however high its cosine (Layer B of the fix)."""
+    ref = _controlled_reference()
+    # Ca+K dominate; Mg+Si are a minority — Forsterite (Mg,Si) explains only ~30%.
+    qr = _quant(Mg=15.0, Si=15.0, Ca=40.0, K=30.0)
+    rep = _report("reportable_estimate",
+                  {"Mg": "reportable", "Si": "reportable", "Ca": "reportable", "K": "reportable"})
+    gated = _find(match_cluster(qr, ref, reliability=rep,
+                  config=MatchConfig(min_observation_coverage=0.6)), "Forsterite")
+    ungated = _find(match_cluster(qr, ref, reliability=rep,
+                    config=MatchConfig(min_observation_coverage=0.0)), "Forsterite")
+    assert gated is not None and gated.outcome == "insufficient_evidence"
+    assert ungated is not None and ungated.outcome == "scored"

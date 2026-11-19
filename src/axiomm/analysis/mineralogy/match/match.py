@@ -232,12 +232,18 @@ def _score_candidate(m, cluster_molar, censored_cluster, measured_all, included,
     else:
         raw, score = 0.0, 0.0
 
-    # finding 1: support-aware eligibility — enough shared dimensions AND enough
-    # of the candidate's own composition explained, else not rank-eligible.
+    # observation coverage: the fraction of the OBSERVED composition the candidate
+    # accounts for. A single endmember that explains only a minority of the measured
+    # cations is not a credible identification, however high its cosine.
+    obs_cov = sum(cluster_molar.get(s, 0.0) for s in shared)
+
+    # support-aware eligibility — enough shared dimensions, enough of the candidate's
+    # OWN composition explained (finding 1), and enough of the OBSERVATION explained.
     outcome = "scored"
     if (n_info < config.min_informative_dims
             or dim_cov < config.min_coverage
-            or comp_cov < config.min_composition_coverage):
+            or comp_cov < config.min_composition_coverage
+            or obs_cov < config.min_observation_coverage):
         outcome = "insufficient_evidence"
     return MineralCandidate(
         name=m.name, family=m.family, score=float(score), raw_score=float(raw),

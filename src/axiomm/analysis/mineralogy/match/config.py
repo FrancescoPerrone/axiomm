@@ -87,10 +87,14 @@ class MatchConfig:
     min_informative_dims: int = 2
     min_coverage: float = 0.0                 # dimension-coverage floor
     min_composition_coverage: float = 0.5     # composition-coverage eligibility gate
+    min_observation_coverage: float = 0.6     # observation-coverage gate: the candidate
+    #   must account for >= this fraction of the OBSERVED composition to be a credible
+    #   single-phase identification (symmetric to min_composition_coverage).
     missing_data: MissingDataPolicy = field(default_factory=MissingDataPolicy)
 
     def __post_init__(self) -> None:
-        for name in ("min_score", "min_coverage", "min_composition_coverage"):
+        for name in ("min_score", "min_coverage", "min_composition_coverage",
+                     "min_observation_coverage"):
             _unit(getattr(self, name), name)
         if not _is_int(self.min_informative_dims) or self.min_informative_dims < 1:
             raise PayloadValidationError(
