@@ -18,6 +18,7 @@ reporters.register("html", "axiomm.analysis.reporting.html:HtmlReporter")
 #: lazily so importing this module pulls in neither numpy nor matplotlib.
 sections: Registry = Registry("report section")
 sections.register("overview", "axiomm.analysis.reporting.section_renderers.overview:OverviewSection")
+sections.register("navigator", "axiomm.analysis.reporting.section_renderers.navigator:NavigatorSection")
 sections.register("decomposition",
                   "axiomm.analysis.reporting.section_renderers.decomposition:DecompositionSection")
 sections.register("clustering", "axiomm.analysis.reporting.section_renderers.clustering:ClusteringSection")
