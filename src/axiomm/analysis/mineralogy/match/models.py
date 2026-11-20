@@ -21,10 +21,13 @@ class MineralCandidate:
     ``score`` is the metric's ``rank_score`` in ``[0, 1]`` (1 = best). Evidence
     fields distinguish what was actually observed: ``elements_used`` are the
     shared scored dimensions; ``elements_censored`` were measured but below the
-    reporting floor; ``elements_unavailable`` were never measured; the two
+    reporting floor; ``elements_unavailable`` were never measured; the
     coverage fields report the fraction of the candidate's dimensions
     (``dimension_coverage``) and of its molar composition
-    (``composition_coverage``) that the observation actually constrains.
+    (``composition_coverage``) that the observation constrains, and the
+    fraction of the *observed* molar composition the candidate's shared
+    elements account for (``observation_coverage`` — the symmetric
+    counterpart the S7 classification gate reads).
     """
 
     name: str
@@ -38,6 +41,7 @@ class MineralCandidate:
     n_informative_dims: int
     dimension_coverage: float
     composition_coverage: float
+    observation_coverage: float      # fraction of the OBSERVED composition the candidate explains
     basis: str
 
 

@@ -148,7 +148,8 @@ def _cand_to_dict(c: MineralCandidate) -> dict:
         "elements_unavailable": list(c.elements_unavailable),
         "n_informative_dims": c.n_informative_dims,
         "dimension_coverage": c.dimension_coverage,
-        "composition_coverage": c.composition_coverage, "basis": c.basis,
+        "composition_coverage": c.composition_coverage,
+        "observation_coverage": c.observation_coverage, "basis": c.basis,
     }
 
 
@@ -173,11 +174,15 @@ def _validate_candidate(d: dict, where: str) -> MineralCandidate:
             f"{where}: n_informative_dims ({n}) != len(elements_used) ({len(used)}).")
     dim_cov = _unit(_req(d, "dimension_coverage", (int, float), where), f"{where}.dimension_coverage")
     comp_cov = _unit(_req(d, "composition_coverage", (int, float), where), f"{where}.composition_coverage")
+    # observation_coverage added in S7; tolerate legacy docs that predate it
+    # (unknown -> 0.0) so schema v1 stays readable without a migration break.
+    obs_cov = _unit(d.get("observation_coverage", 0.0), f"{where}.observation_coverage")
     return MineralCandidate(
         name=name, family=family, score=score, raw_score=raw, outcome=outcome,
         elements_used=tuple(used), elements_censored=tuple(censored),
         elements_unavailable=tuple(unavail), n_informative_dims=n,
-        dimension_coverage=dim_cov, composition_coverage=comp_cov, basis=basis)
+        dimension_coverage=dim_cov, composition_coverage=comp_cov,
+        observation_coverage=obs_cov, basis=basis)
 
 
 def _validate_candidate_list(items, where: str, *, ordered: bool) -> tuple[MineralCandidate, ...]:

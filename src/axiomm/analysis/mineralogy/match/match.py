@@ -250,7 +250,7 @@ def _score_candidate(m, cluster_molar, censored_cluster, measured_all, included,
         outcome=outcome, elements_used=tuple(shared), elements_censored=tuple(censored_here),
         elements_unavailable=tuple(unavailable_here), n_informative_dims=n_info,
         dimension_coverage=float(dim_cov), composition_coverage=float(comp_cov),
-        basis="molar_proportions")
+        observation_coverage=float(obs_cov), basis="molar_proportions")
 
 
 def _build_provenance(qr, reference, config, excluded, included, input_reliability,

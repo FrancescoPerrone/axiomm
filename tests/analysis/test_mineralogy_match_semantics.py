@@ -368,7 +368,8 @@ def test_match_write_validates_before_writing(tmp_path):
                                      outcome="scored", elements_used=("Si",),
                                      elements_censored=(), elements_unavailable=(),
                                      n_informative_dims=1, dimension_coverage=1.0,
-                                     composition_coverage=1.0, basis="molar_proportions"),),
+                                     composition_coverage=1.0, observation_coverage=1.0,
+                                     basis="molar_proportions"),),
         input_reliability="reportable_estimate", reliability_gated=True,
         library_name="controlled_test_v1", library_version="1")
     with pytest.raises(PayloadSerializationError):
