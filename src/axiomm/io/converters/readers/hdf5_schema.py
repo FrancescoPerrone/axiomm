@@ -78,6 +78,11 @@ class HDF5MapSchema:
     roi_name_path: str | None = None
     roi_limits_path: str | None = None
     beam_size_key: str | None = None
+    #: Optional per-pixel scaler channels for intensity normalization — the incident
+    #: flux monitor (I0) and the dead-time correction factor. Where they live is
+    #: format-specific (these defaults target the Larch/XRM-Map layout); None skips it.
+    i0_path: str | None = None
+    dtfactor_path: str | None = None
 
     navigation_x_name: str = "x"
     navigation_y_name: str = "y"
@@ -96,6 +101,8 @@ XRMMAP_H5_SCHEMA: HDF5MapSchema = HDF5MapSchema(
     environ_value_path="/xrmmap/config/environ/value",
     roi_name_path="/xrmmap/config/rois/name",
     roi_limits_path="/xrmmap/config/rois/limits",
+    i0_path="/xrmmap/scalars/I0",
+    dtfactor_path="/xrmmap/mcasum/dtfactor",
     beam_size_key="Experiment.Beam_Size__Nominal",
 )
 

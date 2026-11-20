@@ -120,6 +120,12 @@ class AxiommSignalPayload:
     #: pre-dating Chunk 16 leave it as ``None`` and the metadata namespace
     #: omits the ``"calibration"`` subkey accordingly.
     resolved_calibration: dict[str, ResolvedValue] | None = None
+    #: Optional per-pixel intensity-normalization divisor (navigation-shaped), e.g.
+    #: the incident-flux monitor I0 with dead-time correction applied, so a spectrum
+    #: is put on a *counts per incident photon* footing by ``spectrum / intensity_norm``.
+    #: General (any flux/time-monitored map can carry it); ``None`` when a reader finds
+    #: no scaler channels, in which case analysis falls back to raw counts.
+    intensity_norm: Any = None
 
     @classmethod
     def from_array(cls, data, *, energy_scale, energy_offset=0.0, energy_units="keV",

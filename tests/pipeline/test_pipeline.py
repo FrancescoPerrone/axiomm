@@ -145,3 +145,72 @@ def test_save_load_full_chain(tmp_path):
     assert back.minerals is not None
     assert np.array_equal(np.asarray(back.phase_map), np.asarray(r.phase_map))
     assert [c["best_match"] for c in back.clusters] == [c["best_match"] for c in r.clusters]
+
+
+# --- Intensity normalization (I0 + dead-time) ---------------------------------
+
+def _norm_payload(nav_norm, ny=3, nx=4, ne=16):
+    """Flat cube (all pixels identical) carrying a per-pixel intensity_norm."""
+    cube = np.ones((ny, nx, ne)) * 10.0
+    axes = (
+        AxisSpec("y", "navigation", ny, index_in_array=0),
+        AxisSpec("x", "navigation", nx, index_in_array=1),
+        AxisSpec("Energy", "signal", ne, units="keV", scale=0.02, offset=0.0, index_in_array=2),
+    )
+    return AxiommSignalPayload(
+        data=cube, axes=axes, signal_kind="signal1d",
+        intensity_norm=np.asarray(nav_norm, dtype=float))
+
+
+def test_normalize_divides_by_median_scaled_divisor():
+    """A pixel with twice the median flux is divided down to half magnitude;
+    overall magnitude is preserved (median-scaled divisor)."""
+    norm = np.full((3, 4), 100.0)
+    norm[0, 0] = 200.0                      # one high-flux pixel
+    payload = _norm_payload(norm)
+    out = []
+    p = Pipeline()._normalize_payload(payload, out)
+    # magnitude preserved: median pixel keeps its 10.0
+    assert p.data[1, 1, 0] == pytest.approx(10.0)
+    # high-flux pixel scaled down by 2x
+    assert p.data[0, 0, 0] == pytest.approx(5.0)
+    assert p.intensity_norm is None         # cleared, cannot double-apply
+    assert any(d.code == "normalization_applied" for d in out)
+
+
+def test_normalize_leaves_bad_pixels_raw():
+    """A NaN divisor pixel keeps its raw counts rather than becoming NaN."""
+    norm = np.full((3, 4), 100.0)
+    norm[2, 3] = np.nan
+    payload = _norm_payload(norm)
+    p = Pipeline()._normalize_payload(payload, [])
+    assert p.data[2, 3, 0] == pytest.approx(10.0)
+    assert np.all(np.isfinite(p.data))
+
+
+def test_normalize_skips_on_shape_mismatch():
+    """A divisor that doesn't match the nav grid is ignored with a diagnostic."""
+    payload = _norm_payload(np.full((2, 2), 100.0))   # wrong shape for (3,4)
+    out = []
+    p = Pipeline()._normalize_payload(payload, out)
+    assert p is payload                                # untouched
+    assert any(d.code == "normalization_skipped" for d in out)
+
+
+def test_normalize_noop_without_intensity_norm():
+    payload = _norm_payload(np.full((3, 4), 100.0))
+    payload.intensity_norm = None
+    out = []
+    assert Pipeline()._normalize_payload(payload, out) is payload
+    assert out == []
+
+
+def test_normalize_off_leaves_payload_untouched():
+    """normalize=False keeps raw counts even when a divisor is present."""
+    pytest.importorskip("sklearn")
+    norm = np.full((12, 16), 100.0)
+    base = _payload()
+    base.intensity_norm = norm
+    r = Pipeline(groups=2, components=4, normalize=False).run(base)
+    assert not any(d.code == "normalization_applied" for d in r.diagnostics)
+    assert r.payload.intensity_norm is norm       # still present, unapplied

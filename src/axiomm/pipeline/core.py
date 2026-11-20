@@ -8,6 +8,7 @@ lazily inside :meth:`Pipeline.run`, so ``from axiomm import Pipeline`` is cheap.
 
 from __future__ import annotations
 
+import dataclasses
 import inspect
 from pathlib import Path
 
@@ -57,11 +58,57 @@ class Pipeline:
                 f"multiple readers accept {path.name!r}: {[c.name for c in candidates]}.")
         return candidates[0].read(path, lazy=False)
 
+    def _normalize_payload(self, payload, diagnostics):
+        """Put spectra on a *per incident photon* footing when the reader
+        supplied an ``intensity_norm`` divisor (e.g. I0 with dead-time
+        correction), dividing every pixel's spectrum by it.
+
+        General: any flux/time-monitored map can carry ``intensity_norm``;
+        when it is absent the payload is returned untouched and raw counts are
+        used (no crash, no silent assumption). The divisor is median-scaled to
+        1 so the normalisation reshapes relative pixel brightness without
+        changing the data's overall magnitude, and bad pixels (``NaN``/non-
+        positive divisor) keep their raw counts rather than becoming ``NaN``.
+        The returned payload carries the normalised cube and clears
+        ``intensity_norm`` so the step cannot be applied twice.
+        """
+        norm = getattr(payload, "intensity_norm", None)
+        if norm is None:
+            return payload
+        data = np.asarray(payload.data, dtype=np.float64)
+        norm = np.asarray(norm, dtype=np.float64)
+        if norm.ndim != 2 or norm.shape != data.shape[:2]:
+            diagnostics.append(Diagnostic(
+                "warning", "normalization_skipped",
+                f"intensity_norm shape {norm.shape} does not align with the "
+                f"navigation grid {data.shape[:2]}; raw counts used."))
+            return payload
+        median = np.nanmedian(norm)
+        if not np.isfinite(median) or median <= 0:
+            diagnostics.append(Diagnostic(
+                "warning", "normalization_skipped",
+                "intensity_norm has no usable (finite, positive) values; raw counts used."))
+            return payload
+        scaled = norm / median
+        # bad pixels (NaN / non-positive) divide by 1.0 -> left as raw counts
+        usable = np.isfinite(scaled) & (scaled > 0)
+        scaled = np.where(usable, scaled, 1.0)
+        normalized = data / scaled[:, :, None]
+        n_bad = int((~usable).sum())
+        tail = f" ({n_bad} pixel(s) lacked a usable divisor and kept raw counts)." if n_bad else "."
+        diagnostics.append(Diagnostic(
+            "info", "normalization_applied",
+            "spectra normalised per pixel by the incident-flux/dead-time divisor "
+            "(intensity_norm), median-scaled to preserve overall magnitude" + tail))
+        return dataclasses.replace(payload, data=normalized, intensity_norm=None)
+
     # -- run -----------------------------------------------------------------
     def run(self, source) -> PipelineResult:
         cfg = self.config
         diagnostics: list[Diagnostic] = []
         payload = self._read_payload(source)
+        if cfg.normalize:
+            payload = self._normalize_payload(payload, diagnostics)
 
         # dimensional reduction -> clustering -> cluster mean spectra (pluggable)
         reducer, n_components = self._resolve_reduction(cfg, diagnostics)

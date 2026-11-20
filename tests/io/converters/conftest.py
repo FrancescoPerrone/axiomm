@@ -100,6 +100,9 @@ def _build_xrmmap_h5(
     include_counts: bool = True,
     include_environ: bool = True,
     include_rois: bool = True,
+    include_scalers: bool = False,
+    i0: np.ndarray | None = None,
+    dtfactor: np.ndarray | None = None,
     seed: int = 0,
 ) -> Path:
     """Write a synthetic XRM-map HDF5 file at ``path`` and return the path.
@@ -112,6 +115,12 @@ def _build_xrmmap_h5(
     shape) — useful for testing the real-file `(n_rois, n_variants, 2)`
     case the prototype didn't handle. When given, the integer values in
     ``rois`` are ignored; only the names matter.
+
+    Set ``include_scalers`` to write per-pixel intensity-normalization
+    channels at the Larch paths ``/xrmmap/scalars/I0`` and
+    ``/xrmmap/mcasum/dtfactor`` (both shape ``(xdim, ydim)``). Pass ``i0``
+    / ``dtfactor`` arrays to control their values; defaults are a positive
+    I0 and a dead-time factor of 1.
     """
     import h5py  # imported here so the conftest itself does not require h5py at collection
 
@@ -138,6 +147,14 @@ def _build_xrmmap_h5(
                 )
             f.create_dataset("/xrmmap/config/rois/name", data=roi_names)
             f.create_dataset("/xrmmap/config/rois/limits", data=roi_limits)
+        if include_scalers:
+            xdim, ydim = shape[0], shape[1]
+            i0_data = (np.full((xdim, ydim), 1.0e6) if i0 is None
+                       else np.asarray(i0, dtype=np.float64))
+            dt_data = (np.ones((xdim, ydim)) if dtfactor is None
+                       else np.asarray(dtfactor, dtype=np.float64))
+            f.create_dataset("/xrmmap/scalars/I0", data=i0_data)
+            f.create_dataset("/xrmmap/mcasum/dtfactor", data=dt_data)
 
     return path
 

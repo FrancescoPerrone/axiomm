@@ -56,6 +56,7 @@ class PipelineConfig:
     reliability: object = None           # optional ReliabilityConfig
     exclude_elements: frozenset[str] = frozenset()   # elements to drop from quant (e.g. a line interferent)
     line_resolution_kev: float = 0.13    # detector FWHM proxy; lines closer than this overlap
+    normalize: bool = True               # divide by the payload's intensity_norm (I0/dead-time) when present
     extra: dict = field(default_factory=dict)   # reserved for future settings
 
     def __post_init__(self) -> None:

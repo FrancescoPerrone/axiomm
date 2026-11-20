@@ -212,6 +212,41 @@ def test_xrmmap_read_counts_shape(synthetic_xrmmap_h5):
     assert payload.data.shape == (4, 3, 16)
 
 
+# -- per-pixel intensity normalization scalers (I0 + dead-time) --------------
+
+def test_intensity_norm_none_when_no_scalers(synthetic_xrmmap_h5):
+    """Absent scaler channels: intensity_norm is None (analysis uses raw counts)."""
+    payload = XRMMapH5Reader().read(synthetic_xrmmap_h5("ok.h5"))
+    assert payload.intensity_norm is None
+    codes = {d.code for d in payload.diagnostics}
+    assert "normalization_unavailable" in codes
+
+
+def test_intensity_norm_is_i0_over_dtfactor(synthetic_xrmmap_h5):
+    """With both scalers present, intensity_norm = I0 / dtfactor, nav-shaped."""
+    i0 = np.full((4, 3), 2.0e6)
+    dt = np.full((4, 3), 2.0)
+    p = synthetic_xrmmap_h5("scal.h5", shape=(4, 3, 16),
+                            include_scalers=True, i0=i0, dtfactor=dt)
+    payload = XRMMapH5Reader().read(p)
+    assert payload.intensity_norm is not None
+    assert payload.intensity_norm.shape == (4, 3)
+    np.testing.assert_allclose(payload.intensity_norm, i0 / dt)
+    codes = {d.code for d in payload.diagnostics}
+    assert "normalization_resolved" in codes
+
+
+def test_intensity_norm_bad_pixels_become_nan(synthetic_xrmmap_h5):
+    """Non-positive / non-finite divisor pixels are marked NaN, not kept."""
+    i0 = np.full((4, 3), 1.0e6)
+    i0[0, 0] = 0.0          # dead monitor -> cannot normalise this pixel
+    p = synthetic_xrmmap_h5("bad.h5", shape=(4, 3, 16),
+                            include_scalers=True, i0=i0)
+    payload = XRMMapH5Reader().read(p)
+    assert np.isnan(payload.intensity_norm[0, 0])
+    assert np.isfinite(payload.intensity_norm[1, 1])
+
+
 def test_read_axes_are_two_nav_one_signal_signal1d(synthetic_xrmmap_h5):
     p = synthetic_xrmmap_h5("ok.h5", shape=(4, 3, 16))
     payload = XRMMapH5Reader().read(p)

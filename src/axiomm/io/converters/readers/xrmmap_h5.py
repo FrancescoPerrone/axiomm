@@ -407,6 +407,44 @@ class XRMMapH5Reader:
                 f"axes.{self.schema.energy_axis_name}.size (= data.shape[2])",
             ])
 
+            # Optional per-pixel intensity-normalization scalers (I0 + dead-time),
+            # where the schema points at them. General: any flux/time-monitored map
+            # can carry these. ``intensity_norm`` is the per-pixel divisor (I0 /
+            # dtfactor) so that ``counts / intensity_norm`` = counts * dtfactor / I0
+            # (per incident photon, dead-time corrected). Absent/malformed -> raw counts.
+            intensity_norm = None
+            i0p, dtp = self.schema.i0_path, self.schema.dtfactor_path
+            if i0p and i0p in f:
+                i0 = np.asarray(f[i0p][...], dtype=np.float64)
+                if i0.shape == (xdim, ydim):
+                    norm = i0
+                    note = f"I0 from {i0p!r}"
+                    if dtp and dtp in f:
+                        dt = np.asarray(f[dtp][...], dtype=np.float64)
+                        if dt.shape == (xdim, ydim):
+                            with np.errstate(divide="ignore", invalid="ignore"):
+                                norm = np.where(dt > 0, i0 / dt, i0)
+                            note = f"I0 / dtfactor from {i0p!r}, {dtp!r}"
+                        else:
+                            diagnostics.append(Diagnostic(
+                                "warning", "normalization_partial",
+                                f"dtfactor at {dtp!r} shape {dt.shape} != {(xdim, ydim)}; "
+                                "normalising by I0 alone."))
+                    intensity_norm = np.where(np.isfinite(norm) & (norm > 0), norm, np.nan)
+                    diagnostics.append(Diagnostic(
+                        "info", "normalization_resolved",
+                        f"per-pixel intensity normalization = {note} "
+                        "(counts put on a per-incident-photon footing)."))
+                    classification["observed"].append(f"intensity_norm ({note})")
+                else:
+                    diagnostics.append(Diagnostic(
+                        "warning", "normalization_unavailable",
+                        f"I0 at {i0p!r} shape {i0.shape} != {(xdim, ydim)}; raw counts used."))
+            elif i0p:
+                diagnostics.append(Diagnostic(
+                    "info", "normalization_unavailable",
+                    f"no I0 scaler at {i0p!r}; raw counts used."))
+
             # --- environ / configuration table (optional) -----------------
             environ, environ_diag = read_environ_table(
                 f,
@@ -686,6 +724,7 @@ class XRMMapH5Reader:
             diagnostics=diagnostics,
             title=source_path.stem,
             resolved_calibration=resolved_calibration,
+            intensity_norm=intensity_norm,
         )
 
     # -- internal helpers ---------------------------------------------------
