@@ -99,15 +99,27 @@ result.report_html("report.html")    # one self-contained, shareable HTML report
 result.save("out/")                  # a self-describing folder you can reload
 ```
 
-Each stage is yours to choose. The defaults just work, but `reduction=`
-and `clustering=` accept a backend name, a constructed backend, or a
-`{"name": ..., **options}` dict — so a pipeline can reflect the exact
-choices your analysis calls for. Reduction offers **PCA** and **UMAP**;
-clustering offers **GMM** and **HDBSCAN** (density-based, discovers the
-count); more plug into the same fields as they land:
+Each stage is yours to choose. The defaults just work, but `reduction=`,
+`clustering=` and `classification=` accept a backend name, a constructed
+backend, or a `{"name": ..., **options}` dict — so a pipeline can reflect
+the exact choices your analysis calls for. Reduction offers **PCA** and
+**UMAP**; clustering offers **GMM** and **HDBSCAN** (density-based, discovers
+the count); more plug into the same fields as they land:
 
 ```python
 Pipeline(reduction="umap", clustering="hdbscan").run("map.bcf")
+```
+
+**How a cluster becomes a label is a policy you choose**, separate from the
+matching evidence. The default names a specific mineral only when the match is
+clear, falls back to the mineral **family** when species discrimination isn't
+supported, and leaves a cluster **unresolved** when the evidence is too weak —
+so the map reports at the confidence the data earns, not a guess per cluster.
+Swap the policy (or its thresholds) without re-running the chemistry:
+
+```python
+Pipeline(classification="conservative").run("map.bcf")   # species only, else unresolved
+Pipeline(classification="permissive").run("map.bcf")     # always name the best candidate
 ```
 
 The individual tools are one import away too, and building the input takes

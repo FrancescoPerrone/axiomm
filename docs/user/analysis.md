@@ -528,9 +528,11 @@ empty**), `insufficient` (flagged for too-sparse overlap), `cluster_id`,
 provenance and diagnostics. `best()` returns the top candidate **or `None`** —
 there is no unconditional single label. Each `MineralCandidate` carries
 `score` (a `[0,1]` rank score), `elements_used`, `elements_censored`,
-`elements_unavailable`, `n_informative_dims`, and both `dimension_coverage`
-and `composition_coverage` so a well-covered match is distinguishable from a
-lucky partial one (note Phlogopite's 0.43 dimension coverage above).
+`elements_unavailable`, `n_informative_dims`, `dimension_coverage`,
+`composition_coverage` and `observation_coverage` (the fraction of the
+*observed* cations the candidate explains) so a well-covered match is
+distinguishable from a lucky partial one (note Phlogopite's 0.43 dimension
+coverage above).
 `match_clusters` batches over clusters, aligning reliabilities one-to-one by
 `cluster_id`. Persist with `write_match` / `read_match`.
 
@@ -542,7 +544,64 @@ lucky partial one (note Phlogopite's 0.43 dimension coverage above).
 
 ---
 
-## 9. Reporting — `axiomm.analysis.reporting`
+## 9. Phase classification — `axiomm.analysis.mineralogy.classify`
+
+Matching produces *evidence* (ranked candidates); a **classification policy**
+turns that evidence into the *label* a phase map shows — a specific species, a
+broader mineral **family**, or **`unresolved`** — under settings you choose and
+that are recorded in provenance. The policy never touches the chemistry or the
+scores, so policies can be compared on the same run without re-quantifying. The
+similarity score is a cosine, **not** a probability; every label carries a plain
+rationale, never a percent.
+
+`ThresholdPolicy` (the default) names a species only when there is a clear
+leader above `species_floor`; falls back to the mineral family when the
+near-ties (within `family_margin`) agree on family, or a clear leader sits below
+the species floor; and abstains when the best match is below `family_floor` or
+the near-ties span families. `PermissivePolicy` always names the best
+candidate's species (the prior behaviour). Policies resolve by name through the
+`classifiers` registry and ship as presets `family_aware` (the default),
+`conservative` (species-or-unresolved) and `permissive`.
+
+```python
+from axiomm.analysis.mineralogy import MINERALOGY_DEFAULT_V2 as REF
+from axiomm.analysis.mineralogy.match import match_cluster, MatchConfig
+from axiomm.analysis.mineralogy.classify import ThresholdPolicy
+from axiomm.analysis.quant.models import QuantResult
+from axiomm.analysis.quant.reliability import ReliabilityReport
+
+qr = QuantResult(net_intensities={"Mg": 1.0, "Si": 1.0},
+    wt_percent_element={"Mg": 34.5, "Si": 19.9}, wt_percent_oxide={},
+    reference_element="Si", cluster_id=1)
+report = ReliabilityReport(cluster_status="reportable_estimate",
+    element_status={"Mg": "reportable", "Si": "reportable"}, reasons=(), cluster_id=1)
+result = match_cluster(qr, REF, reliability=report, config=MatchConfig())
+
+label = ThresholdPolicy().classify(result, REF)
+print(f"{label.level}: {label.name} — {label.rationale}")
+```
+
+```text
+species: Forsterite — clear leader Forsterite (score 1.000 >= species floor 0.80)
+```
+
+In a `Pipeline` the policy is the `classification=` knob (a name, a
+`{"name": ..., **options}` dict, or a policy instance); its choice lands in the
+run provenance and the workflow figure, and the clusters table carries the
+`level` (`species` / `family` / `unresolved`) beside the raw `best_match`:
+
+```python
+from axiomm import Pipeline
+Pipeline(classification="conservative").run("map.bcf")   # species only, else unresolved
+```
+
+**`ClusterLabel`**: `level`, `name`, `family`, `score` (context, not a
+probability), `rationale`, `contenders`, `policy`. Full design in
+`docs/specs/stage_two_S7_classification_design.md`.
+
+---
+
+## 10. Reporting — `axiomm.analysis.reporting`
 
 Once a run has finished, `PipelineResult` turns it into a **self-contained,
 shareable HTML report** — one file, no external assets — with a section per

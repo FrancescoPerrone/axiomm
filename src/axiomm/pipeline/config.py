@@ -57,6 +57,7 @@ class PipelineConfig:
     exclude_elements: frozenset[str] = frozenset()   # elements to drop from quant (e.g. a line interferent)
     line_resolution_kev: float = 0.13    # detector FWHM proxy; lines closer than this overlap
     normalize: bool = True               # divide by the payload's intensity_norm (I0/dead-time) when present
+    classification: object = "family_aware"   # label policy: name / dict / ClassificationPolicy instance
     extra: dict = field(default_factory=dict)   # reserved for future settings
 
     def __post_init__(self) -> None:
@@ -64,6 +65,7 @@ class PipelineConfig:
         _pos_int(self.components, "components")
         _check_stage("reduction", self.reduction, "decompose")
         _check_stage("clustering", self.clustering, "cluster")
+        _check_stage("classification", self.classification, "classify")
         if not (isinstance(self.seed, int) and not isinstance(self.seed, bool)):
             raise PayloadValidationError(f"Pipeline seed must be an integer; got {self.seed!r}.")
         if not all(isinstance(e, str) and e for e in self.exclude_elements):

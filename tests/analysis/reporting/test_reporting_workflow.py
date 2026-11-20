@@ -55,7 +55,7 @@ def test_graph_from_full_run_includes_mineral_stages():
     g = workflow_from_result(_full())
     ids = [n.id for n in g.nodes]
     assert ids == ["signal", "reduce", "cluster", "means",
-                   "peaks", "quant", "reliability", "minerals", "phase"]
+                   "peaks", "quant", "reliability", "minerals", "classify", "phase"]
     quant = next(n for n in g.nodes if n.id == "quant")
     assert "15.0" in quant.sublabel
 
@@ -117,6 +117,6 @@ def test_render_workflow_page_is_full_editable_canvas_with_export():
 def test_canvas_html_has_editable_text_and_edge_hooks():
     html = workflow_canvas_html(workflow_from_result(_full()))
     assert 'class="wf-node"' in html and 'contenteditable="true"' in html
-    assert html.count('class="wf-edge"') == 8      # 8 edges in the full run
+    assert html.count('class="wf-edge"') == 9      # 9 edges in the full run (incl. classification)
     assert 'data-from="reduce" data-to="cluster"' in html
     assert "http" not in html                       # self-contained

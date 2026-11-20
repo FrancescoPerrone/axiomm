@@ -144,11 +144,16 @@ class Pipeline:
             return PipelineResult(**result_kwargs)
 
         peaks, quant, reliability, minerals = minerals_bundle
-        phase_map = self._build_phase_map(clustering.label_map, means, minerals)
+        # classification (S7): turn matching evidence into species/family/unresolved
+        # labels under the chosen policy. Evidence (minerals) is left untouched.
+        from axiomm.analysis.mineralogy.classify import classify_clusters
+        policy = self._resolve_classification(cfg, diagnostics)
+        labels = classify_clusters(minerals, reference, policy)
+        phase_map = self._build_phase_map(clustering.label_map, labels)
         result_kwargs.update(
             peaks=peaks, quantification=quant, reliability=reliability,
-            minerals=minerals, phase_map=phase_map,
-            provenance=self._provenance(cfg, decomp, clustering, reference),
+            minerals=minerals, labels=labels, phase_map=phase_map,
+            provenance=self._provenance(cfg, decomp, clustering, reference, policy),
         )
         return PipelineResult(**result_kwargs)
 
@@ -211,6 +216,31 @@ class Pipeline:
             opts["config"] = GMMConfig(random_state=cfg.seed)
         return cls(**opts)
 
+    def _resolve_classification(self, cfg, diagnostics):
+        """Return a :class:`ClassificationPolicy` from ``cfg.classification``.
+
+        ``None`` -> the default ``ThresholdPolicy``. An instance is used as-is.
+        A name / ``{"name": ..., **opts}`` dict resolves through the S7
+        ``classifiers`` registry (a bare name yields the preset instance; a dict
+        with extra keys constructs that policy class with the overrides).
+        """
+        from axiomm.analysis.mineralogy.classify import ThresholdPolicy, classifiers
+        spec = cfg.classification
+        if spec is None:
+            return ThresholdPolicy()
+        if hasattr(spec, "classify"):
+            diagnostics.append(Diagnostic(
+                "info", "stage_instance_supplied",
+                "classification supplied as an instance; its own settings govern "
+                "the labels (named presets are not applied to it)."))
+            return spec
+        opts = {"name": spec} if isinstance(spec, str) else dict(spec)
+        name = opts.pop("name")
+        if opts:
+            cls = type(classifiers.get(name))  # registry yields an instance; take its class
+            return cls(**opts)
+        return classifiers.get(name)
+
     # -- stages --------------------------------------------------------------
     def _quantify_and_match(self, payload, means, reference, cfg, diagnostics):
         signal_axis = next(a for a in payload.axes if a.role == "signal")
@@ -262,14 +292,14 @@ class Pipeline:
         diagnostics += list(k.diagnostics)
         return peaks, quant, reliability, minerals
 
-    def _build_phase_map(self, label_map, means, minerals):
-        best = {}
-        for m in minerals:
-            top = m.best()
-            best[int(m.cluster_id)] = top.name if top else UNRESOLVED
+    def _build_phase_map(self, label_map, labels):
+        """Per-pixel phase names from the S7 classification labels (UNRESOLVED
+        where the policy abstained)."""
+        name_by = {int(lab.cluster_id): (UNRESOLVED if lab.level == "unresolved" else lab.name)
+                   for lab in labels}
         label_map = np.asarray(label_map)
         phase = np.full(label_map.shape, UNRESOLVED, dtype=object)
-        for cid, name in best.items():
+        for cid, name in name_by.items():
             phase[label_map == cid] = name
         return phase
 
@@ -289,14 +319,16 @@ class Pipeline:
                 "clustering": _stage_name(c.clustering, "gmm"),
                 "reference": c.reference if isinstance(c.reference, str) else getattr(c.reference, "name", "custom"),
                 "beam_energy_kev": c.beam_energy_kev,
-                "reference_element": c.reference_element, "seed": c.seed}
+                "reference_element": c.reference_element, "seed": c.seed,
+                "classification": _stage_name(c.classification, "family_aware")}
 
-    def _provenance(self, cfg, decomp, clustering, reference) -> dict:
+    def _provenance(self, cfg, decomp, clustering, reference, policy=None) -> dict:
         return {
             "tool": "axiomm.pipeline", "software_version": _AXIOMM_VERSION,
             "config": self._config_dict(),
             "decomposition": dict(decomp.provenance.params) if decomp.provenance else {},
             "clustering": dict(clustering.provenance.params) if clustering.provenance else {},
+            "classification": policy.params() if policy is not None else None,
             "reference_name": getattr(reference, "name", None),
             "reference_version": getattr(reference, "version", None),
             "beam_energy_kev": cfg.beam_energy_kev,

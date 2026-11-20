@@ -41,7 +41,8 @@ class PipelineResult:
     peaks: tuple | None = None
     quantification: tuple | None = None           # per-cluster QuantResult
     reliability: tuple | None = None              # per-cluster ReliabilityReport
-    minerals: tuple | None = None                 # per-cluster MineralMatchResult
+    minerals: tuple | None = None                 # per-cluster MineralMatchResult (evidence)
+    labels: tuple | None = None                   # per-cluster ClusterLabel (S7 decision)
     phase_map: np.ndarray | None = None           # per-pixel mineral name / UNRESOLVED
     config: dict = field(default_factory=dict)
     provenance: dict = field(default_factory=dict)
@@ -55,12 +56,17 @@ class PipelineResult:
         pix = [int(p) for p in np.asarray(self.cluster_means.pixel_counts)]
         rows = []
         rel_by = {int(r.cluster_id): r for r in (self.reliability or ()) if r.cluster_id is not None}
+        lab_by = {int(lb.cluster_id): lb for lb in (self.labels or ()) if lb.cluster_id is not None}
         for cid, n in zip(ids, pix, strict=True):
-            best = self.best_match(cid)
+            best = self.best_match(cid)          # raw top candidate (evidence)
+            lab = lab_by.get(cid)                 # policy decision (S7)
             rows.append({
                 "cluster_id": cid, "pixels": n,
                 "best_match": best.name if best else UNRESOLVED,
                 "score": round(best.score, 3) if best else None,
+                # the labelled phase the map shows, and at what confidence level
+                "label": lab.name if lab else (best.name if best else UNRESOLVED),
+                "level": lab.level if lab else None,
                 "reliability": rel_by[cid].cluster_status if cid in rel_by else None,
             })
         return rows
@@ -147,6 +153,10 @@ class PipelineResult:
             "cluster_ids": cluster_ids,
             "clusters": self.clusters,
             "has_minerals": self.minerals is not None,
+            "labels": ([{"cluster_id": lb.cluster_id, "level": lb.level, "name": lb.name,
+                         "family": lb.family, "score": lb.score, "rationale": lb.rationale,
+                         "contenders": list(lb.contenders), "policy": lb.policy}
+                        for lb in self.labels] if self.labels is not None else None),
             "phase_map": (np.asarray(self.phase_map).tolist() if self.phase_map is not None else None),
             "diagnostics": [{"severity": d.severity, "code": d.code, "message": d.message}
                             for d in self.diagnostics],
@@ -167,11 +177,20 @@ def load_result(directory) -> PipelineResult:
         quant = tuple(read_quant(directory, f"cluster{cid}") for cid in cluster_ids)
         rel = tuple(read_reliability(directory, f"cluster{cid}") for cid in cluster_ids)
         mins = tuple(read_match(directory, f"cluster{cid}") for cid in cluster_ids)
+    labels = None
+    if manifest.get("labels") is not None:
+        from axiomm.analysis.mineralogy.classify.models import ClusterLabel
+        labels = tuple(
+            ClusterLabel(cluster_id=d["cluster_id"], level=d["level"], name=d["name"],
+                         family=d.get("family"), score=d.get("score"),
+                         rationale=d.get("rationale", ""),
+                         contenders=tuple(d.get("contenders", ())), policy=d.get("policy", ""))
+            for d in manifest["labels"])
     phase_map = (np.array(manifest["phase_map"], dtype=object)
                  if manifest.get("phase_map") is not None else None)
     return PipelineResult(
         label_map=label_map, cluster_means=cluster_means,
-        quantification=quant, reliability=rel, minerals=mins, phase_map=phase_map,
+        quantification=quant, reliability=rel, minerals=mins, labels=labels, phase_map=phase_map,
         config=manifest.get("config", {}), provenance=manifest.get("provenance", {}),
         diagnostics=[Diagnostic(d["severity"], d["code"], d["message"])
                      for d in manifest.get("diagnostics", [])],

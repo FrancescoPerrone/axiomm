@@ -214,3 +214,80 @@ def test_normalize_off_leaves_payload_untouched():
     r = Pipeline(groups=2, components=4, normalize=False).run(base)
     assert not any(d.code == "normalization_applied" for d in r.diagnostics)
     assert r.payload.intensity_norm is norm       # still present, unapplied
+
+
+# --- S7 classification wiring -------------------------------------------------
+
+def test_default_classification_is_family_aware():
+    assert PipelineConfig().classification == "family_aware"
+
+
+def test_classification_rejects_bad_spec():
+    with pytest.raises(PayloadValidationError):
+        PipelineConfig(classification=123)
+
+
+def test_clean_data_gets_species_under_default_policy():
+    """Guard against over-abstention: clean, well-measured phases stay species."""
+    pytest.importorskip("sklearn")
+    pytest.importorskip("xraylib")
+    r = Pipeline(groups=2, components=4, reference=_controlled_reference(),
+                 beam_energy_kev=15.0, seed=0).run(_payload(counts=400.0))
+    levels = {row["level"] for row in r.clusters}
+    assert levels <= {"species", "family"}          # nothing over-abstains on clean data
+    assert any(row["level"] == "species" for row in r.clusters)
+    assert r.labels is not None and len(r.labels) == len(r.clusters)
+    assert r.provenance["classification"]["policy"] == "threshold"
+
+
+def test_permissive_reproduces_pre_s7_labels():
+    """permissive == the old always-name-best behaviour (the reversible default)."""
+    pytest.importorskip("sklearn")
+    pytest.importorskip("xraylib")
+    r = Pipeline(groups=2, components=4, reference=_controlled_reference(),
+                 beam_energy_kev=15.0, seed=0, classification="permissive").run(
+                     _payload(counts=400.0))
+    for row in r.clusters:
+        assert row["level"] == "species"
+        assert row["label"] == row["best_match"]
+    assert "unresolved" not in set(np.asarray(r.phase_map).ravel().tolist())
+
+
+def test_classification_accepts_name_dict_instance():
+    pytest.importorskip("sklearn")
+    pytest.importorskip("xraylib")
+    from axiomm.analysis.mineralogy.classify import ThresholdPolicy
+    ref = _controlled_reference()
+    strict_dict = {"name": "threshold", "species_floor": 0.999, "family_floor": 0.999}
+    strict_inst = ThresholdPolicy(species_floor=0.999, family_floor=0.999, allow_family=False)
+    r_dict = Pipeline(groups=2, components=4, reference=ref, beam_energy_kev=15.0, seed=0,
+                      classification=strict_dict).run(_payload(counts=400.0))
+    r_inst = Pipeline(groups=2, components=4, reference=ref, beam_energy_kev=15.0, seed=0,
+                      classification=strict_inst).run(_payload(counts=400.0))
+    # a near-impossible floor drives every cluster to unresolved (knob works)
+    assert all(row["level"] == "unresolved" for row in r_dict.clusters)
+    assert all(row["level"] == "unresolved" for row in r_inst.clusters)
+
+
+def test_save_load_preserves_labels(tmp_path):
+    pytest.importorskip("sklearn")
+    pytest.importorskip("xraylib")
+    r = Pipeline(groups=2, components=4, reference=_controlled_reference(),
+                 beam_energy_kev=15.0, seed=0).run(_payload(counts=400.0))
+    r.save(tmp_path)
+    back = load_result(tmp_path)
+    assert back.labels is not None
+    assert [lb.level for lb in back.labels] == [lb.level for lb in r.labels]
+    assert [lb.name for lb in back.labels] == [lb.name for lb in r.labels]
+
+
+def test_workflow_graph_carries_classification_node():
+    from types import SimpleNamespace
+
+    from axiomm.analysis.reporting.workflow import workflow_from_result
+    res = SimpleNamespace(config={"classification": "family_aware"},
+                          clusters=[{"cluster_id": 0}], minerals=(object(),))
+    g = workflow_from_result(res)
+    assert "classify" in [n.id for n in g.nodes]
+    assert any(e.src == "minerals" and e.dst == "classify" for e in g.edges)
+    assert any(e.src == "classify" and e.dst == "phase" for e in g.edges)

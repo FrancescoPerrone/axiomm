@@ -65,11 +65,13 @@ def workflow_from_result(result) -> WorkflowGraph:
                          f"Cliff-Lorimer · {cfg.get('beam_energy_kev', '?')} keV", "quant"),
             WorkflowNode("reliability", "Reliability gate", "per-cluster grading", "gate"),
             WorkflowNode("minerals", "Mineral match", f"ref: {cfg.get('reference', '?')}", "match"),
+            WorkflowNode("classify", "Classification",
+                         f"{cfg.get('classification', 'family_aware')} policy", "classify"),
             WorkflowNode("phase", "Phase map", "per-pixel phases", "output"),
         ]
         edges += [WorkflowEdge("means", "peaks"), WorkflowEdge("peaks", "quant"),
                   WorkflowEdge("quant", "reliability"), WorkflowEdge("reliability", "minerals"),
-                  WorkflowEdge("minerals", "phase")]
+                  WorkflowEdge("minerals", "classify"), WorkflowEdge("classify", "phase")]
     return WorkflowGraph(nodes, edges)
 
 
@@ -357,7 +359,8 @@ _TOOL_TITLES = {
     "peaks": "Peak intensities", "quantification": "Quantification",
     "quant": "Quantification", "reliability": "Reliability gate",
     "mineralogy.match": "Mineral match", "match": "Mineral match",
-    "reporting": "Report",
+    "mineralogy.classify": "Classification", "classify": "Classification",
+    "classification": "Classification", "reporting": "Report",
 }
 
 
