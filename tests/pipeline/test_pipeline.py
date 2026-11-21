@@ -291,3 +291,26 @@ def test_workflow_graph_carries_classification_node():
     assert "classify" in [n.id for n in g.nodes]
     assert any(e.src == "minerals" and e.dst == "classify" for e in g.edges)
     assert any(e.src == "classify" and e.dst == "phase" for e in g.edges)
+
+
+def test_classification_preset_override_keeps_other_preset_fields():
+    """A partial override of a named preset must keep the preset's other settings,
+    not revert them to class defaults (regression: raising species_floor on
+    'conservative' must not silently re-enable family labels)."""
+    from axiomm.analysis.mineralogy.classify import classifiers
+    p = Pipeline(classification={"name": "conservative", "species_floor": 0.90})
+    pol = p._resolve_classification(p.config, [])
+    assert pol.species_floor == 0.90          # the override
+    assert pol.family_floor == 0.85           # kept from the preset (class default is 0.50)
+    assert pol.allow_family is False          # kept from the preset (class default is True)
+    # a subsequent bare selection still carries the preset's registered settings
+    base = classifiers.get("conservative")
+    assert base.family_floor == 0.85 and base.allow_family is False
+
+
+def test_classification_invalid_override_raises_payload_error():
+    from axiomm.analysis.errors import PayloadValidationError
+    # overriding a preset that has no such field is a PayloadValidationError, not TypeError
+    p = Pipeline(classification={"name": "permissive", "species_floor": 0.9})
+    with pytest.raises(PayloadValidationError):
+        p._resolve_classification(p.config, [])

@@ -236,10 +236,22 @@ class Pipeline:
             return spec
         opts = {"name": spec} if isinstance(spec, str) else dict(spec)
         name = opts.pop("name")
-        if opts:
-            cls = type(classifiers.get(name))  # registry yields an instance; take its class
-            return cls(**opts)
-        return classifiers.get(name)
+        base = classifiers.get(name)       # the preset instance, carrying its registered settings
+        if not opts:
+            return base
+        # Layer only the explicit overrides ONTO the preset, so e.g.
+        # {"name": "conservative", "species_floor": 0.9} keeps conservative's
+        # family_floor / allow_family rather than reverting them to class defaults.
+        # (Classification presets carry non-default settings, unlike the reduction/
+        # clustering registries whose entries sit at their constructor defaults.)
+        if not dataclasses.is_dataclass(base):
+            raise PayloadValidationError(
+                f"classification preset {name!r} does not accept option overrides.")
+        try:
+            return dataclasses.replace(base, **opts)   # re-runs the policy's validation
+        except TypeError as exc:
+            raise PayloadValidationError(
+                f"invalid option(s) for classification preset {name!r}: {exc}") from exc
 
     # -- stages --------------------------------------------------------------
     def _quantify_and_match(self, payload, means, reference, cfg, diagnostics):

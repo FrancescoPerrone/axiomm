@@ -595,6 +595,12 @@ from axiomm import Pipeline
 Pipeline(classification="conservative").run("map.bcf")   # species only, else unresolved
 ```
 
+A pipeline uses `family_aware` when `classification` is omitted, and applies its
+configured policy to every acquisition run through that instance. A `{"name": ...}`
+dict overrides only the keys it names on top of that preset's settings — e.g.
+`{"name": "conservative", "species_floor": 0.9}` keeps conservative's
+`family_floor` and `allow_family` and changes only the species floor.
+
 **`ClusterLabel`**: `level`, `name`, `family`, `score` (context, not a
 probability), `rationale`, `contenders`, `policy`. Full design in
 `docs/specs/stage_two_S7_classification_design.md`.
