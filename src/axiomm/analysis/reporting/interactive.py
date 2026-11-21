@@ -20,6 +20,9 @@ from __future__ import annotations
 
 INTERACTIVE_CSS = """
 .canvas-item { position: relative; }
+/* A minimised card must actually disappear — section{display:flex} otherwise
+   overrides the hidden attribute, leaving the panel open with only a dock pill. */
+.canvas-item[hidden] { display: none !important; }
 .masthead { display: flex; flex-direction: column; gap: .35rem; }
 .module-handle { position: absolute; top: .55rem; right: .55rem; width: 1.5rem; height: 1.5rem;
   border-radius: 7px; cursor: grab; opacity: 0; transition: opacity .2s, background .2s;
@@ -68,7 +71,10 @@ body.canvas-mode { max-width: none; padding: 1.25rem; }
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 40%, transparent); }
 /* Content wrapper: a resized card zooms this as a whole, so figures AND text grow. */
 .module-body { position: relative; }
-.report-grid.canvas .module figure img, .report-grid.canvas .module figure svg { cursor: zoom-in; }
+/* zoom-in cursor in every mode — also makes mobile Safari treat the figure as
+   interactive so a tap fires a click (stack layout had no cursor, so taps on a
+   phone did nothing). */
+.module figure img, .module figure svg { cursor: zoom-in; }
 .module figure img, .module figure svg, .module-hide, .module-resize,
 .axm-tbl-tools button, .axm-lb-bar button, .axm-lightbox { touch-action: manipulation; }
 /* Click a figure to inspect it large, over a blurred report, with a PNG download. */
@@ -157,18 +163,25 @@ INTERACTIVE_JS = r"""
   function isWide() { return window.matchMedia(WIDE).matches; }
   function isMast(m) { return m.classList.contains('masthead'); }
 
-  // Robust tap: fire fn on a clean tap (pointerup with no drag) OR a click,
-  // whichever the device actually delivers — touch browsers are unreliable with
-  // either alone (a nudged tap can cancel pointerup; a 'click' can be swallowed).
-  // A short guard stops the two paths firing twice.
+  // Robust tap across every device: a clean tap (no drag) fires fn via whichever
+  // of pointer events, touch events, or a click the browser actually delivers.
+  // `moved` ignores scroll gestures; a time guard stops the paths firing twice.
   function onTap(el, fn) {
     var sx = 0, sy = 0, moved = false, last = 0;
-    el.addEventListener('pointerdown', function (e) { sx = e.clientX; sy = e.clientY; moved = false; });
-    el.addEventListener('pointermove', function (e) {
-      if (Math.abs(e.clientX - sx) > 12 || Math.abs(e.clientY - sy) > 12) moved = true;
-    });
-    el.addEventListener('pointerup', function (e) { if (!moved) { last = Date.now(); fn(e); } });
-    el.addEventListener('click', function (e) { if (Date.now() - last > 500) fn(e); });
+    function start(x, y) { sx = x; sy = y; moved = false; }
+    function move(x, y) { if (Math.abs(x - sx) > 12 || Math.abs(y - sy) > 12) moved = true; }
+    function end(e) { if (!moved && Date.now() - last > 400) { last = Date.now(); fn(e); } }
+    el.addEventListener('pointerdown', function (e) { start(e.clientX, e.clientY); });
+    el.addEventListener('pointermove', function (e) { move(e.clientX, e.clientY); });
+    el.addEventListener('pointerup', end);
+    el.addEventListener('touchstart', function (e) {
+      if (e.touches[0]) start(e.touches[0].clientX, e.touches[0].clientY);
+    }, { passive: true });
+    el.addEventListener('touchmove', function (e) {
+      if (e.touches[0]) move(e.touches[0].clientX, e.touches[0].clientY);
+    }, { passive: true });
+    el.addEventListener('touchend', end);
+    el.addEventListener('click', end);
   }
 
   Array.prototype.forEach.call(grid.querySelectorAll('.canvas-item'), function (m) {

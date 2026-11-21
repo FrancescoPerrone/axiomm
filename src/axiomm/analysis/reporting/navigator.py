@@ -142,16 +142,20 @@ _TMPL = r"""<div class="axm-nav">
     }
   }
   function closeModal(){ modal.hidden=true; }
-  // Open on a tap or a click — whichever the device delivers (touch is unreliable
-  // with either alone); a short guard stops both firing twice.
-  var thumb=document.getElementById('axm-nav-thumb'), td=null, tlast=0;
+  // Open on a tap across every device (pointer, touch, or click), ignoring scroll
+  // gestures; a time guard stops the paths firing twice.
+  var thumb=document.getElementById('axm-nav-thumb'), sx=0, sy=0, mv=false, last=0;
   thumb.style.touchAction='manipulation';
-  thumb.addEventListener('pointerdown', function(e){ td={x:e.clientX,y:e.clientY}; });
-  thumb.addEventListener('pointerup', function(e){
-    if(td && Math.abs(e.clientX-td.x)<12 && Math.abs(e.clientY-td.y)<12){ tlast=Date.now(); openModal(); }
-    td=null;
-  });
-  thumb.addEventListener('click', function(){ if(Date.now()-tlast>500) openModal(); });
+  function st(x,y){ sx=x; sy=y; mv=false; }
+  function mo(x,y){ if(Math.abs(x-sx)>12||Math.abs(y-sy)>12) mv=true; }
+  function en(){ if(!mv && Date.now()-last>400){ last=Date.now(); openModal(); } }
+  thumb.addEventListener('pointerdown', function(e){ st(e.clientX,e.clientY); });
+  thumb.addEventListener('pointermove', function(e){ mo(e.clientX,e.clientY); });
+  thumb.addEventListener('pointerup', en);
+  thumb.addEventListener('touchstart', function(e){ if(e.touches[0]) st(e.touches[0].clientX,e.touches[0].clientY); }, {passive:true});
+  thumb.addEventListener('touchmove', function(e){ if(e.touches[0]) mo(e.touches[0].clientX,e.touches[0].clientY); }, {passive:true});
+  thumb.addEventListener('touchend', en);
+  thumb.addEventListener('click', en);
   document.getElementById('axm-nav-close').addEventListener('click', closeModal);
   modal.addEventListener('click', function(e){ if(e.target===modal) closeModal(); });
   document.addEventListener('keydown', function(e){ if(e.key==='Escape' && !modal.hidden) closeModal(); });
