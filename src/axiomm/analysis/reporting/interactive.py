@@ -66,6 +66,37 @@ body.canvas-mode { max-width: none; padding: 1.25rem; }
 [data-editable]:hover { background: color-mix(in srgb, var(--accent) 9%, transparent); }
 [data-editable]:focus { background: color-mix(in srgb, var(--accent) 6%, transparent);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 40%, transparent); }
+/* Content wrapper: a resized card zooms this as a whole, so figures AND text grow. */
+.module-body { position: relative; }
+.report-grid.canvas .module figure img, .report-grid.canvas .module figure svg { cursor: zoom-in; }
+/* Click a figure to inspect it large, over a blurred report, with a PNG download. */
+.axm-lightbox { position: fixed; inset: 0; z-index: 10000; display: flex; align-items: center;
+  justify-content: center; padding: 3vmin; background: rgba(10,12,14,.62);
+  -webkit-backdrop-filter: blur(7px); backdrop-filter: blur(7px); }
+.axm-lightbox[hidden] { display: none; }
+.axm-lb-inner { position: relative; max-width: 96vw; max-height: 92vh; }
+.axm-lb-img { max-width: 96vw; max-height: 92vh; display: block; border-radius: 8px;
+  background: var(--surface, #fff); box-shadow: 0 24px 70px rgba(0,0,0,.5); }
+.axm-lb-bar { position: absolute; top: 8px; right: 8px; display: flex; gap: 6px; }
+.axm-lb-bar button { width: 2rem; height: 2rem; border-radius: 7px; border: none; cursor: pointer;
+  background: rgba(0,0,0,.55); color: #fff; font-size: 1rem; line-height: 1;
+  display: flex; align-items: center; justify-content: center; }
+.axm-lb-bar button:hover { background: rgba(0,0,0,.82); }
+/* Faint per-table export controls, found on hover (copy for slides/docs, or CSV). */
+.axm-tbl-wrap { position: relative; }
+.axm-tbl-tools { position: absolute; top: 2px; right: 2px; display: flex; gap: 4px;
+  opacity: 0; transition: opacity .2s; z-index: 2; }
+.canvas-item:hover .axm-tbl-tools { opacity: .4; }
+.axm-tbl-tools:hover { opacity: 1; }
+.axm-tbl-tools button { width: 1.5rem; height: 1.5rem; border-radius: 6px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface); color: var(--muted);
+  font-size: .8rem; line-height: 1; display: flex; align-items: center; justify-content: center; }
+.axm-tbl-tools button:hover { color: var(--accent); border-color: var(--accent); }
+@media (hover: none) { .axm-tbl-tools { opacity: .3; } }
+.axm-toast { position: fixed; left: 50%; bottom: 1.5rem; transform: translateX(-50%);
+  background: var(--ink); color: var(--bg); font-size: .8rem; padding: .45rem .9rem;
+  border-radius: 999px; z-index: 10001; opacity: 0; transition: opacity .2s; pointer-events: none; }
+.axm-toast.show { opacity: .95; }
 """.strip()
 
 
@@ -82,6 +113,24 @@ INTERACTIVE_JS = r"""
       if (k.indexOf('axiomm-report:') === 0) localStorage.removeItem(k);
     });
   } catch (e) {}
+
+  // Wrap each card's content so a resize can zoom it as a whole — figures AND
+  // text grow together — while the drag/hide/resize controls stay outside and
+  // unscaled. Idempotent.
+  function bodyOf(m) {
+    var b = m.querySelector(':scope > .module-body');
+    if (!b) {
+      b = document.createElement('div'); b.className = 'module-body';
+      Array.prototype.slice.call(m.childNodes).forEach(function (n) {
+        if (n.nodeType === 1 && (n.classList.contains('module-handle') ||
+            n.classList.contains('module-resize') || n.classList.contains('module-hide'))) return;
+        b.appendChild(n);
+      });
+      m.insertBefore(b, m.firstChild);
+    }
+    return b;
+  }
+  Array.prototype.forEach.call(grid.querySelectorAll('.canvas-item'), bodyOf);
 
   // --- editable text (live for the session only) --------------------------
   document.querySelectorAll('[data-editable]').forEach(function (el) {
@@ -169,6 +218,7 @@ INTERACTIVE_JS = r"""
     document.body.classList.add('canvas-mode');
     var cw = grid.clientWidth, GAP = 16, PAD = 8, COLW = 360;
     var all = items();
+    all.forEach(function (m) { var b = m.querySelector(':scope > .module-body'); if (b) b.style.zoom = ''; });
     // How many card columns fit across the canvas (>=1). Tiling the modules into
     // columns — instead of one tall centred stack — means a reader sees every
     // available module on open, without a long vertical scroll.
@@ -206,6 +256,7 @@ INTERACTIVE_JS = r"""
     items().forEach(function (m) {
       ['position', 'left', 'top', 'width', 'height', 'overflow', 'zIndex'].forEach(
         function (k) { m.style[k] = ''; });
+      var b = m.querySelector(':scope > .module-body'); if (b) b.style.zoom = '';
     });
   }
   function layout() { if (isWide()) applyCanvas(); else applyStack(); }
@@ -222,7 +273,9 @@ INTERACTIVE_JS = r"""
     if (rh && isWide()) {
       var m = rh.closest('.canvas-item'); if (!m) return;
       e.preventDefault(); front(m); m.classList.add('sizing');
-      act = { type: 'resize', m: m, sx: e.clientX, sy: e.clientY, sw: m.offsetWidth, sh: m.offsetHeight };
+      var rb = m.querySelector(':scope > .module-body');
+      act = { type: 'resize', m: m, b: rb, sx: e.clientX,
+              sw: m.offsetWidth, sz: (rb && parseFloat(rb.style.zoom)) || 1 };
     } else if (hh) {
       var mod = hh.closest('.canvas-item'); if (!mod) return;
       e.preventDefault();
@@ -258,9 +311,12 @@ INTERACTIVE_JS = r"""
       m.style.top = Math.max(0, act.st + (e.clientY - act.sy)) + 'px';
       canvasHeight();
     } else if (act.type === 'resize') {
-      m.style.width = Math.max(220, act.sw + (e.clientX - act.sx)) + 'px';
-      m.style.height = Math.max(120, act.sh + (e.clientY - act.sy)) + 'px';
-      m.style.overflow = 'auto';
+      // Drag the corner to enlarge: width grows and the card's content zooms with
+      // it, so the figure / table / text all get bigger (not just the box).
+      var nw = Math.max(220, act.sw + (e.clientX - act.sx));
+      if (act.b) act.b.style.zoom = act.sz * nw / act.sw;
+      m.style.width = nw + 'px';
+      m.style.height = '';
       canvasHeight();
     } else if (act.type === 'sdrag') {
       m.style.top = (e.clientY - act.offY) + 'px';
@@ -287,6 +343,88 @@ INTERACTIVE_JS = r"""
     }
     act = null;
   }
+
+  // --- tiny transient toast (export feedback) ------------------------------
+  var toastEl;
+  function toast(msg) {
+    if (!toastEl) { toastEl = document.createElement('div'); toastEl.className = 'axm-toast';
+      document.body.appendChild(toastEl); }
+    toastEl.textContent = msg; toastEl.classList.add('show');
+    clearTimeout(toastEl._t); toastEl._t = setTimeout(function () { toastEl.classList.remove('show'); }, 1500);
+  }
+
+  // --- figure lightbox: click a figure to inspect it large + download the PNG --
+  var lb = document.createElement('div'); lb.className = 'axm-lightbox'; lb.hidden = true;
+  lb.innerHTML = '<div class="axm-lb-inner"><img class="axm-lb-img" alt="">' +
+    '<div class="axm-lb-bar"><button class="axm-lb-dl" type="button" title="Download PNG">↓</button>' +
+    '<button class="axm-lb-x" type="button" title="Close">✕</button></div></div>';
+  document.body.appendChild(lb);
+  var lbImg = lb.querySelector('.axm-lb-img');
+  function openLB(src, name) {
+    lbImg.src = src; lbImg.setAttribute('data-name', name || 'figure');
+    document.body.appendChild(lb); lb.hidden = false;   // escape the card's stacking context
+  }
+  function closeLB() { lb.hidden = true; }
+  lb.addEventListener('click', function (e) { if (e.target === lb) closeLB(); });
+  lb.querySelector('.axm-lb-x').addEventListener('click', closeLB);
+  lb.querySelector('.axm-lb-dl').addEventListener('click', function () {
+    var a = document.createElement('a'); a.href = lbImg.src;
+    a.download = (lbImg.getAttribute('data-name') || 'figure').replace(/[^\w.-]+/g, '_').slice(0, 60) + '.png';
+    document.body.appendChild(a); a.click(); a.remove();
+  });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !lb.hidden) closeLB(); });
+  Array.prototype.forEach.call(grid.querySelectorAll('.module figure img'), function (img) {
+    img.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var fig = img.closest('figure'); var cap = fig && fig.querySelector('figcaption');
+      openLB(img.src, ((cap && cap.textContent) || img.alt || 'figure').trim());
+    });
+  });
+
+  // --- table export: copy (TSV, pastes as a table into Sheets/Word/PowerPoint) or CSV --
+  function tableCells(tbl) {
+    return Array.prototype.map.call(tbl.querySelectorAll('tr'), function (tr) {
+      return Array.prototype.map.call(tr.querySelectorAll('th,td'), function (c) {
+        return (c.textContent || '').trim();
+      });
+    });
+  }
+  function toTSV(rows) { return rows.map(function (r) { return r.join('\t'); }).join('\n'); }
+  function toCSV(rows) {
+    return rows.map(function (r) {
+      return r.map(function (c) { return /[",\n]/.test(c) ? '"' + c.replace(/"/g, '""') + '"' : c; }).join(',');
+    }).join('\r\n');
+  }
+  Array.prototype.forEach.call(grid.querySelectorAll('.module table'), function (tbl) {
+    if (tbl.closest('.axm-tbl-wrap')) return;
+    var w = document.createElement('div'); w.className = 'axm-tbl-wrap';
+    tbl.parentNode.insertBefore(w, tbl); w.appendChild(tbl);
+    var tools = document.createElement('div'); tools.className = 'axm-tbl-tools';
+    tools.innerHTML = '<button type="button" class="axm-tcopy" title="Copy table (paste into Sheets, Word or PowerPoint)">⧉</button>' +
+      '<button type="button" class="axm-tcsv" title="Download CSV">↓</button>';
+    w.appendChild(tools);
+    var capEl = tbl.querySelector('caption');
+    var base = (((capEl && capEl.textContent) || 'table').trim().replace(/[^\w.-]+/g, '_').slice(0, 60)) || 'table';
+    tools.querySelector('.axm-tcopy').addEventListener('click', function (e) {
+      e.stopPropagation();
+      var text = toTSV(tableCells(tbl));
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function () { toast('Table copied'); },
+          function () { toast('Copy blocked here'); });
+      } else { toast('Copy not available'); }
+    });
+    tools.querySelector('.axm-tcsv').addEventListener('click', function (e) {
+      e.stopPropagation();
+      var blob = new Blob([toCSV(tableCells(tbl))], { type: 'text/csv;charset=utf-8' });
+      var a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+      a.download = base + '.csv'; document.body.appendChild(a); a.click();
+      setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 0);
+      toast('CSV downloaded');
+    });
+    Array.prototype.forEach.call(tools.querySelectorAll('button'), function (b) {
+      b.addEventListener('pointerdown', function (e) { e.stopPropagation(); });
+    });
+  });
 })();
 """.strip()
 

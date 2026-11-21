@@ -37,8 +37,15 @@ def new_agg_figure(figsize=(6.0, 4.0)):
     return fig
 
 
-def figure_to_png(fig, *, dpi: int = 110) -> bytes:
-    """Serialize a figure to PNG bytes for embedding as a data URI."""
+def figure_to_png(fig, *, dpi: int = 168) -> bytes:
+    """Serialize a figure to PNG bytes for embedding as a data URI.
+
+    The default dpi carries resolution headroom on purpose: embedded figures are
+    displayed at a CSS size well below their pixel size, so high-DPI / 4K monitors
+    (and the report's click-to-enlarge view) render them crisply while ordinary
+    displays downscale cleanly. True device-adaptive / infinite zoom is the planned
+    SVG/PDF export, not this raster path.
+    """
     buf = BytesIO()
     fig.savefig(buf, format="png", dpi=dpi, bbox_inches="tight")
     return buf.getvalue()

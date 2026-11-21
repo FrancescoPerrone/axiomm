@@ -56,6 +56,24 @@ def test_interactive_emits_modules_editables_and_script():
     assert "m.hidden = true" in html   # click-to-hide for the session
 
 
+def test_interactive_emits_panel_inspect_and_export_affordances():
+    """Per-panel features added on top of the canvas: content zooms on resize,
+    figures open in a lightbox with a PNG download, and tables export (copy/CSV)."""
+    html = _render(subtitle="s")
+    # content wrapper + resize zooms it (figures AND text grow with the panel)
+    assert "module-body" in html and "style.zoom" in html
+    # figure lightbox with a PNG download
+    assert "axm-lightbox" in html and "axm-lb-dl" in html and ".png" in html
+    # table export: copy as TSV + download CSV
+    assert "axm-tbl-tools" in html and "text/csv" in html
+    assert "clipboard" in html and "\\t" in html   # TSV for paste into Sheets/Word/PPT
+
+
+def test_panel_affordances_absent_in_static_mode():
+    html = _render(interactive=False)
+    assert "axm-lightbox" not in html and "axm-tbl-tools" not in html
+
+
 def test_static_mode_has_no_interactivity():
     html = _render(interactive=False)
     assert "data-editable" not in html
