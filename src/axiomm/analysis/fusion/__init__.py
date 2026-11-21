@@ -12,5 +12,19 @@ from __future__ import annotations
 
 from axiomm.analysis.fusion.models import EnergyMap, MultiEnergyMapGroup
 from axiomm.analysis.fusion.registration import verify_registration
+from axiomm.analysis.fusion.selection import (
+    BestExcitedPolicy,
+    EnergySelectionPolicy,
+    energy_selectors,
+    select_energies,
+)
 
-__all__ = ["EnergyMap", "MultiEnergyMapGroup", "verify_registration"]
+__all__ = [
+    "BestExcitedPolicy",
+    "EnergyMap",
+    "EnergySelectionPolicy",
+    "MultiEnergyMapGroup",
+    "energy_selectors",
+    "select_energies",
+    "verify_registration",
+]
