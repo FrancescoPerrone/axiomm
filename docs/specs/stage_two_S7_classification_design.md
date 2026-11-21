@@ -52,6 +52,15 @@ decision an explicit, selectable object.
 - **Labels only.** A policy re-labels; it never recovers unmeasured elements.
   The 13.55 keV light-element suppression stays a *data* limit (→ S8
   dual-energy), surfaced by diagnostics, not hidden by a label.
+- **"Unresolved" ≠ glass / noise / absence.** It means only that the policy
+  could not commit (an empty ranking, a weak leader, or contenders from
+  different families). It does not by itself identify amorphous material,
+  mixing, or mineral absence — those need a dedicated class, out of scope here.
+- **"Species" means a reference entry was selected, not a validated ID.** Cation
+  stoichiometry cannot separate polymorphs, so e.g. a Ti-oxide entry named
+  "Rutile" is the reference the policy chose, not a confirmed rutile (that needs
+  structural evidence, e.g. Raman/XRD). A family label is the reference's broad
+  family *display* (e.g. "Pyroxene / mafic silicate"), not a finer taxonomic claim.
 - **Reproducible.** The chosen policy and every threshold are recorded in the
   result provenance, so a map is reproducible from its record alone.
 - **No over-abstention on good data.** The synthetic self-consistency demo
@@ -127,10 +136,10 @@ Decision (deterministic; `near` = candidates with `score ≥ top.score − famil
    (*"candidates span families; cannot resolve"* / *"below species floor, family labels off"*).
 
 Worked on A21_066 (species_floor 0.80, family_floor 0.50, family_margin 0.05,
-allow_family True): rutile (0.95) → **species**; the three mica clusters
-(0.58–0.75, phlogopite a near-tie) → **family "mica"**; the two clinopyroxene
-clusters (0.62–0.70, clear leader but below species floor) → **family
-"clinopyroxene"**. This is exactly Josh's (a)+(b).
+allow_family True; 7 clusters): the two rutile clusters (0.93, 0.99) →
+**species**; the three mica clusters (0.58–0.75, phlogopite a near-tie) →
+**family "mica"**; the two clinopyroxene clusters (0.62–0.70, clear leader but
+below species floor) → **family "clinopyroxene"**. This is exactly Josh's (a)+(b).
 
 ### 5.2 `PermissivePolicy` — preserves today's behaviour
 
@@ -152,12 +161,17 @@ bug-chain fix, but it is a default change and is called out as such:
 `classification="permissive"` restores the prior behaviour, and a regression
 test pins that `permissive` reproduces the old labels for a fixed input.
 
-## 7. Defaults, presets, and calibration
+## 7. Defaults, presets, and threshold provenance
 
-Default thresholds are **proposals**, to be confirmed against (i) the synthetic
-self-consistency guard (clean phases must still get species labels) and (ii) the
-real A21_066 score distribution — not picked blind. Starting proposal:
-`species_floor = 0.80`, `family_floor = 0.50`, `family_margin = 0.05`.
+Default thresholds are **proposals informed by A21_066 and checked against the
+synthetic self-consistency guard** (clean phases must still get species labels) —
+**not a measured calibration.** A validated calibration would need independent
+reference identifications and measured error rates for a defined acquisition
+regime, matcher and library; until then these are defensible defaults, fully
+configurable and recorded in provenance. `species_floor = 0.80`,
+`family_floor = 0.50`, `family_margin = 0.05`. (Note the `family_margin` is only
+weakly constrained by A21_066 — its mica clusters resolve to family either way —
+so treat 0.05 as a sensible default, not an evidenced optimum.)
 
 Named presets (registered factory configs, the "instantiations" users pick):
 

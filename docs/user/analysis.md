@@ -605,6 +605,14 @@ dict overrides only the keys it names on top of that preset's settings — e.g.
 probability), `rationale`, `contenders`, `policy`. Full design in
 `docs/specs/stage_two_S7_classification_design.md`.
 
+Two things these labels do **not** claim. `unresolved` means only that the policy
+could not commit (weak or cross-family evidence) — it is **not** an identification
+of glass, noise or mineral absence. And a `species` label means the policy selected
+a particular reference *entry*, not a validated identification: cation chemistry
+cannot separate polymorphs, so a Ti-oxide entry named "Rutile" needs structural
+evidence (e.g. Raman) to be confirmed as rutile. The thresholds are **informed by**
+the A21_066 map and the synthetic guard, **not a measured calibration**.
+
 ---
 
 ## 10. Reporting — `axiomm.analysis.reporting`
