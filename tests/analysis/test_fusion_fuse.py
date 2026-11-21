@@ -1,0 +1,76 @@
+"""S8.3 — cross-energy fusion: net-intensity selection + per-element-energy k-factors."""
+
+from __future__ import annotations
+
+import pytest
+
+from axiomm.analysis.errors import PayloadValidationError
+from axiomm.analysis.fusion import fuse_net_intensities, fused_k_factors
+from axiomm.analysis.mineralogy.reference import ElementRef
+from axiomm.analysis.quant.models import KFactorSet
+
+
+def _ref(sym, z):
+    return ElementRef(sym, 1.0, 20.0, z, None, "Ka")
+
+
+# -- fuse_net_intensities ----------------------------------------------------
+
+def test_fuse_net_picks_each_element_from_its_energy():
+    per_energy = {
+        2.9: {0: {"Si": 10.0, "P": 5.0}, 1: {"Si": 8.0, "P": 3.0}},
+        13.55: {0: {"Fe": 20.0, "Ca": 7.0}, 1: {"Fe": 15.0, "Ca": 4.0}},
+    }
+    source = {"Si": 2.9, "P": 2.9, "Fe": 13.55, "Ca": 13.55}
+    fused, diags = fuse_net_intensities(per_energy, source)
+    assert fused[0] == {"Si": 10.0, "P": 5.0, "Fe": 20.0, "Ca": 7.0}
+    assert fused[1] == {"Si": 8.0, "P": 3.0, "Fe": 15.0, "Ca": 4.0}
+    assert not [d for d in diags if d.code == "fusion_not_excited"]
+
+
+def test_fuse_net_omits_not_excited_with_diagnostic():
+    per_energy = {2.9: {0: {"Si": 10.0}}, 13.55: {0: {"Fe": 20.0}}}
+    fused, diags = fuse_net_intensities(per_energy, {"Si": 2.9, "Fe": 13.55, "Zr": None})
+    assert "Zr" not in fused[0] and fused[0] == {"Si": 10.0, "Fe": 20.0}
+    assert any(d.code == "fusion_not_excited" for d in diags)
+
+
+# -- fused_k_factors (injectable sensitivity source) -------------------------
+
+def _fake_compute(S):
+    def fake(els, *, excitation_kev, reference):
+        sens = {el.symbol: S[(el.symbol, excitation_kev)] for el in els}
+        return KFactorSet(k_factors={e.symbol: 1.0 for e in els}, sensitivities=sens,
+                          reference_element=reference, excitation_kev=excitation_kev)
+    return fake
+
+
+def test_fused_k_uses_per_element_measurement_energy():
+    s = {("Si", 2.9): 4.0, ("P", 2.9): 2.0, ("Fe", 13.55): 1.0, ("Ca", 13.55): 0.5}
+    refs = [_ref("Si", 14), _ref("P", 15), _ref("Fe", 26), _ref("Ca", 20)]
+    source = {"Si": 2.9, "P": 2.9, "Fe": 13.55, "Ca": 13.55}
+    ks = fused_k_factors(refs, source, reference="Si", _compute=_fake_compute(s))
+    # k_i = S_ref(E_ref) / S_i(E_i), with S_ref = S_Si(2.9) = 4.0
+    assert ks.k_factors["Si"] == 1.0
+    assert ks.k_factors["P"] == 4.0 / 2.0
+    assert ks.k_factors["Fe"] == 4.0 / 1.0
+    assert ks.k_factors["Ca"] == 4.0 / 0.5
+    assert ks.reference_element == "Si" and ks.excitation_kev == 2.9
+    assert ks.provenance.params["source_energy_kev"] == source
+
+
+def test_fused_k_reference_not_excited_raises():
+    with pytest.raises(PayloadValidationError):
+        fused_k_factors([_ref("Si", 14)], {"Si": None}, reference="Si")
+
+
+def test_real_xraylib_fused_k_factors():
+    pytest.importorskip("xraylib")
+    refs = [_ref("Si", 14), _ref("P", 15), _ref("Ca", 20), _ref("Fe", 26)]
+    source = {"Si": 2.9, "P": 2.9, "Ca": 13.55, "Fe": 13.55}
+    ks = fused_k_factors(refs, source, reference="Si")
+    assert ks.k_factors["Si"] == 1.0
+    assert all(v > 0 and v == v for v in ks.k_factors.values())
+    assert set(ks.sensitivities) == {"Si", "P", "Ca", "Fe"}
+    # P measured at 2.9 keV (its best energy) has a real, finite sensitivity
+    assert ks.sensitivities["P"] > 0

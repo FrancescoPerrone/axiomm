@@ -10,6 +10,7 @@ hook follow.
 
 from __future__ import annotations
 
+from axiomm.analysis.fusion.fuse import fuse_net_intensities, fused_k_factors
 from axiomm.analysis.fusion.models import EnergyMap, MultiEnergyMapGroup
 from axiomm.analysis.fusion.registration import verify_registration
 from axiomm.analysis.fusion.selection import (
@@ -25,6 +26,8 @@ __all__ = [
     "EnergySelectionPolicy",
     "MultiEnergyMapGroup",
     "energy_selectors",
+    "fuse_net_intensities",
+    "fused_k_factors",
     "select_energies",
     "verify_registration",
 ]
