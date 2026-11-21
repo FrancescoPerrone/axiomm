@@ -69,6 +69,8 @@ body.canvas-mode { max-width: none; padding: 1.25rem; }
 /* Content wrapper: a resized card zooms this as a whole, so figures AND text grow. */
 .module-body { position: relative; }
 .report-grid.canvas .module figure img, .report-grid.canvas .module figure svg { cursor: zoom-in; }
+.module figure img, .module figure svg, .module-hide, .module-resize,
+.axm-tbl-tools button, .axm-lb-bar button, .axm-lightbox { touch-action: manipulation; }
 /* Click a figure to inspect it large, over a blurred report, with a PNG download. */
 .axm-lightbox { position: fixed; inset: 0; z-index: 10000; display: flex; align-items: center;
   justify-content: center; padding: 3vmin; background: rgba(10,12,14,.62);
@@ -82,10 +84,11 @@ body.canvas-mode { max-width: none; padding: 1.25rem; }
 .axm-lb-svg svg { width: min(90vw, 1100px); height: auto; display: block; }
 .axm-lb-img[hidden], .axm-lb-svg[hidden] { display: none; }
 .axm-lb-bar { position: absolute; top: 8px; right: 8px; display: flex; gap: 6px; }
-.axm-lb-bar button { width: 2rem; height: 2rem; border-radius: 7px; border: none; cursor: pointer;
-  background: rgba(0,0,0,.55); color: #fff; font-size: 1rem; line-height: 1;
-  display: flex; align-items: center; justify-content: center; }
-.axm-lb-bar button:hover { background: rgba(0,0,0,.82); }
+.axm-lb-bar button { width: 1.6rem; height: 1.6rem; border-radius: 6px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface); color: var(--muted);
+  font-size: .78rem; line-height: 1; display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 2px 10px rgba(0,0,0,.2); }
+.axm-lb-bar button:hover { color: var(--accent); border-color: var(--accent); }
 /* Faint per-table export controls, found on hover (copy for slides/docs, or CSV). */
 .axm-tbl-wrap { position: relative; }
 .axm-tbl-tools { position: absolute; top: 2px; right: 2px; display: flex; gap: 4px;
@@ -154,6 +157,20 @@ INTERACTIVE_JS = r"""
   function isWide() { return window.matchMedia(WIDE).matches; }
   function isMast(m) { return m.classList.contains('masthead'); }
 
+  // Robust tap: fire fn on a clean tap (pointerup with no drag) OR a click,
+  // whichever the device actually delivers — touch browsers are unreliable with
+  // either alone (a nudged tap can cancel pointerup; a 'click' can be swallowed).
+  // A short guard stops the two paths firing twice.
+  function onTap(el, fn) {
+    var sx = 0, sy = 0, moved = false, last = 0;
+    el.addEventListener('pointerdown', function (e) { sx = e.clientX; sy = e.clientY; moved = false; });
+    el.addEventListener('pointermove', function (e) {
+      if (Math.abs(e.clientX - sx) > 12 || Math.abs(e.clientY - sy) > 12) moved = true;
+    });
+    el.addEventListener('pointerup', function (e) { if (!moved) { last = Date.now(); fn(e); } });
+    el.addEventListener('click', function (e) { if (Date.now() - last > 500) fn(e); });
+  }
+
   Array.prototype.forEach.call(grid.querySelectorAll('.canvas-item'), function (m) {
     if (!m.querySelector('.module-resize')) {
       var h = document.createElement('div'); h.className = 'module-resize'; m.appendChild(h);
@@ -163,10 +180,7 @@ INTERACTIVE_JS = r"""
       hb.className = 'module-hide';
       hb.setAttribute('aria-hidden', 'true');
       hb.addEventListener('pointerdown', function (e) { e.stopPropagation(); });
-      hb.addEventListener('click', function (e) {
-        e.stopPropagation();
-        minimize(m);               // -> a pill in the bottom dock; click it to restore
-      });
+      onTap(hb, function () { minimize(m); });   // -> a pill in the bottom dock; tap it to restore
       m.appendChild(hb);
     }
   });
@@ -376,9 +390,9 @@ INTERACTIVE_JS = r"""
     document.body.appendChild(lb); lb.hidden = false;   // escape the card's stacking context
   }
   function closeLB() { lb.hidden = true; }
-  lb.addEventListener('click', function (e) { if (e.target === lb) closeLB(); });
-  lb.querySelector('.axm-lb-x').addEventListener('click', closeLB);
-  lb.querySelector('.axm-lb-dl').addEventListener('click', function () {
+  onTap(lb, function (e) { if (e.target === lb) closeLB(); });
+  onTap(lb.querySelector('.axm-lb-x'), closeLB);
+  onTap(lb.querySelector('.axm-lb-dl'), function () {
     var fname = (lbName.replace(/[^\w.-]+/g, '_').slice(0, 60)) || 'figure', href;
     if (lbKind === 'img') { href = lbImg.src; fname += '.png'; }
     else {
@@ -390,22 +404,12 @@ INTERACTIVE_JS = r"""
     document.body.appendChild(a); a.click(); a.remove();
   });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !lb.hidden) closeLB(); });
-  // Open on a real tap or click. A plain 'click' is unreliable on touch (a thumb
-  // tap that nudges is treated as a scroll), so detect a tap: pointerdown then a
-  // pointerup on the same figure with little movement. Works for mouse too.
-  function figureAt(t) { return (t && t.closest) ? t.closest('.module figure') : null; }
-  var fTap = null;
-  grid.addEventListener('pointerdown', function (e) {
-    var f = figureAt(e.target); fTap = f ? { f: f, x: e.clientX, y: e.clientY } : null;
-  }, true);
-  grid.addEventListener('pointerup', function (e) {
-    if (!fTap) return;
-    var f = figureAt(e.target);
-    if (f && f === fTap.f && Math.abs(e.clientX - fTap.x) < 12 && Math.abs(e.clientY - fTap.y) < 12) {
-      e.preventDefault(); e.stopPropagation(); openFigure(f);
+  // Open a figure on a tap or click (robust across mouse and touch).
+  Array.prototype.forEach.call(grid.querySelectorAll('.module figure'), function (fig) {
+    if (fig.querySelector('img') || fig.querySelector('svg')) {
+      onTap(fig, function () { openFigure(fig); });
     }
-    fTap = null;
-  }, true);
+  });
 
   // --- table export: copy (TSV, pastes as a table into Sheets/Word/PowerPoint) or CSV --
   function tableCells(tbl) {
@@ -431,16 +435,14 @@ INTERACTIVE_JS = r"""
     w.appendChild(tools);
     var capEl = tbl.querySelector('caption');
     var base = (((capEl && capEl.textContent) || 'table').trim().replace(/[^\w.-]+/g, '_').slice(0, 60)) || 'table';
-    tools.querySelector('.axm-tcopy').addEventListener('click', function (e) {
-      e.stopPropagation();
+    onTap(tools.querySelector('.axm-tcopy'), function () {
       var text = toTSV(tableCells(tbl));
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(text).then(function () { toast('Table copied'); },
           function () { toast('Copy blocked here'); });
       } else { toast('Copy not available'); }
     });
-    tools.querySelector('.axm-tcsv').addEventListener('click', function (e) {
-      e.stopPropagation();
+    onTap(tools.querySelector('.axm-tcsv'), function () {
       var blob = new Blob([toCSV(tableCells(tbl))], { type: 'text/csv;charset=utf-8' });
       var a = document.createElement('a'); a.href = URL.createObjectURL(blob);
       a.download = base + '.csv'; document.body.appendChild(a); a.click();

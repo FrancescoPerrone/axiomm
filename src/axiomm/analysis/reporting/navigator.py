@@ -142,13 +142,16 @@ _TMPL = r"""<div class="axm-nav">
     }
   }
   function closeModal(){ modal.hidden=true; }
-  // Open on a real tap or click; a bare 'click' is unreliable on touch screens.
-  var thumb=document.getElementById('axm-nav-thumb'), td=null;
+  // Open on a tap or a click — whichever the device delivers (touch is unreliable
+  // with either alone); a short guard stops both firing twice.
+  var thumb=document.getElementById('axm-nav-thumb'), td=null, tlast=0;
+  thumb.style.touchAction='manipulation';
   thumb.addEventListener('pointerdown', function(e){ td={x:e.clientX,y:e.clientY}; });
   thumb.addEventListener('pointerup', function(e){
-    if(td && Math.abs(e.clientX-td.x)<12 && Math.abs(e.clientY-td.y)<12){ e.preventDefault(); openModal(); }
+    if(td && Math.abs(e.clientX-td.x)<12 && Math.abs(e.clientY-td.y)<12){ tlast=Date.now(); openModal(); }
     td=null;
   });
+  thumb.addEventListener('click', function(){ if(Date.now()-tlast>500) openModal(); });
   document.getElementById('axm-nav-close').addEventListener('click', closeModal);
   modal.addEventListener('click', function(e){ if(e.target===modal) closeModal(); });
   document.addEventListener('keydown', function(e){ if(e.key==='Escape' && !modal.hidden) closeModal(); });
