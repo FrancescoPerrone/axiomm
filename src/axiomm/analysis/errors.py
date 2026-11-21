@@ -46,6 +46,16 @@ class AnalysisDependencyError(AxiommAnalysisError):
     """Raised when an optional dependency required for an operation is absent."""
 
 
+class RegistrationError(AxiommAnalysisError):
+    """Raised when multi-energy maps are not co-registered on a shared grid.
+
+    Multi-energy fusion assumes (and verifies) the maps share a spatial grid;
+    it never resamples or aligns. A navigation-shape or scale/offset mismatch
+    beyond tolerance is a loud, named failure, not a silent fusion of
+    mis-aligned pixels.
+    """
+
+
 __all__ = [
     "AnalysisDependencyError",
     "AxiommAnalysisError",
@@ -54,4 +64,5 @@ __all__ = [
     "PayloadSerializationError",
     "PayloadValidationError",
     "ReferenceLibraryError",
+    "RegistrationError",
 ]
