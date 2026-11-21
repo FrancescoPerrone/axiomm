@@ -104,6 +104,9 @@ class Pipeline:
 
     # -- run -----------------------------------------------------------------
     def run(self, source) -> PipelineResult:
+        from axiomm.analysis.fusion.models import MultiEnergyMapGroup
+        if isinstance(source, MultiEnergyMapGroup):
+            return self._run_fused(source)   # S8 multi-energy path (opt-in)
         cfg = self.config
         diagnostics: list[Diagnostic] = []
         payload = self._read_payload(source)
@@ -254,7 +257,9 @@ class Pipeline:
                 f"invalid option(s) for classification preset {name!r}: {exc}") from exc
 
     # -- stages --------------------------------------------------------------
-    def _quantify_and_match(self, payload, means, reference, cfg, diagnostics):
+    def _cations_for_quant(self, payload, reference, cfg, diagnostics):
+        """In-range, honestly-filtered cations + the signal axis (shared by the
+        single-energy and fusion paths)."""
         signal_axis = next(a for a in payload.axes if a.role == "signal")
         emin = float(signal_axis.offset)
         emax = float(signal_axis.offset) + float(signal_axis.scale) * (int(signal_axis.size) - 1)
@@ -287,13 +292,22 @@ class Pipeline:
                 f"quantification: no line in the energy range [{emin:.2f}, {emax:.2f}] "
                 "keV, or it was excluded / lost to a line overlap; choose a measurable, "
                 "resolved reference_element.")
+        return cations, signal_axis
+
+    def _quant_elements(self, reference, cation_refs):
+        """The element refs to quantify: the cations plus O when the reference has it."""
+        quant_elements = list(cation_refs)
+        if "O" in reference.elements:
+            quant_elements.append(reference.elements["O"])
+        return quant_elements
+
+    def _quantify_and_match(self, payload, means, reference, cfg, diagnostics):
+        cations, signal_axis = self._cations_for_quant(payload, reference, cfg, diagnostics)
         peaks = measure_peaks(means, signal_axis, reference)
 
         k = compute_k_factors(reference.element_refs(cations),
                               excitation_kev=cfg.beam_energy_kev, reference=cfg.reference_element)
-        quant_elements = list(reference.element_refs(cations))
-        if "O" in reference.elements:
-            quant_elements.append(reference.elements["O"])
+        quant_elements = self._quant_elements(reference, reference.element_refs(cations))
         quant = quantify_cluster_means(list(peaks), k, quant_elements, reference_name=reference.name)
         reliability = assess_cluster_reliability(
             list(quant), means, config=cfg.reliability or ReliabilityConfig())
@@ -303,6 +317,100 @@ class Pipeline:
                                   config=cfg.match or MatchConfig())
         diagnostics += list(k.diagnostics)
         return peaks, quant, reliability, minerals
+
+    # -- multi-energy fusion path (S8, opt-in) -------------------------------
+    def _run_fused(self, group) -> PipelineResult:
+        """Run the analysis over a co-registered multi-energy map group: each
+        element is quantified from the energy that best excites it. The
+        single-payload path (``run`` above) is untouched."""
+        from axiomm.analysis.fusion import verify_registration
+        cfg = self.config
+        diagnostics: list[Diagnostic] = []
+        diagnostics += verify_registration(group)   # raises RegistrationError on a grid mismatch
+
+        # Normalize each map (I0 / dead-time), then cluster once on the highest-energy
+        # map (broadest mid-Z contrast); the shared labels apply to every map.
+        ems = sorted(group, key=lambda m: m.excitation_kev)
+        payloads = {em.excitation_kev: (self._normalize_payload(em.payload, diagnostics)
+                                        if cfg.normalize else em.payload) for em in ems}
+        diagnostics.append(Diagnostic(
+            "info", "fusion_engaged",
+            f"multi-energy fusion over {sorted(payloads)} keV; clustered on "
+            f"{ems[-1].excitation_kev} keV."))
+        primary = payloads[ems[-1].excitation_kev]
+
+        reducer, n_components = self._resolve_reduction(cfg, diagnostics)
+        decomp = reducer.decompose(primary, n_components=n_components)
+        clusterer = self._resolve_clustering(cfg, diagnostics)
+        clustering = clusterer.cluster(decomp)
+        means = compute_cluster_means(clustering, primary)
+        diagnostics += list(decomp.diagnostics) + list(clustering.diagnostics) + list(means.diagnostics)
+
+        result_kwargs = dict(
+            label_map=np.asarray(clustering.label_map), cluster_means=means,
+            clustering=clustering, decomposition=decomp, payload=primary,
+            config=self._config_dict(), diagnostics=diagnostics,
+        )
+        reference = self._resolve_reference(cfg.reference)
+        if reference is None:
+            diagnostics.append(Diagnostic(
+                "info", "minerals_skipped",
+                "fusion needs a reference to quantify + match; clusters returned."))
+            result_kwargs["provenance"] = self._provenance(cfg, decomp, clustering, reference)
+            return PipelineResult(**result_kwargs)
+        try:
+            bundle = self._quantify_and_match_fused(
+                group, payloads, clustering, means, reference, cfg, diagnostics)
+        except AnalysisDependencyError as exc:
+            diagnostics.append(Diagnostic(
+                "warning", "minerals_skipped_dependency",
+                f"fused quantification + matching skipped: {exc}"))
+            result_kwargs["provenance"] = self._provenance(cfg, decomp, clustering, reference)
+            return PipelineResult(**result_kwargs)
+
+        peaks, quant, reliability, minerals = bundle
+        from axiomm.analysis.mineralogy.classify import classify_clusters
+        policy = self._resolve_classification(cfg, diagnostics)
+        labels = classify_clusters(minerals, reference, policy)
+        phase_map = self._build_phase_map(clustering.label_map, labels)
+        result_kwargs.update(
+            peaks=peaks, quantification=quant, reliability=reliability,
+            minerals=minerals, labels=labels, phase_map=phase_map,
+            provenance=self._provenance(cfg, decomp, clustering, reference, policy),
+        )
+        return PipelineResult(**result_kwargs)
+
+    def _quantify_and_match_fused(self, group, payloads, clustering, primary_means,
+                                  reference, cfg, diagnostics):
+        from axiomm.analysis.fusion import fuse_peak_sets, fused_k_factors, select_energies
+        primary = payloads[max(payloads)]
+        cations, signal_axis = self._cations_for_quant(primary, reference, cfg, diagnostics)
+        element_refs = reference.element_refs(cations)
+
+        # Measure every cation on each energy's cluster means (one shared clustering).
+        per_energy_peaks = {
+            e: tuple(measure_peaks(compute_cluster_means(clustering, payload), signal_axis, reference))
+            for e, payload in payloads.items()
+        }
+        # Choose each element's best-excited energy, then fuse measurements + k-factors.
+        source_energy, sel_diag = select_energies(group, element_refs)
+        diagnostics += sel_diag
+        if source_energy.get(cfg.reference_element) is None:
+            raise PayloadValidationError(
+                f"reference_element {cfg.reference_element!r} is not excited by any supplied "
+                "energy in the group; choose a reference measurable by one of the energies.")
+        fused_peaks = fuse_peak_sets(per_energy_peaks, source_energy)
+        source_refs = [r for r in element_refs if source_energy.get(r.symbol) is not None]
+        k = fused_k_factors(source_refs, source_energy, reference=cfg.reference_element)
+        quant_elements = self._quant_elements(reference, source_refs)
+        quant = quantify_cluster_means(list(fused_peaks), k, quant_elements, reference_name=reference.name)
+        reliability = assess_cluster_reliability(
+            list(quant), primary_means, config=cfg.reliability or ReliabilityConfig())
+        from axiomm.analysis.mineralogy.match import MatchConfig, match_clusters
+        minerals = match_clusters(list(quant), reference, reliabilities=list(reliability),
+                                  config=cfg.match or MatchConfig())
+        diagnostics += list(k.diagnostics)
+        return fused_peaks, quant, reliability, minerals
 
     def _build_phase_map(self, label_map, labels):
         """Per-pixel phase names from the S7 classification labels (UNRESOLVED

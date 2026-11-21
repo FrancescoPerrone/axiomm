@@ -54,6 +54,37 @@ def fuse_net_intensities(per_energy_net, source_energy):
     return fused, diagnostics
 
 
+def fuse_peak_sets(per_energy_peak_sets, source_energy):
+    """Build fused per-cluster peak sets: each element's measurement from its
+    best-excited energy.
+
+    ``per_energy_peak_sets`` maps ``excitation_kev -> tuple[PeakMeasurementSet]``
+    (one per cluster, aligned by ``cluster_id``); ``source_energy`` maps
+    ``symbol -> chosen_excitation_kev`` (``None`` elements are dropped). Returns a
+    tuple of fused ``PeakMeasurementSet`` (one per cluster), each carrying only the
+    elements excited by some energy, taken from the energy that measures them best.
+    """
+    from axiomm.analysis.peaks.models import PeakMeasurementSet
+
+    source = {s: e for s, e in source_energy.items() if e is not None}
+    index: dict = {}          # energy -> {cluster_id -> {label -> PeakMeasurement}}
+    cluster_ids: list | None = None
+    for e, psets in per_energy_peak_sets.items():
+        index[e] = {ps.cluster_id: {m.label: m for m in ps.measurements} for ps in psets}
+        if cluster_ids is None:
+            cluster_ids = [ps.cluster_id for ps in psets]
+
+    fused = []
+    for cid in (cluster_ids or []):
+        measurements = []
+        for sym, e in source.items():
+            m = index.get(e, {}).get(cid, {}).get(sym)
+            if m is not None:
+                measurements.append(m)
+        fused.append(PeakMeasurementSet(measurements=tuple(measurements), cluster_id=cid))
+    return tuple(fused)
+
+
 def fused_k_factors(element_refs, source_energy, *, reference, _compute=None) -> KFactorSet:
     """A :class:`KFactorSet` with each element's k-factor at its measurement energy.
 
