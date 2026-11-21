@@ -77,6 +77,10 @@ body.canvas-mode { max-width: none; padding: 1.25rem; }
 .axm-lb-inner { position: relative; max-width: 96vw; max-height: 92vh; }
 .axm-lb-img { max-width: 96vw; max-height: 92vh; display: block; border-radius: 8px;
   background: var(--surface, #fff); box-shadow: 0 24px 70px rgba(0,0,0,.5); }
+.axm-lb-svg { max-width: 96vw; max-height: 92vh; overflow: auto; border-radius: 8px;
+  background: var(--surface, #fff); box-shadow: 0 24px 70px rgba(0,0,0,.5); padding: 1rem; }
+.axm-lb-svg svg { width: min(90vw, 1100px); height: auto; display: block; }
+.axm-lb-img[hidden], .axm-lb-svg[hidden] { display: none; }
 .axm-lb-bar { position: absolute; top: 8px; right: 8px; display: flex; gap: 6px; }
 .axm-lb-bar button { width: 2rem; height: 2rem; border-radius: 7px; border: none; cursor: pointer;
   background: rgba(0,0,0,.55); color: #fff; font-size: 1rem; line-height: 1;
@@ -353,33 +357,55 @@ INTERACTIVE_JS = r"""
     clearTimeout(toastEl._t); toastEl._t = setTimeout(function () { toastEl.classList.remove('show'); }, 1500);
   }
 
-  // --- figure lightbox: click a figure to inspect it large + download the PNG --
+  // --- figure lightbox: tap / click a figure to inspect it large + download ----
   var lb = document.createElement('div'); lb.className = 'axm-lightbox'; lb.hidden = true;
-  lb.innerHTML = '<div class="axm-lb-inner"><img class="axm-lb-img" alt="">' +
-    '<div class="axm-lb-bar"><button class="axm-lb-dl" type="button" title="Download PNG">↓</button>' +
+  lb.innerHTML = '<div class="axm-lb-inner"><img class="axm-lb-img" alt=""><div class="axm-lb-svg"></div>' +
+    '<div class="axm-lb-bar"><button class="axm-lb-dl" type="button" title="Download">↓</button>' +
     '<button class="axm-lb-x" type="button" title="Close">✕</button></div></div>';
   document.body.appendChild(lb);
-  var lbImg = lb.querySelector('.axm-lb-img');
-  function openLB(src, name) {
-    lbImg.src = src; lbImg.setAttribute('data-name', name || 'figure');
+  var lbImg = lb.querySelector('.axm-lb-img'), lbSvg = lb.querySelector('.axm-lb-svg');
+  var lbName = 'figure', lbKind = 'img';
+  function openFigure(fig) {
+    var cap = fig.querySelector('figcaption');
+    var img = fig.querySelector('img'), svg = fig.querySelector('svg');
+    lbName = ((cap && cap.textContent) || (img && img.alt) || 'figure').trim();
+    if (img) { lbKind = 'img'; lbImg.src = img.src; lbImg.hidden = false; lbSvg.hidden = true; }
+    else if (svg) { lbKind = 'svg'; lbSvg.innerHTML = ''; lbSvg.appendChild(svg.cloneNode(true));
+      lbSvg.hidden = false; lbImg.hidden = true; }
+    else return;
     document.body.appendChild(lb); lb.hidden = false;   // escape the card's stacking context
   }
   function closeLB() { lb.hidden = true; }
   lb.addEventListener('click', function (e) { if (e.target === lb) closeLB(); });
   lb.querySelector('.axm-lb-x').addEventListener('click', closeLB);
   lb.querySelector('.axm-lb-dl').addEventListener('click', function () {
-    var a = document.createElement('a'); a.href = lbImg.src;
-    a.download = (lbImg.getAttribute('data-name') || 'figure').replace(/[^\w.-]+/g, '_').slice(0, 60) + '.png';
+    var fname = (lbName.replace(/[^\w.-]+/g, '_').slice(0, 60)) || 'figure', href;
+    if (lbKind === 'img') { href = lbImg.src; fname += '.png'; }
+    else {
+      var svg = lbSvg.querySelector('svg'); if (!svg) return;
+      href = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(new XMLSerializer().serializeToString(svg));
+      fname += '.svg';
+    }
+    var a = document.createElement('a'); a.href = href; a.download = fname;
     document.body.appendChild(a); a.click(); a.remove();
   });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !lb.hidden) closeLB(); });
-  Array.prototype.forEach.call(grid.querySelectorAll('.module figure img'), function (img) {
-    img.addEventListener('click', function (e) {
-      e.stopPropagation();
-      var fig = img.closest('figure'); var cap = fig && fig.querySelector('figcaption');
-      openLB(img.src, ((cap && cap.textContent) || img.alt || 'figure').trim());
-    });
-  });
+  // Open on a real tap or click. A plain 'click' is unreliable on touch (a thumb
+  // tap that nudges is treated as a scroll), so detect a tap: pointerdown then a
+  // pointerup on the same figure with little movement. Works for mouse too.
+  function figureAt(t) { return (t && t.closest) ? t.closest('.module figure') : null; }
+  var fTap = null;
+  grid.addEventListener('pointerdown', function (e) {
+    var f = figureAt(e.target); fTap = f ? { f: f, x: e.clientX, y: e.clientY } : null;
+  }, true);
+  grid.addEventListener('pointerup', function (e) {
+    if (!fTap) return;
+    var f = figureAt(e.target);
+    if (f && f === fTap.f && Math.abs(e.clientX - fTap.x) < 12 && Math.abs(e.clientY - fTap.y) < 12) {
+      e.preventDefault(); e.stopPropagation(); openFigure(f);
+    }
+    fTap = null;
+  }, true);
 
   // --- table export: copy (TSV, pastes as a table into Sheets/Word/PowerPoint) or CSV --
   function tableCells(tbl) {
