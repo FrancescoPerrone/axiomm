@@ -340,9 +340,10 @@ class Pipeline:
         primary = payloads[ems[-1].excitation_kev]
 
         reducer, n_components = self._resolve_reduction(cfg, diagnostics)
-        decomp = reducer.decompose(primary, n_components=n_components)
         clusterer = self._resolve_clustering(cfg, diagnostics)
-        clustering = clusterer.cluster(decomp)
+        decomp, cluster_features = self._fused_cluster_features(
+            payloads, primary, reducer, n_components, cfg, diagnostics)
+        clustering = clusterer.cluster(cluster_features)
         means = compute_cluster_means(clustering, primary)
         diagnostics += list(decomp.diagnostics) + list(clustering.diagnostics) + list(means.diagnostics)
 
@@ -379,6 +380,33 @@ class Pipeline:
             provenance=self._provenance(cfg, decomp, clustering, reference, policy),
         )
         return PipelineResult(**result_kwargs)
+
+    def _fused_cluster_features(self, payloads, primary, reducer, n_components, cfg, diagnostics):
+        """Return ``(primary_decomposition, features_to_cluster_on)``.
+
+        With ``fusion_clustering="fused"`` (default), cluster on the standardized,
+        concatenated per-energy loadings, so a phase distinguished only at a low
+        energy (e.g. P-rich apatite) forms its own cluster; ``"primary"`` clusters
+        on the highest-energy map alone. The reported decomposition is always the
+        primary map's, for a consistent single-energy scree/factors view."""
+        primary_decomp = reducer.decompose(primary, n_components=n_components)
+        if cfg.fusion_clustering != "fused" or len(payloads) == 1:
+            return primary_decomp, primary_decomp
+        from types import SimpleNamespace
+        blocks = []
+        for e in sorted(payloads):
+            d = (primary_decomp if payloads[e] is primary
+                 else reducer.decompose(payloads[e], n_components=n_components))
+            loadings = np.asarray(d.loadings, dtype=float)
+            std = loadings.std(axis=0, keepdims=True)
+            blocks.append((loadings - loadings.mean(axis=0, keepdims=True)) / np.where(std > 0, std, 1.0))
+        features = SimpleNamespace(loadings=np.hstack(blocks), nav_shape=primary_decomp.nav_shape)
+        diagnostics.append(Diagnostic(
+            "info", "fusion_clustering_fused",
+            f"clustered on fused features from {sorted(payloads)} keV "
+            f"({features.loadings.shape[1]} combined components) so low-energy-only "
+            "phases can separate."))
+        return primary_decomp, features
 
     def _quantify_and_match_fused(self, group, payloads, clustering, primary_means,
                                   reference, cfg, diagnostics):

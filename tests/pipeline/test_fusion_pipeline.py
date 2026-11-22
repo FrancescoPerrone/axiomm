@@ -61,6 +61,8 @@ def test_fusion_path_runs_and_uses_both_energies():
     assert r.phase_map is not None and r.minerals is not None
     codes = {d.code for d in r.diagnostics}
     assert "fusion_engaged" in codes and "registration_verified" in codes
+    assert "fusion_clustering_fused" in codes      # default clusters on both energies
+    assert "bridge_cross_calibration" in codes or "bridge_none" in codes
     # the fused composition carries a light element (Si, measured at 2.9 keV) AND a
     # mid-Z element (Ca, measured at 13.55 keV) — neither single energy sees both.
     nets = set().union(*[set(q.net_intensities) for q in r.quantification])
@@ -79,3 +81,22 @@ def test_single_map_group_runs():
     group = MultiEnergyMapGroup.from_pairs([(13.55, _map(0))])
     r = Pipeline(groups=2, components=4, seed=0, reference=_ref(), reference_element="Si").run(group)
     assert r.phase_map is not None
+
+
+def test_fusion_clustering_primary_mode():
+    pytest.importorskip("sklearn")
+    pytest.importorskip("xraylib")
+    group = MultiEnergyMapGroup.from_pairs([(2.9, _map(0)), (13.55, _map(1))])
+    r = Pipeline(groups=2, components=4, seed=0, reference=_ref(), reference_element="Si",
+                 fusion_clustering="primary").run(group)
+    assert r.phase_map is not None
+    assert "fusion_clustering_fused" not in {d.code for d in r.diagnostics}
+
+
+def test_config_rejects_bad_fusion_options():
+    from axiomm.analysis.errors import PayloadValidationError
+    from axiomm.pipeline import PipelineConfig
+    with pytest.raises(PayloadValidationError):
+        PipelineConfig(fusion_clustering="nope")
+    with pytest.raises(PayloadValidationError):
+        PipelineConfig(fusion_cross_cal="nope")

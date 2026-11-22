@@ -59,6 +59,7 @@ class PipelineConfig:
     normalize: bool = True               # divide by the payload's intensity_norm (I0/dead-time) when present
     classification: object = "family_aware"   # label policy: name / dict / ClassificationPolicy instance
     fusion_cross_cal: str = "bridge"           # multi-energy cross-calibration: "bridge" or "none"
+    fusion_clustering: str = "fused"           # cluster on "fused" (all energies) or "primary" (highest) features
     extra: dict = field(default_factory=dict)   # reserved for future settings
 
     def __post_init__(self) -> None:
@@ -90,6 +91,9 @@ class PipelineConfig:
         if self.fusion_cross_cal not in ("bridge", "none"):
             raise PayloadValidationError(
                 f"Pipeline fusion_cross_cal must be 'bridge' or 'none'; got {self.fusion_cross_cal!r}.")
+        if self.fusion_clustering not in ("fused", "primary"):
+            raise PayloadValidationError(
+                f"Pipeline fusion_clustering must be 'fused' or 'primary'; got {self.fusion_clustering!r}.")
 
 
 __all__ = ["PipelineConfig"]
