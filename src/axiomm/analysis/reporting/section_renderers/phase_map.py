@@ -33,8 +33,12 @@ class PhaseMapSection:
 
         blocks: list = []
         diags: list[Diagnostic] = []
+        names_list = list(names)
+        # Pin a neutral grey to the "unresolved" slot so vivid colours mark real phases.
+        reserve = {names_list.index("unresolved"): "#8a8f98"} if "unresolved" in names_list else None
         try:
-            png = categorical_map_png(pm, list(names))
+            png = categorical_map_png(pm, names_list, palette=getattr(config, "palette", None),
+                                      reserve=reserve)
             blocks.append(Figure(png, alt="phase map", caption="per-pixel phase map"))
         except AnalysisDependencyError as exc:
             diags.append(Diagnostic("warning", "figure_skipped_dependency", str(exc)))

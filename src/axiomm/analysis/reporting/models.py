@@ -77,6 +77,9 @@ class ReportConfig:
     interactive: bool = True                 # drag-to-arrange + click-to-edit in the browser
     subtitle: str | None = None              # editable lede under the title
     eyebrow: str | None = None               # small label above the title
+    palette: object = "batlowS"              # categorical colour map for phase/cluster maps:
+    #                                          a built-in name (batlowS/okabe_ito), any Matplotlib
+    #                                          colormap name, or an explicit list of colours
     options: dict = field(default_factory=dict)  # per-section settings: {section_id: {...}}
     metadata: dict = field(default_factory=dict)
 

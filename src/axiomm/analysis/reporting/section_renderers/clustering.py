@@ -36,7 +36,8 @@ class ClusteringSection:
         if label_map is not None:
             try:
                 png = categorical_map_png(np.asarray(label_map), list(cluster_ids),
-                                          labels=[f"cluster {c}" for c in cluster_ids])
+                                          labels=[f"cluster {c}" for c in cluster_ids],
+                                          palette=getattr(config, "palette", None))
                 blocks.append(Figure(png, alt="cluster label map", caption="cluster label map"))
             except AnalysisDependencyError as exc:
                 diags.append(Diagnostic("warning", "figure_skipped_dependency", str(exc)))

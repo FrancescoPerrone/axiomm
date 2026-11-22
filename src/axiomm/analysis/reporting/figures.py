@@ -51,26 +51,36 @@ def figure_to_png(fig, *, dpi: int = 168) -> bytes:
     return buf.getvalue()
 
 
-def categorical_map_png(array, categories, *, labels=None, figsize=(5.0, 4.0)) -> bytes:
+def categorical_map_png(array, categories, *, labels=None, palette=None, reserve=None,
+                        figsize=(5.0, 4.0)) -> bytes:
     """A categorical 2-D map (phase map, cluster label map, ...) with a legend.
 
     ``categories`` is the ordered list of distinct values in ``array``; ``labels``
-    are their display strings (default ``str(category)``).
+    are their display strings (default ``str(category)``). ``palette`` is the
+    categorical colour map — a built-in name (default ``"batlowS"``), any
+    Matplotlib colormap name, or an explicit list of colours (see
+    :func:`~axiomm.analysis.reporting.palettes.resolve_palette`); ``reserve`` pins
+    specific category indices to fixed colours (e.g. grey for "unresolved").
     """
-    mpl = import_matplotlib()
+    import_matplotlib()
+    from matplotlib.colors import ListedColormap
     from matplotlib.patches import Patch
 
+    from axiomm.analysis.reporting.palettes import resolve_palette
+
     labels = labels or [str(c) for c in categories]
+    n = max(len(categories), 1)
     code = {c: i for i, c in enumerate(categories)}
     codes = np.vectorize(code.__getitem__)(np.asarray(array)).astype(int)
-    cmap = mpl.colormaps["tab20"].resampled(max(len(categories), 1))
+    colours = resolve_palette(palette, n, reserve=reserve)
+    cmap = ListedColormap(colours)
 
     fig = new_agg_figure(figsize=figsize)
     ax = fig.add_subplot(111)
     ax.imshow(codes, cmap=cmap, vmin=-0.5, vmax=len(categories) - 0.5, interpolation="nearest")
     ax.set_xticks([])
     ax.set_yticks([])
-    handles = [Patch(facecolor=cmap(i), label=str(lbl)) for i, lbl in enumerate(labels)]
+    handles = [Patch(facecolor=colours[i], label=str(lbl)) for i, lbl in enumerate(labels)]
     ax.legend(handles=handles, bbox_to_anchor=(1.02, 1.0), loc="upper left",
               fontsize=8, frameon=False)
     return figure_to_png(fig)
