@@ -56,6 +56,12 @@ def test_group_rejects_non_energymap_members():
         MultiEnergyMapGroup((object(),))
 
 
+def test_group_rejects_duplicate_energies():
+    # the fusion path keys maps by energy, so duplicates would silently drop one
+    with pytest.raises(PayloadValidationError):
+        MultiEnergyMapGroup.from_pairs([(2.9, _payload()), (2.9, _payload())])
+
+
 def test_from_files_reads_and_builds_group(tmp_path):
     h5py = pytest.importorskip("h5py")
 
@@ -84,12 +90,12 @@ def test_verify_registration_ok_same_grid():
     g = MultiEnergyMapGroup.from_pairs([(2.9, _payload()), (13.55, _payload())])
     diags = verify_registration(g)
     codes = {d.code for d in diags}
-    assert codes == {"registration_verified"}
+    assert codes == {"navigation_grid_verified"}
 
 
 def test_verify_registration_single_map_is_noop():
     g = MultiEnergyMapGroup.from_pairs([(13.55, _payload())])
-    assert {d.code for d in verify_registration(g)} == {"registration_verified"}
+    assert {d.code for d in verify_registration(g)} == {"navigation_grid_verified"}
 
 
 def test_verify_registration_shape_mismatch_raises():
@@ -107,10 +113,10 @@ def test_verify_registration_scale_mismatch_raises():
 def test_verify_registration_nonstrict_returns_warning():
     g = MultiEnergyMapGroup.from_pairs([(2.9, _payload(nx=5)), (13.55, _payload(nx=7))])
     diags = verify_registration(g, strict=False)
-    assert any(d.code == "registration_mismatch" and d.severity == "warning" for d in diags)
+    assert any(d.code == "navigation_grid_mismatch" and d.severity == "warning" for d in diags)
 
 
 def test_verify_registration_offset_within_tolerance_ok():
     g = MultiEnergyMapGroup.from_pairs([(2.9, _payload(offset=0.0)),
                                         (13.55, _payload(offset=0.0005))])
-    assert {d.code for d in verify_registration(g, offset_atol=1e-3)} == {"registration_verified"}
+    assert {d.code for d in verify_registration(g, offset_atol=1e-3)} == {"navigation_grid_verified"}

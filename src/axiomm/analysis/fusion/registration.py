@@ -1,11 +1,16 @@
 """Registration contract for multi-energy fusion (stage two, S8 §5).
 
-Fusion assumes the maps share a spatial grid, and **verifies** it — it never
-resamples or aligns. :func:`verify_registration` checks every map against the
-first: same navigation-axis count and sizes, and matching nav scale/offset
-within tolerance. A mismatch is a loud, named :class:`RegistrationError`
-(``strict``, the default) or a warning diagnostic (``strict=False``), never a
-silent fusion of mis-aligned pixels.
+Fusion assumes the maps share a spatial grid. :func:`verify_registration` checks
+that the **navigation-grid metadata** agrees across maps — same axis count and
+sizes, matching nav scale/offset within tolerance — and never resamples or aligns.
+
+**This is a necessary, not a sufficient, condition for physical co-registration.**
+Matching grid metadata can still coexist with sample drift, a mirrored or swapped
+axis, or a mis-tagged crop; establishing that the two acquisitions image the *same
+physical pixels* is a separate step (acquisition records or an image-space check)
+that this function does not perform. A metadata mismatch is a loud, named
+:class:`RegistrationError` (``strict``, the default) or a warning diagnostic
+(``strict=False``), never a silent fusion of grid-incompatible pixels.
 """
 
 from __future__ import annotations
@@ -22,11 +27,13 @@ def verify_registration(group, *, scale_rtol: float = 1e-3, offset_atol: float =
                         strict: bool = True) -> list[Diagnostic]:
     """Check every map in ``group`` shares the navigation grid of the first.
 
-    ``scale_rtol`` is a relative tolerance on each nav axis' scale; ``offset_atol``
-    an absolute tolerance (in the axis' units) on its offset. On a mismatch this
-    raises :class:`RegistrationError` when ``strict`` (the default), or returns a
-    ``registration_mismatch`` warning per offending map when ``strict=False``.
-    Returns a ``registration_verified`` info diagnostic when all maps agree (a
+    This checks navigation-grid *metadata* only; it does not establish physical
+    co-registration (see the module docstring). ``scale_rtol`` is a relative
+    tolerance on each nav axis' scale; ``offset_atol`` an absolute tolerance (in
+    the axis' units) on its offset. On a mismatch this raises
+    :class:`RegistrationError` when ``strict`` (the default), or returns a
+    ``navigation_grid_mismatch`` warning per offending map when ``strict=False``.
+    Returns a ``navigation_grid_verified`` info diagnostic when all maps agree (a
     single-map group trivially verifies).
     """
     maps = list(group)
@@ -49,18 +56,19 @@ def verify_registration(group, *, scale_rtol: float = 1e-3, offset_atol: float =
                 if abs(float(a.offset) - float(b.offset)) > offset_atol:
                     problems.append(f"nav axis {i} ({a.name}) offset {b.offset} != {a.offset}")
         if problems:
-            msg = (f"map at {em.excitation_kev} keV is not co-registered with the "
-                   f"{maps[0].excitation_kev} keV reference: " + "; ".join(problems))
+            msg = (f"map at {em.excitation_kev} keV has an incompatible navigation grid "
+                   f"vs the {maps[0].excitation_kev} keV reference: " + "; ".join(problems))
             if strict:
                 raise RegistrationError(msg)
-            diagnostics.append(Diagnostic("warning", "registration_mismatch", msg))
+            diagnostics.append(Diagnostic("warning", "navigation_grid_mismatch", msg))
 
     if not diagnostics:
         grid = "×".join(str(a.size) for a in ref_nav)
         energies = [m.excitation_kev for m in maps]
         diagnostics.append(Diagnostic(
-            "info", "registration_verified",
-            f"{len(maps)} map(s) at {energies} keV share the navigation grid ({grid})."))
+            "info", "navigation_grid_verified",
+            f"{len(maps)} map(s) at {energies} keV share the navigation grid ({grid}) "
+            "by metadata; physical co-registration is assumed, not established here."))
     return diagnostics
 
 

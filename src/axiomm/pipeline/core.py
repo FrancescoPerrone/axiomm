@@ -333,10 +333,12 @@ class Pipeline:
         ems = sorted(group, key=lambda m: m.excitation_kev)
         payloads = {em.excitation_kev: (self._normalize_payload(em.payload, diagnostics)
                                         if cfg.normalize else em.payload) for em in ems}
+        cluster_basis = (f"the {ems[-1].excitation_kev} keV map"
+                         if cfg.fusion_clustering == "primary" or len(payloads) == 1
+                         else "fused features from all energies")
         diagnostics.append(Diagnostic(
             "info", "fusion_engaged",
-            f"multi-energy fusion over {sorted(payloads)} keV; clustered on "
-            f"{ems[-1].excitation_kev} keV."))
+            f"multi-energy fusion over {sorted(payloads)} keV; clustering on {cluster_basis}."))
         primary = payloads[ems[-1].excitation_kev]
 
         reducer, n_components = self._resolve_reduction(cfg, diagnostics)
@@ -485,7 +487,13 @@ class Pipeline:
                 "reference": c.reference if isinstance(c.reference, str) else getattr(c.reference, "name", "custom"),
                 "beam_energy_kev": c.beam_energy_kev,
                 "reference_element": c.reference_element, "seed": c.seed,
-                "classification": _stage_name(c.classification, "family_aware")}
+                "classification": _stage_name(c.classification, "family_aware"),
+                # effective settings that change the result — needed to reproduce a run
+                "normalize": c.normalize,
+                "exclude_elements": sorted(c.exclude_elements),
+                "line_resolution_kev": c.line_resolution_kev,
+                "fusion_clustering": c.fusion_clustering,
+                "fusion_cross_cal": c.fusion_cross_cal}
 
     def _provenance(self, cfg, decomp, clustering, reference, policy=None) -> dict:
         return {

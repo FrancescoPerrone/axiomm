@@ -16,6 +16,17 @@ from axiomm.io.converters.models import AxiommSignalPayload, AxisSpec
 from axiomm.pipeline import Pipeline
 
 
+def test_config_dict_records_fusion_settings():
+    # effective fusion/normalize settings must be in provenance to reproduce a run
+    cfg = Pipeline(fusion_clustering="primary", fusion_cross_cal="none",
+                   normalize=False, exclude_elements={"Ba"})._config_dict()
+    assert cfg["fusion_clustering"] == "primary"
+    assert cfg["fusion_cross_cal"] == "none"
+    assert cfg["normalize"] is False
+    assert cfg["exclude_elements"] == ["Ba"]
+    assert "line_resolution_kev" in cfg
+
+
 def _map(seed=0, ny=8, nx=10, ne=400):
     """Two spatial domains: upper = Mg+Si+Ca, lower = Mg+Si."""
     rng = np.random.default_rng(seed)
@@ -60,7 +71,7 @@ def test_fusion_path_runs_and_uses_both_energies():
     r = Pipeline(groups=2, components=4, seed=0, reference=_ref(), reference_element="Si").run(group)
     assert r.phase_map is not None and r.minerals is not None
     codes = {d.code for d in r.diagnostics}
-    assert "fusion_engaged" in codes and "registration_verified" in codes
+    assert "fusion_engaged" in codes and "navigation_grid_verified" in codes
     assert "fusion_clustering_fused" in codes      # default clusters on both energies
     assert "bridge_cross_calibration" in codes or "bridge_none" in codes
     # the fused composition carries a light element (Si, measured at 2.9 keV) AND a
@@ -69,7 +80,7 @@ def test_fusion_path_runs_and_uses_both_energies():
     assert "Si" in nets and "Ca" in nets
 
 
-def test_fusion_registration_mismatch_raises():
+def test_fusion_navigation_grid_mismatch_raises():
     group = MultiEnergyMapGroup.from_pairs([(2.9, _map(0, nx=10)), (13.55, _map(1, nx=12))])
     with pytest.raises(RegistrationError):
         Pipeline(groups=2, components=4, reference=_ref(), reference_element="Si").run(group)

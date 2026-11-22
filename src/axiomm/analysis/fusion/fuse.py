@@ -183,14 +183,28 @@ def bridge_cross_calibration(per_energy_net, element_refs, energies, *, referenc
                 if cr and ce and ce > 0:
                     ratios.append(cr / ce)
         if ratios:
-            ratios.sort()
-            scale[e] = ratios[len(ratios) // 2]      # median bridge ratio
+            scale[e] = _median(ratios)               # true median bridge ratio
             spread = max(ratios) / min(ratios) if min(ratios) > 0 else float("inf")
             diagnostics.append(Diagnostic(
                 "info", "bridge_cross_calibration",
                 f"{len(ratios)} bridge element(s) set the {e}->{reference_energy} keV cross-energy "
                 f"scale to {scale[e]:.3f} (raw spread {spread:.2f}x before correction)."))
+        else:
+            # bridge elements exist in the group, but none has a usable measured pair
+            # at BOTH this energy and the reference energy — scale stays 1 (uncorrected).
+            diagnostics.append(Diagnostic(
+                "warning", "bridge_unresolved_energy",
+                f"no usable bridge pair links {e} keV to the {reference_energy} keV reference; "
+                f"its cross-energy scale is left at 1.0 (uncorrected)."))
     return scale, diagnostics
 
 
-__all__ = ["fuse_net_intensities", "fused_k_factors"]
+def _median(values):
+    """True median: the average of the two middle values for an even count."""
+    s = sorted(values)
+    n = len(s)
+    mid = n // 2
+    return s[mid] if n % 2 else 0.5 * (s[mid - 1] + s[mid])
+
+
+__all__ = ["bridge_cross_calibration", "fuse_net_intensities", "fuse_peak_sets", "fused_k_factors"]

@@ -55,6 +55,16 @@ class MultiEnergyMapGroup:
             if not isinstance(m, EnergyMap):
                 raise PayloadValidationError(
                     f"MultiEnergyMapGroup members must be EnergyMap; got {type(m).__name__}.")
+        # The fusion path keys maps by excitation energy, so duplicates would
+        # silently drop a map. Reject them: a replicate at one energy is a distinct
+        # future case (needs acquisition IDs + explicit combination semantics).
+        energies = [m.excitation_kev for m in self.maps]
+        dupes = sorted({e for e in energies if energies.count(e) > 1})
+        if dupes:
+            raise PayloadValidationError(
+                f"MultiEnergyMapGroup has duplicate excitation energies {dupes} keV; each "
+                "energy must be unique (replicate acquisitions at one energy are not yet "
+                "supported — they need distinct acquisition identities).")
 
     @classmethod
     def from_pairs(cls, pairs) -> MultiEnergyMapGroup:

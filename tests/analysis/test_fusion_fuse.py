@@ -94,6 +94,29 @@ def test_bridge_cross_calibration_derives_scale():
     assert any(d.code == "bridge_cross_calibration" for d in diags)
 
 
+def test_bridge_uses_true_median_for_even_count():
+    # two bridge elements -> two ratios (2.0 and 4.0); the median is their mean (3.0),
+    # not the upper-middle value (4.0) a naive ratios[len//2] would return.
+    per_energy_net = {2.9: {0: {"Si": 1.0, "Mg": 1.0}}, 13.55: {0: {"Si": 2.0, "Mg": 4.0}}}
+    s = {("Si", 2.9): 1.0, ("Si", 13.55): 1.0, ("Mg", 2.9): 1.0, ("Mg", 13.55): 1.0}
+    scale, _ = bridge_cross_calibration(
+        per_energy_net, [_ref("Si", 14), _ref("Mg", 12)], [2.9, 13.55],
+        reference_energy=13.55, edge_fn=lambda r: 1.0, _compute=_fake_compute(s))
+    assert scale[2.9] == pytest.approx(3.0)
+
+
+def test_bridge_unresolved_energy_warns_and_leaves_scale_one():
+    # Si is a bridge element (excited at both) but has no positive net at 2.9:
+    # no usable pair -> scale stays 1.0 with an explicit per-energy warning.
+    per_energy_net = {2.9: {0: {"Si": 0.0}}, 13.55: {0: {"Si": 2.0}}}
+    s = {("Si", 2.9): 1.0, ("Si", 13.55): 1.0}
+    scale, diags = bridge_cross_calibration(
+        per_energy_net, [_ref("Si", 14)], [2.9, 13.55], reference_energy=13.55,
+        edge_fn=lambda r: 1.0, _compute=_fake_compute(s))
+    assert scale[2.9] == 1.0
+    assert any(d.code == "bridge_unresolved_energy" and d.severity == "warning" for d in diags)
+
+
 def test_bridge_cross_calibration_none_when_no_bridge():
     # Ca and Ti are each excited only at 13.55 keV (edges 4.04 / 4.97) -> no bridge.
     per_energy_net = {2.9: {0: {}}, 13.55: {0: {"Ca": 5.0, "Ti": 3.0}}}
