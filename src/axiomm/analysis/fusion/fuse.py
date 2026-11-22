@@ -20,6 +20,8 @@ in S8.4.
 
 from __future__ import annotations
 
+import numpy as np
+
 from axiomm.analysis.errors import CrossCalibrationError, PayloadValidationError
 from axiomm.analysis.models import AnalysisProvenance, Diagnostic
 from axiomm.analysis.quant import compute_k_factors
@@ -149,7 +151,8 @@ def bridge_cross_calibration(per_energy_net, element_refs, energies, *, referenc
     ``(net_ref/S_ref)/(net_e/S_e)``, **weighted** by the cluster's pixel count
     (``cluster_weights``, ``{cluster_id: n_pixels}``; absent → unit weight). The
     per-energy scale is the **weighted median** of those points; the **dispersion**
-    (max/min ratio) measures bridge consistency. When dispersion exceeds
+    (interquartile ratio p75/p25, robust to a single near-zero-net outlier) measures
+    bridge consistency. When dispersion exceeds
     ``dispersion_limit`` the bridge is *low confidence* and ``on_low_confidence``
     decides: ``"flag"`` applies it with a warning, ``"refuse"`` leaves the energy
     uncorrected (scale 1) with a warning, ``"raise"`` raises
@@ -215,11 +218,17 @@ def bridge_cross_calibration(per_energy_net, element_refs, energies, *, referenc
             continue
         est = _weighted_median(pts)
         ratios = [r for r, _ in pts]
-        dispersion = max(ratios) / min(ratios) if min(ratios) > 0 else float("inf")
+        # robust spread: interquartile ratio (p75/p25), not max/min — one near-zero net
+        # ratio must not dominate the adequacy call.
+        if len(ratios) >= 2:
+            q1, q3 = (float(x) for x in np.percentile(ratios, [25, 75]))
+            dispersion = q3 / q1 if q1 > 0 else float("inf")
+        else:
+            dispersion = 1.0
         low = dispersion > dispersion_limit
         base = (f"{len(pts)} bridge point(s) from {len(used)} element(s) "
                 f"({sorted(used)}) for {e}->{reference_energy} keV: weighted-median scale "
-                f"{est:.3f}, dispersion {dispersion:.2f}x (limit {dispersion_limit}).")
+                f"{est:.3f}, IQR dispersion {dispersion:.2f}x (limit {dispersion_limit}).")
         if low and on_low_confidence == "raise":
             raise CrossCalibrationError(
                 base + " Refusing per bridge_low_confidence='raise'.")

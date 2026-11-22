@@ -127,23 +127,24 @@ def test_bridge_weights_by_pixel_count():
     assert scale[2.9] == pytest.approx(2.0)   # weighted-median pulled to the heavy cluster
 
 
-def _two_cluster_high_dispersion():
-    # ratios 1 and 5 -> dispersion 5x; weighted median (equal weight) = 3.0
-    per = {2.9: {0: {"Si": 1.0}, 1: {"Si": 1.0}}, 13.55: {0: {"Si": 1.0}, 1: {"Si": 5.0}}}
+def _high_dispersion():
+    # four clusters with ratios [1,1,10,10] -> IQR ratio p75/p25 = 10x; weighted median = 5.5
+    per = {2.9: {0: {"Si": 1.0}, 1: {"Si": 1.0}, 2: {"Si": 1.0}, 3: {"Si": 1.0}},
+           13.55: {0: {"Si": 1.0}, 1: {"Si": 1.0}, 2: {"Si": 10.0}, 3: {"Si": 10.0}}}
     return per, {("Si", 2.9): 1.0, ("Si", 13.55): 1.0}
 
 
 def test_bridge_low_confidence_flag_applies_with_warning():
-    per, s = _two_cluster_high_dispersion()
+    per, s = _high_dispersion()
     scale, diags = bridge_cross_calibration(
         per, [_ref("Si", 14)], [2.9, 13.55], reference_energy=13.55, edge_fn=lambda r: 1.0,
         dispersion_limit=2.0, on_low_confidence="flag", _compute=_fake_compute(s))
-    assert scale[2.9] == pytest.approx(3.0)   # applied despite dispersion
+    assert scale[2.9] == pytest.approx(5.5)   # applied despite dispersion
     assert any(d.code == "bridge_low_confidence" and d.severity == "warning" for d in diags)
 
 
 def test_bridge_low_confidence_refuse_leaves_scale_one():
-    per, s = _two_cluster_high_dispersion()
+    per, s = _high_dispersion()
     scale, diags = bridge_cross_calibration(
         per, [_ref("Si", 14)], [2.9, 13.55], reference_energy=13.55, edge_fn=lambda r: 1.0,
         dispersion_limit=2.0, on_low_confidence="refuse", _compute=_fake_compute(s))
@@ -152,7 +153,7 @@ def test_bridge_low_confidence_refuse_leaves_scale_one():
 
 
 def test_bridge_low_confidence_raise():
-    per, s = _two_cluster_high_dispersion()
+    per, s = _high_dispersion()
     with pytest.raises(CrossCalibrationError):
         bridge_cross_calibration(
             per, [_ref("Si", 14)], [2.9, 13.55], reference_energy=13.55, edge_fn=lambda r: 1.0,
