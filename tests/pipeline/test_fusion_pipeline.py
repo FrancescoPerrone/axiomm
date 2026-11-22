@@ -25,6 +25,14 @@ def test_config_dict_records_fusion_settings():
     assert cfg["normalize"] is False
     assert cfg["exclude_elements"] == ["Ba"]
     assert "line_resolution_kev" in cfg
+    assert "bridge_dispersion_limit" in cfg and "bridge_low_confidence" in cfg
+
+
+def test_bridge_low_confidence_config_validation():
+    with pytest.raises(Exception):
+        Pipeline(bridge_low_confidence="sometimes")
+    with pytest.raises(Exception):
+        Pipeline(bridge_dispersion_limit=0.5)
 
 
 def _map(seed=0, ny=8, nx=10, ne=400):

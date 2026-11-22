@@ -56,10 +56,17 @@ class RegistrationError(AxiommAnalysisError):
     """
 
 
+class CrossCalibrationError(AxiommAnalysisError):
+    """Raised when a bridge cross-energy calibration is too inconsistent to trust
+    and the configured policy (``bridge_low_confidence="raise"``) is to stop rather
+    than apply or skip a dubious correction."""
+
+
 __all__ = [
     "AnalysisDependencyError",
     "AxiommAnalysisError",
     "BackendNotFoundError",
+    "CrossCalibrationError",
     "OutputExistsError",
     "PayloadSerializationError",
     "PayloadValidationError",

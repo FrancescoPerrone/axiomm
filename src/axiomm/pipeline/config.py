@@ -60,6 +60,8 @@ class PipelineConfig:
     classification: object = "family_aware"   # label policy: name / dict / ClassificationPolicy instance
     fusion_cross_cal: str = "bridge"           # multi-energy cross-calibration: "bridge" or "none"
     fusion_clustering: str = "fused"           # cluster on "fused" (all energies) or "primary" (highest) features
+    bridge_dispersion_limit: float = 2.0       # bridge ratios spreading wider than this (max/min) = low confidence
+    bridge_low_confidence: str = "flag"        # what to do then: "flag" (apply+warn), "refuse" (scale=1+warn), "raise"
     extra: dict = field(default_factory=dict)   # reserved for future settings
 
     def __post_init__(self) -> None:
@@ -94,6 +96,15 @@ class PipelineConfig:
         if self.fusion_clustering not in ("fused", "primary"):
             raise PayloadValidationError(
                 f"Pipeline fusion_clustering must be 'fused' or 'primary'; got {self.fusion_clustering!r}.")
+        dl = self.bridge_dispersion_limit
+        if not (isinstance(dl, (int, float)) and not isinstance(dl, bool)
+                and math.isfinite(float(dl)) and dl >= 1.0):
+            raise PayloadValidationError(
+                f"Pipeline bridge_dispersion_limit must be a finite number >= 1.0; got {dl!r}.")
+        if self.bridge_low_confidence not in ("flag", "refuse", "raise"):
+            raise PayloadValidationError(
+                "Pipeline bridge_low_confidence must be 'flag', 'refuse', or 'raise'; "
+                f"got {self.bridge_low_confidence!r}.")
 
 
 __all__ = ["PipelineConfig"]

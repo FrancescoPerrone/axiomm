@@ -442,9 +442,13 @@ class Pipeline:
             per_energy_net = {
                 e: {ps.cluster_id: {m.label: m.net for m in ps.measurements} for ps in psets}
                 for e, psets in per_energy_peaks.items()}
+            cluster_weights = {int(cid): int(pc) for cid, pc
+                               in zip(primary_means.cluster_ids, primary_means.pixel_counts, strict=True)}
             scale, cc_diag = bridge_cross_calibration(
                 per_energy_net, element_refs, list(payloads),
-                reference_energy=source_energy[cfg.reference_element], edge_fn=element_edge_kev)
+                reference_energy=source_energy[cfg.reference_element], edge_fn=element_edge_kev,
+                cluster_weights=cluster_weights, dispersion_limit=cfg.bridge_dispersion_limit,
+                on_low_confidence=cfg.bridge_low_confidence)
             diagnostics += cc_diag
         fused_peaks = fuse_peak_sets(per_energy_peaks, source_energy)
         source_refs = [r for r in element_refs if source_energy.get(r.symbol) is not None]
@@ -493,7 +497,9 @@ class Pipeline:
                 "exclude_elements": sorted(c.exclude_elements),
                 "line_resolution_kev": c.line_resolution_kev,
                 "fusion_clustering": c.fusion_clustering,
-                "fusion_cross_cal": c.fusion_cross_cal}
+                "fusion_cross_cal": c.fusion_cross_cal,
+                "bridge_dispersion_limit": c.bridge_dispersion_limit,
+                "bridge_low_confidence": c.bridge_low_confidence}
 
     def _provenance(self, cfg, decomp, clustering, reference, policy=None) -> dict:
         return {

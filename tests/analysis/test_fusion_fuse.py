@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from axiomm.analysis.errors import PayloadValidationError
+from axiomm.analysis.errors import CrossCalibrationError, PayloadValidationError
 from axiomm.analysis.fusion import (
     bridge_cross_calibration,
     fuse_net_intensities,
@@ -115,6 +115,48 @@ def test_bridge_unresolved_energy_warns_and_leaves_scale_one():
         edge_fn=lambda r: 1.0, _compute=_fake_compute(s))
     assert scale[2.9] == 1.0
     assert any(d.code == "bridge_unresolved_energy" and d.severity == "warning" for d in diags)
+
+
+def test_bridge_weights_by_pixel_count():
+    # one bridge element, two clusters (ratios 2 and 4); the 10x-heavier cluster dominates
+    per = {2.9: {0: {"Si": 1.0}, 1: {"Si": 1.0}}, 13.55: {0: {"Si": 2.0}, 1: {"Si": 4.0}}}
+    s = {("Si", 2.9): 1.0, ("Si", 13.55): 1.0}
+    scale, _ = bridge_cross_calibration(
+        per, [_ref("Si", 14)], [2.9, 13.55], reference_energy=13.55, edge_fn=lambda r: 1.0,
+        cluster_weights={0: 10, 1: 1}, _compute=_fake_compute(s))
+    assert scale[2.9] == pytest.approx(2.0)   # weighted-median pulled to the heavy cluster
+
+
+def _two_cluster_high_dispersion():
+    # ratios 1 and 5 -> dispersion 5x; weighted median (equal weight) = 3.0
+    per = {2.9: {0: {"Si": 1.0}, 1: {"Si": 1.0}}, 13.55: {0: {"Si": 1.0}, 1: {"Si": 5.0}}}
+    return per, {("Si", 2.9): 1.0, ("Si", 13.55): 1.0}
+
+
+def test_bridge_low_confidence_flag_applies_with_warning():
+    per, s = _two_cluster_high_dispersion()
+    scale, diags = bridge_cross_calibration(
+        per, [_ref("Si", 14)], [2.9, 13.55], reference_energy=13.55, edge_fn=lambda r: 1.0,
+        dispersion_limit=2.0, on_low_confidence="flag", _compute=_fake_compute(s))
+    assert scale[2.9] == pytest.approx(3.0)   # applied despite dispersion
+    assert any(d.code == "bridge_low_confidence" and d.severity == "warning" for d in diags)
+
+
+def test_bridge_low_confidence_refuse_leaves_scale_one():
+    per, s = _two_cluster_high_dispersion()
+    scale, diags = bridge_cross_calibration(
+        per, [_ref("Si", 14)], [2.9, 13.55], reference_energy=13.55, edge_fn=lambda r: 1.0,
+        dispersion_limit=2.0, on_low_confidence="refuse", _compute=_fake_compute(s))
+    assert scale[2.9] == 1.0
+    assert any(d.code == "bridge_low_confidence" for d in diags)
+
+
+def test_bridge_low_confidence_raise():
+    per, s = _two_cluster_high_dispersion()
+    with pytest.raises(CrossCalibrationError):
+        bridge_cross_calibration(
+            per, [_ref("Si", 14)], [2.9, 13.55], reference_energy=13.55, edge_fn=lambda r: 1.0,
+            dispersion_limit=2.0, on_low_confidence="raise", _compute=_fake_compute(s))
 
 
 def test_bridge_cross_calibration_none_when_no_bridge():

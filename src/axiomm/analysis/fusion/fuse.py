@@ -20,7 +20,7 @@ in S8.4.
 
 from __future__ import annotations
 
-from axiomm.analysis.errors import PayloadValidationError
+from axiomm.analysis.errors import CrossCalibrationError, PayloadValidationError
 from axiomm.analysis.models import AnalysisProvenance, Diagnostic
 from axiomm.analysis.quant import compute_k_factors
 from axiomm.analysis.quant.models import KFactorSet
@@ -136,19 +136,37 @@ def fused_k_factors(element_refs, source_energy, *, reference, scale=None,
 
 
 def bridge_cross_calibration(per_energy_net, element_refs, energies, *, reference_energy,
-                             edge_fn, _compute=None):
+                             edge_fn, cluster_weights=None, dispersion_limit=2.0,
+                             on_low_confidence="flag", _compute=None):
     """Cross-energy scale from **bridge elements** — those excited at ≥2 energies.
 
     An element measurable at two energies should report the same concentration from
-    either; the ratio sets a per-energy multiplicative scale (relative to
-    ``reference_energy``) that rebalances the light-vs-mid-Z footing. Returns
-    ``({energy: scale}, diagnostics)``. ``per_energy_net`` maps
-    ``energy -> {cluster_id: {symbol: net}}``; ``edge_fn(ref) -> edge_keV`` and the
+    either; the disagreement sets a per-energy multiplicative scale (relative to
+    ``reference_energy``) that rebalances the light-vs-mid-Z footing.
+
+    The estimate is built from **shared spatial support**: for each bridge element
+    and each cluster measured (net > 0) at *both* energies, one ratio
+    ``(net_ref/S_ref)/(net_e/S_e)``, **weighted** by the cluster's pixel count
+    (``cluster_weights``, ``{cluster_id: n_pixels}``; absent → unit weight). The
+    per-energy scale is the **weighted median** of those points; the **dispersion**
+    (max/min ratio) measures bridge consistency. When dispersion exceeds
+    ``dispersion_limit`` the bridge is *low confidence* and ``on_low_confidence``
+    decides: ``"flag"`` applies it with a warning, ``"refuse"`` leaves the energy
+    uncorrected (scale 1) with a warning, ``"raise"`` raises
+    :class:`~axiomm.analysis.errors.CrossCalibrationError`.
+
+    Returns ``({energy: scale}, diagnostics)``. ``edge_fn(ref) -> edge_keV`` and the
     sensitivity source ``_compute`` are injectable so the logic tests without xraylib.
+
+    The scale is a single per-energy *rebalancing* factor, not a per-element or
+    matrix correction; a large dispersion signals the per-energy model is a poor
+    fit, which is why it is reported and gated rather than hidden.
     """
     compute = _compute or compute_k_factors
     refs_by_sym = {r.symbol: r for r in element_refs}
     energies = sorted(float(e) for e in energies)
+    reference_energy = float(reference_energy)
+    weights = {int(c): float(w) for c, w in (cluster_weights or {}).items()}
     exciting = {r.symbol: [e for e in energies if e > float(edge_fn(r))] for r in element_refs}
     bridge = [s for s, es in exciting.items() if len(es) >= 2]
     diagnostics: list[Diagnostic] = []
@@ -167,44 +185,75 @@ def bridge_cross_calibration(per_energy_net, element_refs, energies, *, referenc
             for sym, s in ks.sensitivities.items():
                 sens[(sym, e)] = s
 
-    def concentration(sym, e):
-        vals = [per_energy_net[e][c][sym] for c in per_energy_net.get(e, {})
-                if per_energy_net[e][c].get(sym, 0.0) > 0]
-        s = sens.get((sym, e))
-        return (sum(vals) / len(vals)) / s if vals and s and s > 0 else None
+    def points_for(e):
+        """``([(ratio, weight)], {contributing symbols})`` over shared-support clusters."""
+        pts: list[tuple[float, float]] = []
+        used: set[str] = set()
+        net_e, net_r = per_energy_net.get(e, {}), per_energy_net.get(reference_energy, {})
+        for sym in bridge:
+            if not (e in exciting[sym] and reference_energy in exciting[sym]):
+                continue
+            s_e, s_r = sens.get((sym, e)), sens.get((sym, reference_energy))
+            if not (s_e and s_e > 0 and s_r and s_r > 0):
+                continue
+            for c in set(net_e) & set(net_r):
+                ne, nr = net_e[c].get(sym, 0.0), net_r[c].get(sym, 0.0)
+                if ne > 0 and nr > 0:
+                    pts.append(((nr / s_r) / (ne / s_e), weights.get(int(c), 1.0)))
+                    used.add(sym)
+        return pts, used
 
     for e in energies:
         if e == reference_energy:
             continue
-        ratios = []
-        for sym in bridge:
-            if e in exciting[sym] and reference_energy in exciting[sym]:
-                cr, ce = concentration(sym, reference_energy), concentration(sym, e)
-                if cr and ce and ce > 0:
-                    ratios.append(cr / ce)
-        if ratios:
-            scale[e] = _median(ratios)               # true median bridge ratio
-            spread = max(ratios) / min(ratios) if min(ratios) > 0 else float("inf")
-            diagnostics.append(Diagnostic(
-                "info", "bridge_cross_calibration",
-                f"{len(ratios)} bridge element(s) set the {e}->{reference_energy} keV cross-energy "
-                f"scale to {scale[e]:.3f} (raw spread {spread:.2f}x before correction)."))
-        else:
-            # bridge elements exist in the group, but none has a usable measured pair
-            # at BOTH this energy and the reference energy — scale stays 1 (uncorrected).
+        pts, used = points_for(e)
+        if not pts:
             diagnostics.append(Diagnostic(
                 "warning", "bridge_unresolved_energy",
                 f"no usable bridge pair links {e} keV to the {reference_energy} keV reference; "
                 f"its cross-energy scale is left at 1.0 (uncorrected)."))
+            continue
+        est = _weighted_median(pts)
+        ratios = [r for r, _ in pts]
+        dispersion = max(ratios) / min(ratios) if min(ratios) > 0 else float("inf")
+        low = dispersion > dispersion_limit
+        base = (f"{len(pts)} bridge point(s) from {len(used)} element(s) "
+                f"({sorted(used)}) for {e}->{reference_energy} keV: weighted-median scale "
+                f"{est:.3f}, dispersion {dispersion:.2f}x (limit {dispersion_limit}).")
+        if low and on_low_confidence == "raise":
+            raise CrossCalibrationError(
+                base + " Refusing per bridge_low_confidence='raise'.")
+        if low and on_low_confidence == "refuse":
+            diagnostics.append(Diagnostic(
+                "warning", "bridge_low_confidence",
+                base + " Low confidence: correction refused, scale left at 1.0."))
+            continue
+        scale[e] = est
+        diagnostics.append(Diagnostic(
+            "warning" if low else "info",
+            "bridge_low_confidence" if low else "bridge_cross_calibration",
+            base + (" Low confidence: applied with caution." if low else " Applied.")))
     return scale, diagnostics
 
 
-def _median(values):
-    """True median: the average of the two middle values for an even count."""
-    s = sorted(values)
-    n = len(s)
-    mid = n // 2
-    return s[mid] if n % 2 else 0.5 * (s[mid - 1] + s[mid])
+def _weighted_median(points):
+    """Weighted median of ``[(value, weight)]``; averages the two central values
+    when the cumulative weight splits exactly in half (so equal weights reproduce
+    the ordinary median, incl. the even-count average)."""
+    pts = sorted(points, key=lambda p: p[0])
+    total = sum(w for _, w in pts)
+    if total <= 0:
+        vals = [v for v, _ in pts]
+        n = len(vals)
+        return vals[n // 2] if n % 2 else 0.5 * (vals[n // 2 - 1] + vals[n // 2])
+    half, acc = total / 2.0, 0.0
+    for i, (v, w) in enumerate(pts):
+        acc += w
+        if acc > half:
+            return v
+        if acc == half:
+            return 0.5 * (v + pts[i + 1][0]) if i + 1 < len(pts) else v
+    return pts[-1][0]
 
 
 __all__ = ["bridge_cross_calibration", "fuse_net_intensities", "fuse_peak_sets", "fused_k_factors"]
