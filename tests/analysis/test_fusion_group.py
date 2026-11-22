@@ -56,6 +56,28 @@ def test_group_rejects_non_energymap_members():
         MultiEnergyMapGroup((object(),))
 
 
+def test_from_files_reads_and_builds_group(tmp_path):
+    h5py = pytest.importorskip("h5py")
+
+    def _h5(path):
+        with h5py.File(path, "w") as f:
+            f.create_dataset("/xrmmap/mcasum/counts",
+                             data=np.random.default_rng(0).integers(0, 100, (4, 4, 16), dtype=np.int32))
+        return str(path)
+
+    g = MultiEnergyMapGroup.from_files([(2.9, _h5(tmp_path / "lo.h5")),
+                                        (13.55, _h5(tmp_path / "hi.h5"))])
+    assert len(g) == 2 and g.energies() == (2.9, 13.55)
+    assert all(hasattr(m.payload, "data") and hasattr(m.payload, "axes") for m in g)
+
+
+def test_from_files_no_reader_raises(tmp_path):
+    bad = tmp_path / "x.txt"
+    bad.write_text("not a map")
+    with pytest.raises(PayloadValidationError):
+        MultiEnergyMapGroup.from_files([(2.9, str(bad))])
+
+
 # -- registration verify -----------------------------------------------------
 
 def test_verify_registration_ok_same_grid():

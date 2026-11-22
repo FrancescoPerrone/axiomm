@@ -61,6 +61,28 @@ class MultiEnergyMapGroup:
         """Build from ``[(excitation_kev, payload), ...]`` — the ergonomic constructor."""
         return cls(tuple(EnergyMap(kev, payload) for kev, payload in pairs))
 
+    @classmethod
+    def from_files(cls, pairs) -> MultiEnergyMapGroup:
+        """Build from ``[(excitation_kev, path), ...]`` — read each file with the
+        converter's reader registry (the same auto-detection ``Pipeline.run`` uses),
+        so a user writes ``MultiEnergyMapGroup.from_files([(2.9, "lo.h5"), (13.55,
+        "hi.h5")])`` with no reader imports."""
+        from pathlib import Path
+
+        from axiomm.io.converters.registry import readers
+        maps = []
+        for kev, path in pairs:
+            p = Path(path)
+            candidates = [r for r in readers if r.can_read(p)]
+            if not candidates:
+                raise PayloadValidationError(
+                    f"no reader can read {p.name!r}; known readers: {readers.names()}.")
+            if len(candidates) > 1:
+                raise PayloadValidationError(
+                    f"multiple readers accept {p.name!r}: {[c.name for c in candidates]}.")
+            maps.append(EnergyMap(kev, candidates[0].read(p, lazy=False)))
+        return cls(tuple(maps))
+
     def energies(self) -> tuple[float, ...]:
         return tuple(m.excitation_kev for m in self.maps)
 
