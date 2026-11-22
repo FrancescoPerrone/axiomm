@@ -58,6 +58,7 @@ class PipelineConfig:
     line_resolution_kev: float = 0.13    # detector FWHM proxy; lines closer than this overlap
     normalize: bool = True               # divide by the payload's intensity_norm (I0/dead-time) when present
     classification: object = "family_aware"   # label policy: name / dict / ClassificationPolicy instance
+    fusion_cross_cal: str = "bridge"           # multi-energy cross-calibration: "bridge" or "none"
     extra: dict = field(default_factory=dict)   # reserved for future settings
 
     def __post_init__(self) -> None:
@@ -86,6 +87,9 @@ class PipelineConfig:
                     f"Pipeline beam_energy_kev must be a finite number > 0 (or None); got {b!r}.")
         if not isinstance(self.reference_element, str) or not self.reference_element:
             raise PayloadValidationError("Pipeline reference_element must be a non-empty string.")
+        if self.fusion_cross_cal not in ("bridge", "none"):
+            raise PayloadValidationError(
+                f"Pipeline fusion_cross_cal must be 'bridge' or 'none'; got {self.fusion_cross_cal!r}.")
 
 
 __all__ = ["PipelineConfig"]

@@ -11,6 +11,7 @@ hook follow.
 from __future__ import annotations
 
 from axiomm.analysis.fusion.fuse import (
+    bridge_cross_calibration,
     fuse_net_intensities,
     fuse_peak_sets,
     fused_k_factors,
@@ -29,6 +30,7 @@ __all__ = [
     "EnergyMap",
     "EnergySelectionPolicy",
     "MultiEnergyMapGroup",
+    "bridge_cross_calibration",
     "energy_selectors",
     "fuse_net_intensities",
     "fuse_peak_sets",

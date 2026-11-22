@@ -382,7 +382,13 @@ class Pipeline:
 
     def _quantify_and_match_fused(self, group, payloads, clustering, primary_means,
                                   reference, cfg, diagnostics):
-        from axiomm.analysis.fusion import fuse_peak_sets, fused_k_factors, select_energies
+        from axiomm.analysis.fusion import (
+            bridge_cross_calibration,
+            fuse_peak_sets,
+            fused_k_factors,
+            select_energies,
+        )
+        from axiomm.analysis.fusion.selection import element_edge_kev
         primary = payloads[max(payloads)]
         cations, signal_axis = self._cations_for_quant(primary, reference, cfg, diagnostics)
         element_refs = reference.element_refs(cations)
@@ -399,9 +405,20 @@ class Pipeline:
             raise PayloadValidationError(
                 f"reference_element {cfg.reference_element!r} is not excited by any supplied "
                 "energy in the group; choose a reference measurable by one of the energies.")
+        # Bridge-element cross-calibration: elements measurable at >1 energy set a
+        # per-energy scale that rebalances the light-vs-mid-Z footing (folded into k).
+        scale = None
+        if cfg.fusion_cross_cal == "bridge":
+            per_energy_net = {
+                e: {ps.cluster_id: {m.label: m.net for m in ps.measurements} for ps in psets}
+                for e, psets in per_energy_peaks.items()}
+            scale, cc_diag = bridge_cross_calibration(
+                per_energy_net, element_refs, list(payloads),
+                reference_energy=source_energy[cfg.reference_element], edge_fn=element_edge_kev)
+            diagnostics += cc_diag
         fused_peaks = fuse_peak_sets(per_energy_peaks, source_energy)
         source_refs = [r for r in element_refs if source_energy.get(r.symbol) is not None]
-        k = fused_k_factors(source_refs, source_energy, reference=cfg.reference_element)
+        k = fused_k_factors(source_refs, source_energy, reference=cfg.reference_element, scale=scale)
         quant_elements = self._quant_elements(reference, source_refs)
         quant = quantify_cluster_means(list(fused_peaks), k, quant_elements, reference_name=reference.name)
         reliability = assess_cluster_reliability(

@@ -5,7 +5,11 @@ from __future__ import annotations
 import pytest
 
 from axiomm.analysis.errors import PayloadValidationError
-from axiomm.analysis.fusion import fuse_net_intensities, fused_k_factors
+from axiomm.analysis.fusion import (
+    bridge_cross_calibration,
+    fuse_net_intensities,
+    fused_k_factors,
+)
 from axiomm.analysis.mineralogy.reference import ElementRef
 from axiomm.analysis.quant.models import KFactorSet
 
@@ -62,6 +66,43 @@ def test_fused_k_uses_per_element_measurement_energy():
 def test_fused_k_reference_not_excited_raises():
     with pytest.raises(PayloadValidationError):
         fused_k_factors([_ref("Si", 14)], {"Si": None}, reference="Si")
+
+
+def test_fused_k_applies_cross_energy_scale():
+    s = {("Si", 2.9): 4.0, ("Fe", 13.55): 1.0}
+    refs = [_ref("Si", 14), _ref("Fe", 26)]
+    source = {"Si": 2.9, "Fe": 13.55}
+    scale = {2.9: 0.5, 13.55: 1.0}
+    ks = fused_k_factors(refs, source, reference="Si", scale=scale, _compute=_fake_compute(s))
+    # Si (at 2.9) gets scaled by 0.5: k_Si = (4/4) * 0.5 = 0.5; Fe unscaled: 4/1 * 1 = 4
+    assert ks.k_factors["Si"] == pytest.approx(0.5)
+    assert ks.k_factors["Fe"] == pytest.approx(4.0)
+
+
+# -- bridge-element cross-calibration (S8.6) ---------------------------------
+
+def test_bridge_cross_calibration_derives_scale():
+    # Si (edge 1.84) is excited at both energies -> a bridge element.
+    per_energy_net = {2.9: {0: {"Si": 10.0}}, 13.55: {0: {"Si": 2.0}}}
+    s = {("Si", 2.9): 2.0, ("Si", 13.55): 1.0}
+    scale, diags = bridge_cross_calibration(
+        per_energy_net, [_ref("Si", 14)], [2.9, 13.55], reference_energy=13.55,
+        edge_fn=lambda r: 1.84, _compute=_fake_compute(s))
+    # conc(Si,13.55)=2/1=2 ; conc(Si,2.9)=10/2=5 ; scale[2.9]=2/5=0.4
+    assert scale[13.55] == 1.0
+    assert scale[2.9] == pytest.approx(0.4)
+    assert any(d.code == "bridge_cross_calibration" for d in diags)
+
+
+def test_bridge_cross_calibration_none_when_no_bridge():
+    # Ca and Ti are each excited only at 13.55 keV (edges 4.04 / 4.97) -> no bridge.
+    per_energy_net = {2.9: {0: {}}, 13.55: {0: {"Ca": 5.0, "Ti": 3.0}}}
+    edges = {"Ca": 4.04, "Ti": 4.97}
+    scale, diags = bridge_cross_calibration(
+        per_energy_net, [_ref("Ca", 20), _ref("Ti", 22)], [2.9, 13.55], reference_energy=13.55,
+        edge_fn=lambda r: edges[r.symbol], _compute=_fake_compute({}))
+    assert scale == {2.9: 1.0, 13.55: 1.0}
+    assert any(d.code == "bridge_none" for d in diags)
 
 
 def test_real_xraylib_fused_k_factors():

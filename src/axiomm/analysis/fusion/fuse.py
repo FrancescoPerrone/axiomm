@@ -85,16 +85,20 @@ def fuse_peak_sets(per_energy_peak_sets, source_energy):
     return tuple(fused)
 
 
-def fused_k_factors(element_refs, source_energy, *, reference, _compute=None) -> KFactorSet:
+def fused_k_factors(element_refs, source_energy, *, reference, scale=None,
+                    _compute=None) -> KFactorSet:
     """A :class:`KFactorSet` with each element's k-factor at its measurement energy.
 
     ``source_energy`` maps ``symbol -> excitation_kev`` (``None`` elements are
     skipped). Each element's sensitivity is taken at its own energy, and
-    ``k_i = S_ref(E_ref) / S_i(E_i)`` so all elements land on one footing. The
-    xraylib sensitivity source is injectable (``_compute``) so the logic tests
-    without xraylib. Per-element source energies are recorded in provenance.
+    ``k_i = S_ref(E_ref) / S_i(E_i)`` so all elements land on one footing.
+    ``scale`` is an optional ``{energy: factor}`` cross-energy correction (from the
+    bridge-element calibration) folded in as ``k_i *= scale[E_i]``, rebalancing the
+    energies. The xraylib sensitivity source is injectable (``_compute``) so the
+    logic tests without xraylib; per-element source energies are in provenance.
     """
     compute = _compute or compute_k_factors
+    scale = scale or {}
     refs_by_sym = {r.symbol: r for r in element_refs}
     source = {s: float(e) for s, e in source_energy.items() if e is not None}
     if reference not in source:
@@ -116,7 +120,8 @@ def fused_k_factors(element_refs, source_energy, *, reference, _compute=None) ->
 
     e_ref = source[reference]
     s_ref = sensitivities[reference]
-    k_factors = {sym: s_ref / sensitivities[sym] for sym in source}
+    k_factors = {sym: (s_ref / sensitivities[sym]) * float(scale.get(source[sym], 1.0))
+                 for sym in source}
     return KFactorSet(
         k_factors=k_factors, sensitivities=dict(sensitivities),
         reference_element=reference, excitation_kev=e_ref,
@@ -124,9 +129,68 @@ def fused_k_factors(element_refs, source_energy, *, reference, _compute=None) ->
             tool="fusion", backend="cross_energy_kfactors",
             params={"source_energy_kev": {s: e for s, e in source.items()},
                     "reference_element": reference, "reference_energy_kev": e_ref,
+                    "cross_energy_scale": {e: float(f) for e, f in scale.items()},
                     "method": "per-element k-factor at best-excited energy "
                               "(I0+live-time+dead-time normalized intensities)"}),
         diagnostics=diagnostics)
+
+
+def bridge_cross_calibration(per_energy_net, element_refs, energies, *, reference_energy,
+                             edge_fn, _compute=None):
+    """Cross-energy scale from **bridge elements** — those excited at ≥2 energies.
+
+    An element measurable at two energies should report the same concentration from
+    either; the ratio sets a per-energy multiplicative scale (relative to
+    ``reference_energy``) that rebalances the light-vs-mid-Z footing. Returns
+    ``({energy: scale}, diagnostics)``. ``per_energy_net`` maps
+    ``energy -> {cluster_id: {symbol: net}}``; ``edge_fn(ref) -> edge_keV`` and the
+    sensitivity source ``_compute`` are injectable so the logic tests without xraylib.
+    """
+    compute = _compute or compute_k_factors
+    refs_by_sym = {r.symbol: r for r in element_refs}
+    energies = sorted(float(e) for e in energies)
+    exciting = {r.symbol: [e for e in energies if e > float(edge_fn(r))] for r in element_refs}
+    bridge = [s for s, es in exciting.items() if len(es) >= 2]
+    diagnostics: list[Diagnostic] = []
+    scale = {e: 1.0 for e in energies}
+    if not bridge:
+        diagnostics.append(Diagnostic(
+            "info", "bridge_none",
+            "no element is excited by more than one energy; cross-energy scale left at 1."))
+        return scale, diagnostics
+
+    sens: dict[tuple, float] = {}
+    for e in energies:
+        excited = [refs_by_sym[s] for s in exciting if e in exciting[s]]
+        if excited:
+            ks = compute(excited, excitation_kev=e, reference=excited[0].symbol)
+            for sym, s in ks.sensitivities.items():
+                sens[(sym, e)] = s
+
+    def concentration(sym, e):
+        vals = [per_energy_net[e][c][sym] for c in per_energy_net.get(e, {})
+                if per_energy_net[e][c].get(sym, 0.0) > 0]
+        s = sens.get((sym, e))
+        return (sum(vals) / len(vals)) / s if vals and s and s > 0 else None
+
+    for e in energies:
+        if e == reference_energy:
+            continue
+        ratios = []
+        for sym in bridge:
+            if e in exciting[sym] and reference_energy in exciting[sym]:
+                cr, ce = concentration(sym, reference_energy), concentration(sym, e)
+                if cr and ce and ce > 0:
+                    ratios.append(cr / ce)
+        if ratios:
+            ratios.sort()
+            scale[e] = ratios[len(ratios) // 2]      # median bridge ratio
+            spread = max(ratios) / min(ratios) if min(ratios) > 0 else float("inf")
+            diagnostics.append(Diagnostic(
+                "info", "bridge_cross_calibration",
+                f"{len(ratios)} bridge element(s) set the {e}->{reference_energy} keV cross-energy "
+                f"scale to {scale[e]:.3f} (raw spread {spread:.2f}x before correction)."))
+    return scale, diagnostics
 
 
 __all__ = ["fuse_net_intensities", "fused_k_factors"]
