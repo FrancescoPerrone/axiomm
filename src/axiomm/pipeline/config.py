@@ -62,6 +62,7 @@ class PipelineConfig:
     fusion_clustering: str = "fused"           # cluster on "fused" (all energies) or "primary" (highest) features
     bridge_dispersion_limit: float = 2.0       # bridge ratios spreading wider than this (max/min) = low confidence
     bridge_low_confidence: str = "flag"        # what to do then: "flag" (apply+warn), "refuse" (scale=1+warn), "raise"
+    energy_selection: object = "best_excited"  # fusion per-element energy policy: name / policy instance
     extra: dict = field(default_factory=dict)   # reserved for future settings
 
     def __post_init__(self) -> None:
@@ -110,6 +111,11 @@ class PipelineConfig:
             raise PayloadValidationError(
                 "Pipeline bridge_low_confidence must be 'flag', 'refuse', or 'raise'; "
                 f"got {self.bridge_low_confidence!r}.")
+        es = self.energy_selection
+        if not (es is None or isinstance(es, str) or hasattr(es, "select")):
+            raise PayloadValidationError(
+                "Pipeline energy_selection must be a policy name (str) or a policy object with "
+                f"a select() method; got {type(es).__name__}.")
 
 
 __all__ = ["PipelineConfig"]

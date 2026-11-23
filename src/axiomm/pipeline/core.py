@@ -43,6 +43,17 @@ _FACADE_ALIASES = {
 }
 
 
+def _signal_axis(payload):
+    """The payload's signal (energy) axis."""
+    return next(a for a in payload.axes if a.role == "signal")
+
+
+def _signal_range(axis):
+    """``(emin, emax)`` keV spanned by a signal axis."""
+    emin = float(axis.offset)
+    return emin, emin + float(axis.scale) * (int(axis.size) - 1)
+
+
 class Pipeline:
     """Run the whole analysis with one call: ``Pipeline().run(source)``.
 
@@ -290,16 +301,19 @@ class Pipeline:
 
     # -- stages --------------------------------------------------------------
     def _cations_for_quant(self, payload, reference, cfg, diagnostics):
-        """In-range, honestly-filtered cations + the signal axis (shared by the
-        single-energy and fusion paths)."""
-        signal_axis = next(a for a in payload.axes if a.role == "signal")
-        emin = float(signal_axis.offset)
-        emax = float(signal_axis.offset) + float(signal_axis.scale) * (int(signal_axis.size) - 1)
-        # in-range cations from the reference (structural elements like O/Br/I excluded)
-        cations = list(reference.cations_in_range(emin, emax))
-        # Honest quantification: drop user-excluded interferents, then refuse to
-        # quantify emission lines the detector cannot resolve (report them, never
-        # guess which element a blended peak belongs to).
+        """In-range, honestly-filtered cations + the signal axis (single-energy path)."""
+        signal_axis = _signal_axis(payload)
+        emin, emax = _signal_range(signal_axis)
+        cations = self._filter_cations(
+            reference.cations_in_range(emin, emax), reference, cfg, diagnostics,
+            where=f"the energy range [{emin:.2f}, {emax:.2f}] keV")
+        return cations, signal_axis
+
+    def _filter_cations(self, cations, reference, cfg, diagnostics, *, where):
+        """Honest quantification: drop user-excluded interferents, then refuse to
+        quantify emission lines the detector cannot resolve (report them, never guess
+        which element a blended peak belongs to). ``where`` names the range for errors."""
+        cations = list(cations)
         if cfg.exclude_elements:
             dropped = sorted(c for c in cations if c in cfg.exclude_elements)
             cations = [c for c in cations if c not in cfg.exclude_elements]
@@ -321,10 +335,9 @@ class Pipeline:
         if cfg.reference_element not in cations:
             raise PayloadValidationError(
                 f"reference_element {cfg.reference_element!r} is not available for "
-                f"quantification: no line in the energy range [{emin:.2f}, {emax:.2f}] "
-                "keV, or it was excluded / lost to a line overlap; choose a measurable, "
-                "resolved reference_element.")
-        return cations, signal_axis
+                f"quantification: no line in {where}, or it was excluded / lost to a line "
+                "overlap; choose a measurable, resolved reference_element.")
+        return cations
 
     def _quant_elements(self, reference, cation_refs):
         """The element refs to quantify: the cations plus O when the reference has it."""
@@ -332,6 +345,11 @@ class Pipeline:
         if "O" in reference.elements:
             quant_elements.append(reference.elements["O"])
         return quant_elements
+
+    def _resolve_energy_selection(self, cfg):
+        """The fusion per-element energy-selection policy: a name, a policy instance, or
+        ``None`` (the default ``best_excited``). ``select_energies`` resolves a name."""
+        return cfg.energy_selection
 
     def _quantify_and_match(self, payload, means, reference, cfg, diagnostics):
         cations, signal_axis = self._cations_for_quant(payload, reference, cfg, diagnostics)
@@ -451,17 +469,26 @@ class Pipeline:
             select_energies,
         )
         from axiomm.analysis.fusion.selection import element_edge_kev
-        primary = payloads[max(payloads)]
-        cations, signal_axis = self._cations_for_quant(primary, reference, cfg, diagnostics)
+        # Eligible cations = union of each map's in-range cations (maps may span
+        # different energy ranges / calibrations), then the usual honest filtering.
+        ranges = [_signal_range(_signal_axis(p)) for p in payloads.values()]
+        union = set().union(*[set(reference.cations_in_range(lo, hi)) for lo, hi in ranges])
+        cations = self._filter_cations(
+            sorted(union), reference, cfg, diagnostics,
+            where=f"any map's range (union {[(round(lo, 2), round(hi, 2)) for lo, hi in ranges]} keV)")
         element_refs = reference.element_refs(cations)
 
-        # Measure every cation on each energy's cluster means (one shared clustering).
+        # Measure every cation on each energy's cluster means, each map on its OWN
+        # spectral axis (never the primary's), so differently-calibrated maps integrate
+        # at the right channels.
         per_energy_peaks = {
-            e: tuple(measure_peaks(compute_cluster_means(clustering, payload), signal_axis, reference))
+            e: tuple(measure_peaks(compute_cluster_means(clustering, payload),
+                                   _signal_axis(payload), reference))
             for e, payload in payloads.items()
         }
-        # Choose each element's best-excited energy, then fuse measurements + k-factors.
-        source_energy, sel_diag = select_energies(group, element_refs)
+        # Choose each element's best-excited energy (pluggable policy), then fuse.
+        source_energy, sel_diag = select_energies(
+            group, element_refs, policy=self._resolve_energy_selection(cfg))
         diagnostics += sel_diag
         if source_energy.get(cfg.reference_element) is None:
             raise PayloadValidationError(
@@ -531,7 +558,8 @@ class Pipeline:
                 "fusion_clustering": c.fusion_clustering,
                 "fusion_cross_cal": c.fusion_cross_cal,
                 "bridge_dispersion_limit": c.bridge_dispersion_limit,
-                "bridge_low_confidence": c.bridge_low_confidence}
+                "bridge_low_confidence": c.bridge_low_confidence,
+                "energy_selection": _stage_name(c.energy_selection, "best_excited")}
 
     def _provenance(self, cfg, decomp, clustering, reference, policy=None) -> dict:
         return {

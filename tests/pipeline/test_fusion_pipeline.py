@@ -105,6 +105,74 @@ def test_fusion_navigation_grid_mismatch_raises():
         Pipeline(groups=2, components=4, reference=_ref(), reference_element="Si").run(group)
 
 
+# -- #6 N-energy generality: per-map spectral axis + union eligibility --------
+
+def _map_axis(seed, *, scale, offset, ne, upper, lower, ny=8, nx=10):
+    """A map on an arbitrary signal axis (scale/offset/size), same nav grid as _map."""
+    rng = np.random.default_rng(seed)
+    e = np.arange(ne) * scale + offset
+    cube = np.full((ny, nx, ne), 2.0)
+
+    def add(sl, lines):
+        for cen, amp in lines:
+            cube[sl] += amp * np.exp(-((e - cen) ** 2) / (2 * 0.05 ** 2))
+
+    add((slice(None, ny // 2),), upper)
+    add((slice(ny // 2, None),), lower)
+    cube = rng.poisson(np.clip(cube, 0, None)).astype(float)
+    axes = (
+        AxisSpec("y", "navigation", ny, units="µm", scale=1.0, offset=0.0, index_in_array=0),
+        AxisSpec("x", "navigation", nx, units="µm", scale=1.0, offset=0.0, index_in_array=1),
+        AxisSpec("Energy", "signal", ne, units="keV", scale=scale, offset=offset, index_in_array=2),
+    )
+    return AxiommSignalPayload(data=cube, axes=axes, signal_kind="signal1d")
+
+
+def _ref_wide():
+    els = {
+        "O": ElementRef("O", 0.525, 15.999, 8, None, "Ka"),
+        "Al": ElementRef("Al", 1.486, 26.982, 13, ("Al2O3", 2, 3), "Ka"),
+        "Si": ElementRef("Si", 1.740, 28.085, 14, ("SiO2", 1, 2), "Ka"),
+        "Ca": ElementRef("Ca", 3.690, 40.078, 20, ("CaO", 1, 1), "Ka"),
+        "Fe": ElementRef("Fe", 6.400, 55.845, 26, ("FeO", 1, 1), "Ka"),
+    }
+    minerals = (
+        MineralEndmember("Anorthite", "feldspar", {"Al": 2, "Si": 2, "Ca": 1, "O": 8}, None, "i",
+                         basis="atom_counts"),
+        MineralEndmember("Fayalite", "olivine", {"Fe": 2, "Si": 1, "O": 4}, None, "i",
+                         basis="atom_counts"),
+    )
+    return MineralogyReference(
+        name="w", version="1", elements=els, minerals=minerals,
+        structural_exclude=frozenset({"O"}), family_display={"feldspar": "Fsp", "olivine": "Ol"})
+
+
+def test_fusion_union_eligibility_and_per_map_axis():
+    pytest.importorskip("sklearn")
+    pytest.importorskip("xraylib")
+    # lo spans 0-4.99 keV (Al, Si); hi spans 2.0-13.98 keV (Ca, Fe) -- NON-nested ranges,
+    # different signal axes, same nav grid. Al (1.486 keV) is ONLY in lo's range.
+    lo = _map_axis(0, scale=0.01, offset=0.0, ne=500,
+                   upper=[(1.486, 300), (1.740, 300)], lower=[(1.740, 200)])
+    hi = _map_axis(1, scale=0.02, offset=2.0, ne=600,
+                   upper=[(3.690, 300), (6.400, 300)], lower=[(3.690, 200)])
+    group = MultiEnergyMapGroup.from_pairs([(2.9, lo), (13.55, hi)])
+    r = Pipeline(groups=2, components=4, seed=0, reference=_ref_wide(),
+                 reference_element="Si").run(group)
+    nets = set().union(*[set(q.net_intensities) for q in r.quantification])
+    # union eligibility: Al is below hi's 2.0 keV floor, so a primary(hi)-only range would miss
+    # it; the union of ranges keeps it, measured on lo's own axis without error.
+    assert "Al" in nets
+    assert "Si" in nets and "Ca" in nets      # both maps' ranges are represented
+
+
+def test_energy_selection_config_recorded_and_validated():
+    cfg = Pipeline(energy_selection="best_excited")._config_dict()
+    assert cfg["energy_selection"] == "best_excited"
+    with pytest.raises(Exception):
+        Pipeline(energy_selection=123)        # not a name or a policy
+
+
 def test_single_map_group_runs():
     pytest.importorskip("sklearn")
     pytest.importorskip("xraylib")
