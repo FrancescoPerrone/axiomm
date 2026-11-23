@@ -391,6 +391,19 @@ class Pipeline:
         diagnostics.append(Diagnostic(
             "info", "fusion_engaged",
             f"multi-energy fusion over {sorted(payloads)} keV; clustering on {cluster_basis}."))
+        # The current multi-energy defaults (fused clustering and/or bridge cross-calibration)
+        # are EXPERIMENTAL pending the cross-energy comparability guard (#3): until it lands,
+        # fused composition is not on a guaranteed common physical scale. Mark it loudly (reports
+        # + saved provenance), never silently; defaults are unchanged.
+        experimental = cfg.fusion_clustering == "fused" or cfg.fusion_cross_cal == "bridge"
+        if experimental:
+            diagnostics.append(Diagnostic(
+                "warning", "fusion_experimental",
+                "multi-energy fusion cross-energy composition is EXPERIMENTAL: fused clustering "
+                "and/or bridge cross-calibration are active and the cross-energy comparability "
+                "guard is pending, so fused composition is not guaranteed to be on a common "
+                "physical scale. Treat the composition as exploratory; phase identification via "
+                "fused clustering is more robust than the cross-energy wt%."))
         primary = payloads[ems[-1].excitation_kev]
 
         reducer, n_components = self._resolve_reduction(cfg, diagnostics)
@@ -411,7 +424,8 @@ class Pipeline:
             diagnostics.append(Diagnostic(
                 "info", "minerals_skipped",
                 "fusion needs a reference to quantify + match; clusters returned."))
-            result_kwargs["provenance"] = self._provenance(cfg, decomp, clustering, reference)
+            result_kwargs["provenance"] = self._provenance(
+                cfg, decomp, clustering, reference, fusion_experimental=experimental)
             return PipelineResult(**result_kwargs)
         try:
             bundle = self._quantify_and_match_fused(
@@ -420,7 +434,8 @@ class Pipeline:
             diagnostics.append(Diagnostic(
                 "warning", "minerals_skipped_dependency",
                 f"fused quantification + matching skipped: {exc}"))
-            result_kwargs["provenance"] = self._provenance(cfg, decomp, clustering, reference)
+            result_kwargs["provenance"] = self._provenance(
+                cfg, decomp, clustering, reference, fusion_experimental=experimental)
             return PipelineResult(**result_kwargs)
 
         peaks, quant, reliability, minerals = bundle
@@ -431,7 +446,8 @@ class Pipeline:
         result_kwargs.update(
             peaks=peaks, quantification=quant, reliability=reliability,
             minerals=minerals, labels=labels, phase_map=phase_map,
-            provenance=self._provenance(cfg, decomp, clustering, reference, policy),
+            provenance=self._provenance(cfg, decomp, clustering, reference, policy,
+                                        fusion_experimental=experimental),
         )
         return PipelineResult(**result_kwargs)
 
@@ -563,8 +579,9 @@ class Pipeline:
                 "bridge_low_confidence": c.bridge_low_confidence,
                 "energy_selection": _stage_name(c.energy_selection, "best_excited")}
 
-    def _provenance(self, cfg, decomp, clustering, reference, policy=None) -> dict:
-        return {
+    def _provenance(self, cfg, decomp, clustering, reference, policy=None,
+                    *, fusion_experimental=None) -> dict:
+        prov = {
             "tool": "axiomm.pipeline", "software_version": _AXIOMM_VERSION,
             "config": self._config_dict(),
             "decomposition": dict(decomp.provenance.params) if decomp.provenance else {},
@@ -574,6 +591,10 @@ class Pipeline:
             "reference_version": getattr(reference, "version", None),
             "beam_energy_kev": cfg.beam_energy_kev,
         }
+        if fusion_experimental is not None:
+            # carried into saved/exported results so the experimental status travels with them
+            prov["fusion_experimental"] = bool(fusion_experimental)
+        return prov
 
 
 def _accepts(cls, param: str) -> bool:

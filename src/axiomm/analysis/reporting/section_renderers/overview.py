@@ -29,6 +29,12 @@ class OverviewSection:
             f"Minerals: {'run' if minerals_run else 'not run'}."
         )
 
+        # surface the experimental multi-energy status prominently (first block)
+        exp = next((d for d in (getattr(result, "diagnostics", []) or [])
+                    if getattr(d, "code", None) == "fusion_experimental"), None)
+        if exp is not None:
+            blocks.insert(0, f"⚠ EXPERIMENTAL — {exp.message}")
+
         cfg = getattr(result, "config", {}) or {}
         if cfg:
             blocks.append(Table(["setting", "value"], [[k, cfg[k]] for k in cfg], "run settings"))

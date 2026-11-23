@@ -99,6 +99,31 @@ def test_beam_energy_does_not_broadcast_across_group():
     assert "2.9" in msg and "13.55" in msg and "99" not in msg
 
 
+def test_fusion_experimental_marker_on_defaults_and_report(tmp_path):
+    pytest.importorskip("sklearn")
+    pytest.importorskip("xraylib")
+    group = MultiEnergyMapGroup.from_pairs([(2.9, _map(0)), (13.55, _map(1))])
+    r = Pipeline(groups=2, components=4, seed=0, reference=_ref(), reference_element="Si").run(group)
+    # default fused+bridge is experimental: diagnostic + provenance flag + report banner
+    assert any(d.code == "fusion_experimental" for d in r.diagnostics)
+    assert r.provenance["fusion_experimental"] is True
+    assert "EXPERIMENTAL" in r.report_html().content
+    # and it survives export (save/load carries the flag with the result)
+    from axiomm.pipeline import load_result
+    r.save(tmp_path / "out")
+    assert load_result(tmp_path / "out").provenance.get("fusion_experimental") is True
+
+
+def test_fusion_primary_none_is_not_experimental():
+    pytest.importorskip("sklearn")
+    pytest.importorskip("xraylib")
+    group = MultiEnergyMapGroup.from_pairs([(2.9, _map(0)), (13.55, _map(1))])
+    r = Pipeline(groups=2, components=4, seed=0, reference=_ref(), reference_element="Si",
+                 fusion_clustering="primary", fusion_cross_cal="none").run(group)
+    assert not any(d.code == "fusion_experimental" for d in r.diagnostics)
+    assert r.provenance["fusion_experimental"] is False
+
+
 def test_fusion_navigation_grid_mismatch_raises():
     group = MultiEnergyMapGroup.from_pairs([(2.9, _map(0, nx=10)), (13.55, _map(1, nx=12))])
     with pytest.raises(RegistrationError):
