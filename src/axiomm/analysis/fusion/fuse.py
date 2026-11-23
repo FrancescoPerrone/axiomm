@@ -150,13 +150,17 @@ def bridge_cross_calibration(per_energy_net, element_refs, energies, *, referenc
     and each cluster measured (net > 0) at *both* energies, one ratio
     ``(net_ref/S_ref)/(net_e/S_e)``, **weighted** by the cluster's pixel count
     (``cluster_weights``, ``{cluster_id: n_pixels}``; absent → unit weight). The
-    per-energy scale is the **weighted median** of those points; the **dispersion**
-    (interquartile ratio p75/p25, robust to a single near-zero-net outlier) measures
-    bridge consistency. When dispersion exceeds
-    ``dispersion_limit`` the bridge is *low confidence* and ``on_low_confidence``
-    decides: ``"flag"`` applies it with a warning, ``"refuse"`` leaves the energy
-    uncorrected (scale 1) with a warning, ``"raise"`` raises
-    :class:`~axiomm.analysis.errors.CrossCalibrationError`.
+    per-energy scale is the **weighted median** of those points. Its adequacy is gated
+    on a combined **dispersion** = ``max`` of (a) the ratios' interquartile ratio
+    (p75/p25) and (b) how far the weighted estimate sits from the *unweighted* median —
+    so neither a broad spread nor a single heavily-weighted outlier cluster can drive
+    the scale while the gate reports agreement; a lone point establishes no consistency
+    and is always low-confidence. When dispersion exceeds ``dispersion_limit`` the
+    bridge is *low confidence* and ``on_low_confidence`` decides: ``"flag"`` applies it
+    with a warning, ``"refuse"`` leaves the energy uncorrected (scale 1) with a warning,
+    ``"raise"`` raises :class:`~axiomm.analysis.errors.CrossCalibrationError`. An energy
+    with **no usable bridge link** is uncalibrated: it keeps scale 1 (warned), or raises
+    under ``"raise"``.
 
     Returns ``({energy: scale}, diagnostics)``. ``edge_fn(ref) -> edge_keV`` and the
     sensitivity source ``_compute`` are injectable so the logic tests without xraylib.
@@ -170,6 +174,21 @@ def bridge_cross_calibration(per_energy_net, element_refs, energies, *, referenc
     energies = sorted(float(e) for e in energies)
     reference_energy = float(reference_energy)
     weights = {int(c): float(w) for c, w in (cluster_weights or {}).items()}
+    # Validate at the public computational boundary (a direct caller bypasses PipelineConfig).
+    if not (isinstance(dispersion_limit, (int, float)) and not isinstance(dispersion_limit, bool)
+            and np.isfinite(dispersion_limit) and dispersion_limit >= 1.0):
+        raise PayloadValidationError(
+            f"dispersion_limit must be a finite number >= 1.0; got {dispersion_limit!r}.")
+    if on_low_confidence not in ("flag", "refuse", "raise"):
+        raise PayloadValidationError(
+            f"on_low_confidence must be 'flag', 'refuse', or 'raise'; got {on_low_confidence!r}.")
+    if reference_energy not in energies:
+        raise PayloadValidationError(
+            f"reference_energy {reference_energy} keV is not among the supplied energies {energies}.")
+    bad_w = sorted(c for c, w in weights.items() if not (np.isfinite(w) and w > 0))
+    if bad_w:
+        raise PayloadValidationError(
+            f"cluster_weights must be finite and > 0; invalid for cluster(s) {bad_w}.")
     exciting = {r.symbol: [e for e in energies if e > float(edge_fn(r))] for r in element_refs}
     bridge = [s for s, es in exciting.items() if len(es) >= 2]
     diagnostics: list[Diagnostic] = []
@@ -202,8 +221,10 @@ def bridge_cross_calibration(per_energy_net, element_refs, energies, *, referenc
             for c in set(net_e) & set(net_r):
                 ne, nr = net_e[c].get(sym, 0.0), net_r[c].get(sym, 0.0)
                 if ne > 0 and nr > 0:
-                    pts.append(((nr / s_r) / (ne / s_e), weights.get(int(c), 1.0)))
-                    used.add(sym)
+                    ratio = (nr / s_r) / (ne / s_e)
+                    if np.isfinite(ratio) and ratio > 0:
+                        pts.append((ratio, weights.get(int(c), 1.0)))
+                        used.add(sym)
         return pts, used
 
     for e in energies:
@@ -211,27 +232,37 @@ def bridge_cross_calibration(per_energy_net, element_refs, energies, *, referenc
             continue
         pts, used = points_for(e)
         if not pts:
+            # No usable bridge link: this energy is uncalibrated.
+            msg = (f"no usable bridge pair links {e} keV to the {reference_energy} keV "
+                   "reference; the energy is uncalibrated")
+            if on_low_confidence == "raise":
+                raise CrossCalibrationError(msg + " (bridge_low_confidence='raise').")
             diagnostics.append(Diagnostic(
                 "warning", "bridge_unresolved_energy",
-                f"no usable bridge pair links {e} keV to the {reference_energy} keV reference; "
-                f"its cross-energy scale is left at 1.0 (uncorrected)."))
+                msg + "; cross-energy scale left at 1.0 (uncorrected)."))
             continue
         est = _weighted_median(pts)
         ratios = [r for r, _ in pts]
-        # robust spread: interquartile ratio (p75/p25), not max/min — one near-zero net
-        # ratio must not dominate the adequacy call.
         if len(ratios) >= 2:
+            # (a) robust spread of the ratios, and (b) how far weighting moves the estimate
+            # from the unweighted median — so a single heavily-weighted outlier cannot drive
+            # the scale while the gate reports agreement.
             q1, q3 = (float(x) for x in np.percentile(ratios, [25, 75]))
-            dispersion = q3 / q1 if q1 > 0 else float("inf")
+            iqr = q3 / q1 if q1 > 0 else float("inf")
+            umed = _weighted_median([(r, 1.0) for r in ratios])
+            shift = max(est / umed, umed / est) if (est > 0 and umed > 0) else float("inf")
+            dispersion = max(iqr, shift)
+            detail = f"IQR {iqr:.2f}x, weighting-shift {shift:.2f}x"
+            low = dispersion > dispersion_limit
         else:
-            dispersion = 1.0
-        low = dispersion > dispersion_limit
-        base = (f"{len(pts)} bridge point(s) from {len(used)} element(s) "
-                f"({sorted(used)}) for {e}->{reference_energy} keV: weighted-median scale "
-                f"{est:.3f}, IQR dispersion {dispersion:.2f}x (limit {dispersion_limit}).")
+            # one point establishes no measured consistency
+            detail = "single point (no cross-check)"
+            low = True
+        base = (f"{len(pts)} bridge point(s) from {len(used)} element(s) ({sorted(used)}) "
+                f"for {e}->{reference_energy} keV: weighted-median scale {est:.3f}; "
+                f"{detail} (limit {dispersion_limit}).")
         if low and on_low_confidence == "raise":
-            raise CrossCalibrationError(
-                base + " Refusing per bridge_low_confidence='raise'.")
+            raise CrossCalibrationError(base + " Refusing per bridge_low_confidence='raise'.")
         if low and on_low_confidence == "refuse":
             diagnostics.append(Diagnostic(
                 "warning", "bridge_low_confidence",
