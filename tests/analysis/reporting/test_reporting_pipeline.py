@@ -96,8 +96,8 @@ def test_report_html_writes_and_guards_overwrite(tmp_path):
 def test_overview_lists_clusters_and_phase_map_has_table():
     r = _full_result()
     html = r.report_html().content
-    # cluster rows + phase modal table
-    assert "best match" in html and "area %" in html
+    # cluster rows lead with the decision (phase/level), candidate kept separate; + phase modal table
+    assert "top candidate" in html and "level" in html and "area %" in html
     names = set(np.unique(r.phase_map))
     assert any(n in html for n in names)
 

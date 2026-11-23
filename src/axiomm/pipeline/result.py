@@ -58,15 +58,16 @@ class PipelineResult:
         rel_by = {int(r.cluster_id): r for r in (self.reliability or ()) if r.cluster_id is not None}
         lab_by = {int(lb.cluster_id): lb for lb in (self.labels or ()) if lb.cluster_id is not None}
         for cid, n in zip(ids, pix, strict=True):
-            best = self.best_match(cid)          # raw top candidate (evidence)
-            lab = lab_by.get(cid)                 # policy decision (S7)
+            best = self.best_match(cid)          # raw top candidate (evidence), None if none
+            lab = lab_by.get(cid)                 # policy decision (S7), None if not classified
             rows.append({
                 "cluster_id": cid, "pixels": n,
-                "best_match": best.name if best else UNRESOLVED,
+                # the DECISION the map shows (policy label + level); None if classification not run
+                "label": lab.name if lab is not None else None,
+                "level": lab.level if lab is not None else None,
+                # the raw top candidate (evidence), kept separate from the decision
+                "best_match": best.name if best else None,
                 "score": round(best.score, 3) if best else None,
-                # the labelled phase the map shows, and at what confidence level
-                "label": lab.name if lab else (best.name if best else UNRESOLVED),
-                "level": lab.level if lab else None,
                 "reliability": rel_by[cid].cluster_status if cid in rel_by else None,
             })
         return rows
@@ -79,13 +80,23 @@ class PipelineResult:
         return None
 
     def summary(self) -> str:
-        lines = [f"AXIOMM pipeline result — {len(self.clusters)} clusters, "
-                 f"map {tuple(int(d) for d in np.asarray(self.label_map).shape)}"]
-        if self.minerals is None:
-            lines.append("  minerals: not run (set beam_energy_kev + a reference to enable)")
+        shape = tuple(int(d) for d in np.asarray(self.label_map).shape)
+        lines = [f"AXIOMM pipeline result — {len(self.clusters)} clusters, map {shape}"]
+        classified = self.labels is not None
+        if not classified:
+            lines.append("  classification: not run "
+                         "(set beam_energy + a library to identify minerals)")
         for row in self.clusters:
-            m = f"{row['best_match']}" + (f" ({row['score']})" if row['score'] is not None else "")
-            lines.append(f"  cluster {row['cluster_id']:>2}: {row['pixels']:>7} px -> {m}"
+            # Lead with the policy DECISION (what the map shows), not the raw candidate.
+            if not classified:
+                head = "not classified"
+            elif row["level"] == "unresolved":
+                head = "unresolved"
+            else:
+                head = f"{row['label']} [{row['level']}]"
+            if classified and row["best_match"] is not None:
+                head += f"  (top candidate {row['best_match']} {row['score']})"
+            lines.append(f"  cluster {row['cluster_id']:>2}: {row['pixels']:>7} px -> {head}"
                          + (f"  [{row['reliability']}]" if row['reliability'] else ""))
         if self.diagnostics:
             lines.append(f"  diagnostics: {len(self.diagnostics)} "

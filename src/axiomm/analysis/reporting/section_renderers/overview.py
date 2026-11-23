@@ -34,10 +34,15 @@ class OverviewSection:
             blocks.append(Table(["setting", "value"], [[k, cfg[k]] for k in cfg], "run settings"))
 
         if clusters:
-            headers = ["cluster", "pixels", "best match", "score", "reliability"]
-            rows = [[c.get("cluster_id"), c.get("pixels"), c.get("best_match"),
-                     c.get("score"), c.get("reliability")] for c in clusters]
-            blocks.append(Table(headers, rows, "clusters"))
+            # Lead with the policy DECISION (phase + level) the map shows; the raw top
+            # candidate + score are separate, explicitly-labelled evidence columns.
+            headers = ["cluster", "pixels", "phase", "level", "top candidate", "score",
+                       "reliability"]
+            rows = [[c.get("cluster_id"), c.get("pixels"),
+                     (c.get("label") if minerals_run else "not classified"),
+                     c.get("level"), c.get("best_match"), c.get("score"), c.get("reliability")]
+                    for c in clusters]
+            blocks.append(Table(headers, rows, "clusters (phase = classification decision)"))
 
         diags = list(getattr(result, "diagnostics", []) or [])
         if diags:

@@ -72,7 +72,10 @@ def test_clusters_only_when_no_beam_energy():
     r = Pipeline(groups=2, components=4).run(_payload())
     assert r.minerals is None and r.phase_map is None
     assert len(r.clusters) == 2
-    assert all(row["best_match"] == "unresolved" for row in r.clusters)
+    # classification did not run: 'not classified' is distinct from a policy 'unresolved'
+    assert all(row["label"] is None and row["level"] is None and row["best_match"] is None
+               for row in r.clusters)
+    assert "not classified" in r.summary()
     assert any(d.code == "minerals_skipped" for d in r.diagnostics)
     assert "clusters only" in repr(r)
 
@@ -238,6 +241,26 @@ def test_clean_data_gets_species_under_default_policy():
     assert any(row["level"] == "species" for row in r.clusters)
     assert r.labels is not None and len(r.labels) == len(r.clusters)
     assert r.provenance["classification"]["policy"] == "threshold"
+
+
+def test_report_leads_with_classification_decision():
+    """Summary, clusters and phase map agree on the policy DECISION, candidate kept separate."""
+    pytest.importorskip("sklearn")
+    pytest.importorskip("xraylib")
+    r = Pipeline(groups=3, components=4, reference=_controlled_reference(),
+                 beam_energy_kev=15.0, seed=0, naming_policy="family_aware").run(
+                     _payload(counts=400.0))
+    # the map legend == the cluster labels (the decision), incl. 'unresolved'
+    map_names = set(np.asarray(r.phase_map).ravel().tolist())
+    assert map_names == {row["label"] for row in r.clusters}
+    # the summary leads with the decision; the candidate is never the headline
+    s = r.summary()
+    for row in r.clusters:
+        assert (row["label"] in s) if row["level"] != "unresolved" else ("unresolved" in s)
+    # where the policy did not name the species, the decision differs from the raw candidate
+    for row in r.clusters:
+        if row["level"] == "family" and row["best_match"] is not None:
+            assert row["label"] != row["best_match"]
 
 
 def test_permissive_reproduces_pre_s7_labels():
