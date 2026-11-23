@@ -793,3 +793,24 @@ provenance. Evidence support (`dimension_coverage`, `composition_coverage`,
 match, and below-floor / unmeasured elements are censored, not zeroed.
 **Standards validation remains mandatory** before any quantitative-accuracy or
 validated mineral-identification claim.
+
+### Memory and runtime
+
+Maps load **eagerly** — the whole spectral cube goes into RAM. `lazy=True` is accepted but
+downgraded to eager (a `lazy_downgraded_to_eager` diagnostic records it); there is no
+out-of-core / streaming path yet, so this is **not** a large-file solution. Estimate RAM
+from the cube shape: a `(ny, nx, n_channels)` map holds `ny·nx·n_channels` values, and a
+run keeps the raw cube plus a float64 working copy and the reduction's feature matrix.
+
+Measured on a 201×201×4096 map (the first-paper subset size), one sample per process:
+
+| run | peak RSS | wall time |
+|---|---|---|
+| single-energy | ≈ 2.8 GiB | ≈ 38 s |
+| dual-energy fusion | ≈ 6.5 GiB | ≈ 61 s |
+
+Fusion holds two cubes plus their normalised copies and the concatenated per-energy
+features, hence ≈ 2–3× the single-energy footprint. Budget roughly **3 GiB per
+single-energy map** and **6–7 GiB per dual-energy fusion** at this size, scaling about
+linearly with `ny·nx·n_channels`. Run one sample per process (the subset runners do) and
+watch headroom on larger maps.
