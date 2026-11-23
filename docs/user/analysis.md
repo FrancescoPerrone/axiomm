@@ -21,16 +21,24 @@ from axiomm import Pipeline
 # clusters + mean spectra (no chemistry needed)
 result = Pipeline().run("map.bcf")
 
-# add mineral identification: give it the beam energy and a reference library
-result = Pipeline(beam_energy_kev=20).run("map.bcf")
+# add mineral identification: give it the beam energy and a mineral library
+result = Pipeline(beam_energy="20 keV", library="minerals_default_v2").run("map.bcf")
 
 print(result.summary())
 for row in result.clusters:      # one plain row per mineral group
     print(row)                   # {'cluster_id': 0, 'pixels': ..., 'best_match': ..., 'score': ...}
 
 result.phase_map                 # per-pixel mineral name (when minerals ran)
+result.write_report("report.html")   # one self-contained, shareable HTML report
 result.save("out/")              # a self-describing folder you can reload
 ```
+
+The settings read as plain English — `beam_energy="13.55 keV"`, `clusters=7`,
+`library="minerals_default_v2"`, `exclude_elements=["Ba"]`, `naming_policy="family_aware"`
+— and each has a canonical alias that still works (`beam_energy_kev`, `groups`, `reference`,
+`classification`); `method=` chooses an algorithm in `decompose`/`cluster` (alias `backend=`),
+and `compute_k_factors` takes `beam_energy=`/`reference_element=` (aliases `excitation_kev`/
+`reference`). Passing a word together with its alias is a named error.
 
 The pipeline does as much as the data and your settings support and
 **skips honestly** rather than forcing a result: with no beam energy or
@@ -70,8 +78,8 @@ rng = np.random.default_rng(0)
 data = (rng.random((12, 2)) @ rng.random((2, 8))).reshape(4, 3, 8)   # (y, x, energy)
 
 payload = AxiommSignalPayload.from_array(data, energy_scale=0.01)    # last axis = energy
-components = decompose(payload, backend="pca", n_components=2)
-groups = cluster(components, backend="gmm", n_clusters=2)            # the one-call verb
+components = decompose(payload, method="pca", n_components=2)
+groups = cluster(components, method="gmm", n_clusters=2)             # the one-call verb
 print("axes:", [(a.name, a.role, a.index_in_array) for a in payload.axes])
 print("loadings:", components.loadings.shape, " labels:", groups.labels)
 ```
@@ -132,7 +140,7 @@ axes = (
 )
 payload = AxiommSignalPayload(data=data, axes=axes, signal_kind="signal1d")
 
-result = decompose(payload, backend="pca", n_components=2)
+result = decompose(payload, method="pca", n_components=2)
 print("factors.shape  =", result.factors.shape)
 print("loadings.shape =", result.loadings.shape)
 print("explained_variance_ratio =", np.round(result.explained_variance_ratio, 4))
@@ -155,7 +163,7 @@ spectra), `loadings` `(n_pixels, n_components)` (per-pixel scores),
 `write_decomposition` / `read_decomposition`.
 
 A second backend, **UMAP** (`pip install ".[umap]"`), is selectable with
-`decompose(payload, backend="umap", n_components=2)`. UMAP is a non-linear
+`decompose(payload, method="umap", n_components=2)`. UMAP is a non-linear
 embedding for clustering, not a variance decomposition, so its `loadings` hold
 the embedding while `factors` and `explained_variance_ratio` are empty.
 
@@ -167,9 +175,9 @@ Cluster the decomposition loadings (Gaussian mixture). The clusterer is
 pure (features in, labels out); per-cluster **mean spectra** are a separate
 step over the source signal. The number of clusters is required.
 
-The one-call verb is `cluster(features, backend="gmm", n_clusters=k)`; the
+The one-call verb is `cluster(features, method="gmm", n_clusters=k)`; the
 constructor form below gives finer control. A second backend, **HDBSCAN**
-(`backend="hdbscan"`, density-based, bundled with scikit-learn), discovers the
+(`method="hdbscan"`, density-based, bundled with scikit-learn), discovers the
 cluster count itself — so it takes no `n_clusters`, and marks unassigned pixels
 as noise (label `-1`, carried through as a cluster id).
 
@@ -291,7 +299,7 @@ from axiomm.analysis.mineralogy import MINERALOGY_DEFAULT_V1 as REF
 from axiomm.analysis.quant import compute_k_factors
 
 cations = [REF.elements[s] for s in ["Si", "Fe", "Al", "Ca"]]
-kf = compute_k_factors(cations, excitation_kev=18.0, reference="Si")
+kf = compute_k_factors(cations, beam_energy="18 keV", reference_element="Si")
 print("k_factors =", {k: round(v, 3) for k, v in kf.k_factors.items()})
 print("provenance.params =", kf.provenance.params)
 ```
@@ -585,17 +593,17 @@ print(f"{label.level}: {label.name} — {label.rationale}")
 species: Forsterite — clear leader Forsterite (score 1.000 >= species floor 0.80)
 ```
 
-In a `Pipeline` the policy is the `classification=` knob (a name, a
+In a `Pipeline` the policy is the `naming_policy=` knob (alias `classification=`; a name, a
 `{"name": ..., **options}` dict, or a policy instance); its choice lands in the
 run provenance and the workflow figure, and the clusters table carries the
 `level` (`species` / `family` / `unresolved`) beside the raw `best_match`:
 
 ```python
 from axiomm import Pipeline
-Pipeline(classification="conservative").run("map.bcf")   # species only, else unresolved
+Pipeline(naming_policy="conservative").run("map.bcf")   # species only, else unresolved
 ```
 
-A pipeline uses `family_aware` when `classification` is omitted, and applies its
+A pipeline uses `family_aware` when `naming_policy` is omitted, and applies its
 configured policy to every acquisition run through that instance. A `{"name": ...}`
 dict overrides only the keys it names on top of that preset's settings — e.g.
 `{"name": "conservative", "species_floor": 0.9}` keeps conservative's
@@ -628,8 +636,8 @@ with no quantification or mineral sections.
 ```python
 from axiomm import Pipeline
 
-result = Pipeline(beam_energy_kev=20).run("map.bcf")
-result.report_html("report.html")          # writes a self-contained HTML file
+result = Pipeline(beam_energy="20 keV").run("map.bcf")
+result.write_report("report.html")         # writes a self-contained HTML file
 ```
 
 `report_html(path)` writes the file and returns the underlying
