@@ -1,4 +1,5 @@
-"""Chunk 2 — plain-English aliases in the stage tools (energy + library/reference_element)."""
+"""Plain-English aliases in the stage tools: energy + library/reference_element (Chunk 2),
+and method= for algorithm choice in decompose/cluster (Chunk 3)."""
 
 from __future__ import annotations
 
@@ -73,3 +74,49 @@ def test_match_rejects_both_library_words():
 def test_match_requires_a_library():
     with pytest.raises(PayloadValidationError):
         match_minerals([])     # neither reference nor library
+
+
+# -- method= in decompose / cluster (Chunk 3) --------------------------------
+
+def _payload():
+    import numpy as np
+
+    from axiomm.io.converters.models import AxiommSignalPayload, AxisSpec
+    data = np.random.default_rng(0).random((6, 6, 50))
+    axes = (
+        AxisSpec("y", "navigation", 6, units="µm", scale=1.0, offset=0.0, index_in_array=0),
+        AxisSpec("x", "navigation", 6, units="µm", scale=1.0, offset=0.0, index_in_array=1),
+        AxisSpec("E", "signal", 50, units="keV", scale=0.1, offset=0.0, index_in_array=2),
+    )
+    return AxiommSignalPayload(data=data, axes=axes, signal_kind="signal1d")
+
+
+def test_decompose_method_alias_equivalent():
+    pytest.importorskip("sklearn")
+    import numpy as np
+
+    from axiomm import decompose
+    p = _payload()
+    assert np.allclose(np.asarray(decompose(p, method="pca", n_components=3).loadings),
+                       np.asarray(decompose(p, backend="pca", n_components=3).loadings))
+
+
+def test_decompose_rejects_both_backend_and_method():
+    from axiomm import decompose
+    with pytest.raises(PayloadValidationError):
+        decompose(None, backend="pca", method="pca")
+
+
+def test_cluster_method_alias_equivalent_and_both_error():
+    pytest.importorskip("sklearn")
+    import numpy as np
+
+    from axiomm import cluster, decompose
+    from axiomm.analysis.clustering import GMMConfig
+    feats = decompose(_payload(), method="pca", n_components=3)
+    cfg = GMMConfig(random_state=0)   # seed so the two calls are comparable
+    r1 = cluster(feats, method="gmm", n_clusters=2, config=cfg)
+    r2 = cluster(feats, backend="gmm", n_clusters=2, config=cfg)
+    assert np.array_equal(np.asarray(r1.label_map), np.asarray(r2.label_map))
+    with pytest.raises(PayloadValidationError):
+        cluster(feats, backend="gmm", method="gmm")

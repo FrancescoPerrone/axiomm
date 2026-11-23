@@ -13,6 +13,7 @@ clusterers is deferred until a class-resolving registry variant is needed
 
 from __future__ import annotations
 
+from axiomm.analysis.aliases import UNSET, resolve_alias
 from axiomm.analysis.clustering.base import Clusterer
 from axiomm.analysis.clustering.gmm import GMMClusterer, GMMConfig
 from axiomm.analysis.clustering.hdbscan import HDBSCANClusterer, HDBSCANConfig
@@ -43,16 +44,18 @@ def _accepts(cls, param: str) -> bool:
         return False
 
 
-def cluster(features, *, backend: str = "gmm", n_clusters: int | None = None, config=None):
-    """Cluster decomposition ``features`` with the named ``backend``, in one call.
+def cluster(features, *, backend=UNSET, method=UNSET, n_clusters: int | None = None, config=None):
+    """Cluster decomposition ``features`` with the named algorithm, in one call.
 
-    The friendly sibling of :func:`axiomm.analysis.decomposition.decompose`.
-    Fixed-count backends (GMM) require ``n_clusters``; density backends (HDBSCAN)
-    ignore it and discover the count. Pass the backend's typed ``config`` for
-    finer control.
+    The algorithm is ``method="gmm"`` (the plain word) or ``backend="gmm"`` — one
+    spelling, default ``"gmm"``. The friendly sibling of
+    :func:`axiomm.analysis.decomposition.decompose`. Fixed-count backends (GMM) require
+    ``n_clusters``; density backends (HDBSCAN) ignore it and discover the count. Pass the
+    backend's typed ``config`` for finer control.
     """
     from axiomm.analysis.errors import PayloadValidationError
 
+    backend = resolve_alias("backend", backend, "method", method, default="gmm")
     cls = get_clusterer(backend)
     kwargs: dict = {}
     if _accepts(cls, "n_clusters"):

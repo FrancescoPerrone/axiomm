@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from axiomm.analysis.aliases import UNSET, resolve_alias
 from axiomm.analysis.decomposition.base import Decomposer
 from axiomm.analysis.decomposition.models import DecompositionResult
 from axiomm.analysis.registry import Registry, load_into
@@ -41,14 +42,17 @@ def get_decomposer(name: str) -> Decomposer:
 def decompose(
     payload: AxiommSignalPayload,
     *,
-    backend: str = "pca",
+    backend=UNSET,
+    method=UNSET,
     n_components: int | None = None,
 ) -> DecompositionResult:
-    """Decompose ``payload`` with the named ``backend``.
+    """Decompose ``payload`` with the named algorithm.
 
-    ``n_components=None`` keeps ``min(n_pixels, n_channels)`` components;
-    the user chooses any integer to reduce. No value is baked in.
+    The algorithm is ``method="pca"`` (the plain word) or ``backend="pca"`` — one
+    spelling, default ``"pca"``. ``n_components=None`` keeps ``min(n_pixels,
+    n_channels)`` components; the user chooses any integer to reduce. No value is baked in.
     """
+    backend = resolve_alias("backend", backend, "method", method, default="pca")
     return get_decomposer(backend).decompose(payload, n_components=n_components)
 
 
