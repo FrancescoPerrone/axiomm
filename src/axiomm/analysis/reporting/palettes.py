@@ -83,9 +83,13 @@ def resolve_palette(spec, n: int, *, reserve: dict | None = None) -> list[str]:
     colormap name, an explicit sequence of colours, or ``None`` (the default
     :data:`DEFAULT_PALETTE`). ``reserve`` is an optional ``{category_index:
     colour}`` override applied after resolution (e.g. a neutral grey pinned to
-    the "unresolved" slot). Shorter explicit palettes cycle; a built-in or
-    Matplotlib palette is sampled to length, so colours do not wrap for the
-    common case.
+    the "unresolved" slot).
+
+    **Capacity.** A Matplotlib colormap is resampled to ``n`` colours. A built-in
+    palette or an explicit list has a **fixed length and cycles** (repeats) when ``n``
+    exceeds it — the declared exhaustion policy. ``batlowS`` carries 100 distinct
+    colours and ``okabe_ito`` 8, so colours do not repeat below those counts; for an
+    arbitrary ``n`` without repetition, pass a Matplotlib colormap name.
     """
     if n <= 0:
         return []

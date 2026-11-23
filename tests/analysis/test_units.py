@@ -14,6 +14,9 @@ from axiomm.analysis.units import parse_energy_kev
     ("13.55keV", 13.55),        # no space
     ("2.9 KEV", 2.9),           # case-insensitive
     ("  2900 eV  ", 2.9),       # surrounding space
+    ("1e4 eV", 10.0),           # scientific notation
+    ("1.5e3 eV", 1.5),
+    ("2.9E0 keV", 2.9),
     (13.55, 13.55),             # number -> keV by convention
     (2900, 2900.0),             # a bare number is keV, not eV
 ])

@@ -87,3 +87,10 @@ def test_new_vs_old_words_scientifically_equivalent(tmp_path):
     # same cluster assignment and same per-cluster labels (deterministic, seed-locked)
     assert np.array_equal(np.asarray(new.label_map), np.asarray(old.label_map))
     assert [r["label"] for r in new.clusters] == [r["label"] for r in old.clusters]
+    # and the same quantification + reliability where minerals ran
+    if new.quantification and old.quantification:
+        assert [dict(q.net_intensities) for q in new.quantification] == \
+               [dict(q.net_intensities) for q in old.quantification]
+    if new.reliability and old.reliability:
+        assert ([r.cluster_status for r in new.reliability]
+                == [r.cluster_status for r in old.reliability])

@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from axiomm.analysis.errors import RegistrationError
+from axiomm.analysis.errors import PayloadValidationError, RegistrationError
 from axiomm.analysis.fusion import MultiEnergyMapGroup
 from axiomm.analysis.mineralogy.reference import (
     ElementRef,
@@ -29,9 +29,9 @@ def test_config_dict_records_fusion_settings():
 
 
 def test_bridge_low_confidence_config_validation():
-    with pytest.raises(Exception):
+    with pytest.raises(PayloadValidationError):
         Pipeline(bridge_low_confidence="sometimes")
-    with pytest.raises(Exception):
+    with pytest.raises(PayloadValidationError):
         Pipeline(bridge_dispersion_limit=0.5)
 
 
@@ -169,7 +169,7 @@ def test_fusion_union_eligibility_and_per_map_axis():
 def test_energy_selection_config_recorded_and_validated():
     cfg = Pipeline(energy_selection="best_excited")._config_dict()
     assert cfg["energy_selection"] == "best_excited"
-    with pytest.raises(Exception):
+    with pytest.raises(PayloadValidationError):
         Pipeline(energy_selection=123)        # not a name or a policy
 
 

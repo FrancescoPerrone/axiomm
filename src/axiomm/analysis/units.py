@@ -12,14 +12,15 @@ import re
 
 from axiomm.analysis.errors import PayloadValidationError
 
-_ENERGY_RE = re.compile(r"^\s*([0-9]*\.?[0-9]+)\s*(keV|eV)\s*$", re.IGNORECASE)
+_ENERGY_RE = re.compile(r"^\s*([0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?)\s*(keV|eV)\s*$", re.IGNORECASE)
 _PER_UNIT_KEV = {"kev": 1.0, "ev": 1e-3}
 
 
 def parse_energy_kev(value) -> float:
     """Return an incident energy in **keV** from a units-string or a number.
 
-    - ``"13.55 keV"`` → 13.55; ``"2900 eV"`` → 2.9 (case-insensitive, optional space).
+    - ``"13.55 keV"`` → 13.55; ``"2900 eV"`` → 2.9 (case-insensitive, optional space);
+      scientific notation is accepted (``"1e4 eV"`` → 10.0).
     - a plain number is interpreted as **keV** by documented convention (``13.55`` → 13.55).
     - a unitless string (``"13.55"``), an unknown unit, a boolean, or a non-finite /
       non-positive value raises :class:`PayloadValidationError` — the contract never guesses.

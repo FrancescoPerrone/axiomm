@@ -37,6 +37,13 @@ def test_explicit_colour_list_is_used_verbatim_and_cycles():
     assert resolve_palette(["#111111", "#222222"], 3) == ["#111111", "#222222", "#111111"]
 
 
+def test_builtin_palette_cycles_past_its_length():
+    # declared exhaustion policy: a fixed-length built-in repeats past its capacity
+    cols = resolve_palette("okabe_ito", 10)                 # okabe_ito has 8
+    assert len(cols) == 10
+    assert cols[8] == cols[0] and cols[9] == cols[1]        # cycled, not errored
+
+
 def test_reserve_pins_a_slot():
     cols = resolve_palette("batlowS", 3, reserve={1: "#8a8f98"})
     assert cols[1] == "#8a8f98" and cols[0] == CRAMERI_BATLOWS[0]
