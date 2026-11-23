@@ -88,19 +88,25 @@ from axiomm import Pipeline
 result = Pipeline().run("map.bcf")
 
 # add mineral identification
-result = Pipeline(beam_energy_kev=20).run("map.bcf")
+result = Pipeline(beam_energy="20 keV").run("map.bcf")
 
 print(result.summary())
 for row in result.clusters:          # one plain row per mineral group
     print(row)
 
 result.phase_map                     # per-pixel mineral name (when minerals ran)
-result.report_html("report.html")    # one self-contained, shareable HTML report
+result.write_report("report.html")   # one self-contained, shareable HTML report
 result.save("out/")                  # a self-describing folder you can reload
 ```
 
+The settings read as plain English — `beam_energy="13.55 keV"`, `clusters=7`,
+`library="minerals_default_v2"`, `exclude_elements=["Ba"]`,
+`naming_policy="family_aware"` — and every one has a canonical alias that still works
+(`beam_energy_kev`, `groups`, `reference`, `classification`), so older scripts are
+unaffected.
+
 Each stage is yours to choose. The defaults just work, but `reduction=`,
-`clustering=` and `classification=` accept a backend name, a constructed
+`clustering=` and `naming_policy=` accept a backend name, a constructed
 backend, or a `{"name": ..., **options}` dict — so a pipeline can reflect
 the exact choices your analysis calls for. Reduction offers **PCA** and
 **UMAP**; clustering offers **GMM** and **HDBSCAN** (density-based, discovers
@@ -118,8 +124,8 @@ so the map reports at the confidence the data earns, not a guess per cluster.
 Swap the policy (or its thresholds) without re-running the chemistry:
 
 ```python
-Pipeline(classification="conservative").run("map.bcf")   # species only, else unresolved
-Pipeline(classification="permissive").run("map.bcf")     # always name the best candidate
+Pipeline(naming_policy="conservative").run("map.bcf")   # species only, else unresolved
+Pipeline(naming_policy="permissive").run("map.bcf")     # always name the best candidate
 ```
 
 The individual tools are one import away too, and building the input takes
@@ -200,7 +206,7 @@ Per the AXIOMM convention each tool lives under its own subpackage:
 |-----------|---------------------------|--------------------------------------------------|
 | Converter | `axiomm.io.converters`    | Phases 0–4 complete. End-to-end Python API, registry + plugin-discovery for third-party readers/writers, calibration resolution ladder with per-value provenance (`source_metadata` → `user_config` → `legacy_preset` → `inferred` → `unknown`). Reads XRM-Map HDF5 and **Bruker `.bcf`** EDS. CLI / notebook helpers still blocked on a UX-layout decision. |
 | Analysis suite | `axiomm.analysis.*`  | 🚧 Stage two. `decomposition` (PCA **+ UMAP**), `clustering` (GMM **+ HDBSCAN**), `mineralogy` reference, `peaks`, `quant` (k-factors, Cliff-Lorimer, reliability gate), and exploratory `mineralogy.match` — composable tools, one import away (`from axiomm import decompose, cluster, quantify, …`), also runnable on real EDS data. |
-| Pipeline | `axiomm.Pipeline` | ✅ One-call front door composing the whole chain, with pluggable stages and honest abstention. `result.report_html()` produces an interactive, self-contained HTML report (per-stage sections incl. spectra with peak IDs, phase map, and a reduction embedding scatter); `result.workflow_html()` writes an auto-generated workflow figure of the tools used and how they connect. A friendly UX layer is next — see the [Roadmap](https://github.com/FrancescoPerrone/axiomm/wiki/Roadmap) and `docs/user/analysis.md`. |
+| Pipeline | `axiomm.Pipeline` | ✅ One-call front door composing the whole chain, with pluggable stages and honest abstention. `result.write_report()` produces an interactive, self-contained HTML report (per-stage sections incl. spectra with peak IDs, phase map, and a reduction embedding scatter); `result.workflow_html()` writes an auto-generated workflow figure of the tools used and how they connect. A friendly UX layer is next — see the [Roadmap](https://github.com/FrancescoPerrone/axiomm/wiki/Roadmap) and `docs/user/analysis.md`. |
 
 ## Examples
 

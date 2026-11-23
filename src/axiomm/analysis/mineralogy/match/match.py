@@ -16,6 +16,7 @@ import json
 import math
 
 from axiomm import __version__ as _AXIOMM_VERSION
+from axiomm.analysis.aliases import UNSET, resolve_alias
 from axiomm.analysis.errors import PayloadValidationError
 from axiomm.analysis.mineralogy.match.basis import included_elements, to_molar_proportions
 from axiomm.analysis.mineralogy.match.config import NORMALIZATIONS, MatchConfig
@@ -302,15 +303,17 @@ def _build_provenance(qr, reference, config, excluded, included, input_reliabili
     )
 
 
-def match_clusters(quant_results, reference, *, reliabilities=None,
+def match_clusters(quant_results, reference=UNSET, *, library=UNSET, reliabilities=None,
                    config: MatchConfig | None = None, allow_ungated: bool = False,
                    rank_exploratory: bool = False) -> tuple[MineralMatchResult, ...]:
     """Match several clusters, aligning reliabilities one-to-one by ``cluster_id``.
 
-    Results are returned in ascending ``cluster_id`` order regardless of input
-    order; a missing, duplicate, or mismatched id is an error, and duplicate
-    identifiers are never silently overwritten.
+    The mineral set is ``reference`` (kept, positional-or-keyword) or the plainer
+    ``library`` — one spelling, not both. Results are returned in ascending
+    ``cluster_id`` order regardless of input order; a missing, duplicate, or mismatched
+    id is an error, and duplicate identifiers are never silently overwritten.
     """
+    reference = resolve_alias("reference", reference, "library", library)
     config = config or MatchConfig()
     by_id: dict[int, object] = {}
     for qr in quant_results:

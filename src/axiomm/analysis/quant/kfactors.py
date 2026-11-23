@@ -20,9 +20,11 @@ from __future__ import annotations
 
 import math
 
+from axiomm.analysis.aliases import UNSET, resolve_alias
 from axiomm.analysis.errors import AnalysisDependencyError, PayloadValidationError
 from axiomm.analysis.models import AnalysisProvenance, Diagnostic
 from axiomm.analysis.quant.models import KFactorSet
+from axiomm.analysis.units import parse_energy_kev
 
 _LINE_ATTR = {"Ka": "KA_LINE", "La": "LA_LINE"}
 
@@ -40,12 +42,27 @@ def _import_xraylib():
     return xraylib
 
 
-def compute_k_factors(elements, *, excitation_kev: float, reference: str = "Si") -> KFactorSet:
+def compute_k_factors(elements, *, excitation_kev=UNSET, beam_energy=UNSET,
+                      reference=UNSET, reference_element=UNSET) -> KFactorSet:
     """Theoretical fluorescence-sensitivity ratios ``k_{i,ref} = S_ref / S_i``.
 
-    See the module docstring for the physical model these ratios do and do
-    not include.
+    The excitation energy is ``excitation_kev`` (a number, keV) or the plainer
+    ``beam_energy`` (a units-string like ``"13.55 keV"`` or a number); the normalising
+    element is ``reference`` or the plainer ``reference_element`` (default ``"Si"``).
+    Each pair accepts one spelling, not both. See the module docstring for the physical
+    model these ratios do and do not include.
     """
+    # Energy: the plain-English ``beam_energy`` is parsed (string/number); the legacy
+    # numeric ``excitation_kev`` keeps its own contract (validated below), so its errors
+    # are unchanged. Exactly one spelling.
+    if beam_energy is not UNSET:
+        if excitation_kev is not UNSET:
+            raise PayloadValidationError("pass either 'excitation_kev' or 'beam_energy', not both.")
+        excitation_kev = parse_energy_kev(beam_energy)
+    elif excitation_kev is UNSET:
+        raise PayloadValidationError("'excitation_kev' (or 'beam_energy') is required.")
+    reference = resolve_alias("reference", reference, "reference_element", reference_element,
+                              default="Si")
     els = list(elements)
     symbols = [e.symbol for e in els]
 
