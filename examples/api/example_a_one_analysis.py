@@ -17,16 +17,16 @@ def analyse_one(source, report_path):
     """Configure, run, and report a single analysis; return the result."""
     # The scientific choices, in one place.
     pipeline = Pipeline(
-        beam_energy_kev=13.55,                 # the acquisition energy
-        reference="minerals_default_v2",       # the mineral library to match against
-        groups=7,                              # how many clusters to look for
-        exclude_elements={"Ba"},               # drop Ba (its line overlaps Ti here)
+        beam_energy="13.55 keV",               # the acquisition energy
+        library="minerals_default_v2",         # the mineral library to match against
+        clusters=7,                            # how many clusters to look for
+        exclude_elements=["Ba"],               # drop Ba (its line overlaps Ti here)
         normalize=True,                        # per-incident-photon footing (I0)
-        classification="family_aware",         # species when clear, else family, else unresolved
+        naming_policy="family_aware",          # species when clear, else family, else unresolved
     )
 
     result = pipeline.run(source)              # read + run the whole analysis
-    result.report_html(report_path, overwrite=True)   # write the interactive report
+    result.write_report(report_path)           # write the interactive report
     return result
 
 

@@ -34,13 +34,45 @@ except Exception:  # pragma: no cover - version always importable in practice
     _AXIOMM_VERSION = "unknown"
 
 
+#: Plain-English facade aliases: friendly keyword -> canonical ``PipelineConfig`` field.
+#: (``beam_energy`` is handled separately because its value is parsed to keV.)
+_FACADE_ALIASES = {
+    "clusters": "groups",
+    "library": "reference",
+    "naming_policy": "classification",
+}
+
+
 class Pipeline:
-    """Run the whole analysis with one call: ``Pipeline().run(source)``."""
+    """Run the whole analysis with one call: ``Pipeline().run(source)``.
+
+    Settings read as plain English (every name has a canonical alias that also works):
+    ``beam_energy="13.55 keV"`` (or ``beam_energy_kev=13.55``), ``clusters=7`` (``groups``),
+    ``library="minerals_default_v2"`` (``reference``), ``naming_policy="family_aware"``
+    (``classification``), ``exclude_elements=["Ba"]``. Passing a word *and* its alias is an error.
+    """
 
     def __init__(self, config: PipelineConfig | None = None, **kwargs) -> None:
         if config is not None and kwargs:
             raise PayloadValidationError("pass a PipelineConfig or keyword settings, not both.")
-        self.config = config or PipelineConfig(**kwargs)
+        self.config = config or PipelineConfig(**self._resolve_aliases(kwargs))
+
+    @staticmethod
+    def _resolve_aliases(kwargs: dict) -> dict:
+        """Map plain-English keywords to canonical ``PipelineConfig`` fields, parsing
+        ``beam_energy`` to keV. Supplying both a word and its alias is a named error."""
+        kwargs = dict(kwargs)
+        if "beam_energy" in kwargs:
+            if "beam_energy_kev" in kwargs:
+                raise PayloadValidationError("pass either 'beam_energy' or 'beam_energy_kev', not both.")
+            from axiomm.analysis.units import parse_energy_kev
+            kwargs["beam_energy_kev"] = parse_energy_kev(kwargs.pop("beam_energy"))
+        for friendly, canonical in _FACADE_ALIASES.items():
+            if friendly in kwargs:
+                if canonical in kwargs:
+                    raise PayloadValidationError(f"pass either {friendly!r} or {canonical!r}, not both.")
+                kwargs[canonical] = kwargs.pop(friendly)
+        return kwargs
 
     # -- ingestion -----------------------------------------------------------
     def _read_payload(self, source):

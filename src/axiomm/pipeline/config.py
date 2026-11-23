@@ -72,6 +72,11 @@ class PipelineConfig:
         _check_stage("classification", self.classification, "classify")
         if not (isinstance(self.seed, int) and not isinstance(self.seed, bool)):
             raise PayloadValidationError(f"Pipeline seed must be an integer; got {self.seed!r}.")
+        if isinstance(self.exclude_elements, str):
+            # a bare string would iterate into single characters ('Ba' -> 'B','a')
+            raise PayloadValidationError(
+                f"Pipeline exclude_elements must be a list/set of element symbols, not a bare "
+                f"string; pass e.g. ['Ba'], not {self.exclude_elements!r}.")
         if not all(isinstance(e, str) and e for e in self.exclude_elements):
             raise PayloadValidationError(
                 f"Pipeline exclude_elements must be element symbols (non-empty strings); "

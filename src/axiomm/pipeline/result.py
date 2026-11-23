@@ -114,6 +114,15 @@ class PipelineResult:
             rep.write(path, overwrite=overwrite)
         return rep
 
+    def write_report(self, path, *, config=None, overwrite: bool = False) -> Path:
+        """Write the HTML report to ``path`` and return the written ``Path``.
+
+        The plain 'write it to disk' verb: ``result.report()`` *returns* a Report
+        object, whereas this writes an HTML file. Equivalent to ``report_html(path)``.
+        """
+        self.report_html(path, config=config, overwrite=overwrite)
+        return Path(path)
+
     def workflow_html(self, path=None, *, title: str = "Analysis workflow",
                       overwrite: bool = False):
         """The auto-generated **workflow figure** for this run — an editable-canvas

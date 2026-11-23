@@ -16,14 +16,14 @@ def analyse(source, report_path):
     """Run the standard analysis on ``source``, write its report to ``report_path``,
     and return the :class:`PipelineResult` for further inspection."""
     result = Pipeline(
-        beam_energy_kev=13.55,
-        reference="minerals_default_v2",
-        groups=7,
-        exclude_elements={"Ba"},
+        beam_energy="13.55 keV",
+        library="minerals_default_v2",
+        clusters=7,
+        exclude_elements=["Ba"],
         normalize=True,
-        classification="family_aware",
+        naming_policy="family_aware",
     ).run(source)
-    result.report_html(report_path, overwrite=True)
+    result.write_report(report_path, overwrite=True)
     return result
 
 

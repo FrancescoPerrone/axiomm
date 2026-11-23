@@ -88,6 +88,17 @@ def test_fusion_path_runs_and_uses_both_energies():
     assert "Si" in nets and "Ca" in nets
 
 
+def test_beam_energy_does_not_broadcast_across_group():
+    # a facade beam_energy must NOT override the per-map energies of a multi-energy group
+    pytest.importorskip("sklearn")
+    pytest.importorskip("xraylib")
+    group = MultiEnergyMapGroup.from_pairs([(2.9, _map(0)), (13.55, _map(1))])
+    r = Pipeline(beam_energy="99 keV", groups=2, components=4, seed=0,
+                 reference=_ref(), reference_element="Si").run(group)
+    msg = next(d.message for d in r.diagnostics if d.code == "fusion_engaged")
+    assert "2.9" in msg and "13.55" in msg and "99" not in msg
+
+
 def test_fusion_navigation_grid_mismatch_raises():
     group = MultiEnergyMapGroup.from_pairs([(2.9, _map(0, nx=10)), (13.55, _map(1, nx=12))])
     with pytest.raises(RegistrationError):
