@@ -49,9 +49,11 @@ def _signal_axis(payload):
 
 
 def _signal_range(axis):
-    """``(emin, emax)`` keV spanned by a signal axis."""
-    emin = float(axis.offset)
-    return emin, emin + float(axis.scale) * (int(axis.size) - 1)
+    """``(emin, emax)`` keV spanned by a signal axis (unit-aware: an eV axis or a
+    non-zero offset is resolved to keV exactly as the peak integration does)."""
+    from axiomm.analysis.peaks.energy import resolve_energy_axis
+    grid = resolve_energy_axis(axis, int(axis.size))
+    return float(grid[0]), float(grid[-1])
 
 
 class Pipeline:

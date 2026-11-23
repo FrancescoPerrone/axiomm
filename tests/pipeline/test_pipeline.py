@@ -263,6 +263,43 @@ def test_report_leads_with_classification_decision():
             assert row["label"] != row["best_match"]
 
 
+def _payload_on_axis(*, units, scale, offset, ne=400, seed=0):
+    """A map whose peaks sit at fixed PHYSICAL keV, described by an arbitrary axis."""
+    kev_per = 0.001 if units == "eV" else 1.0
+    e_kev = (np.arange(ne) * scale + offset) * kev_per
+    rng = np.random.default_rng(seed)
+    cube = np.full((12, 16, ne), 2.0)
+
+    def add(sl, lines):
+        for cen, amp in lines:
+            cube[sl] += amp * np.exp(-((e_kev - cen) ** 2) / (2 * 0.05 ** 2))
+
+    add((slice(None, 6),), [(1.254, 300), (1.740, 150)])
+    add((slice(6, None),), [(3.690, 250), (1.254, 150), (1.740, 300)])
+    cube = rng.poisson(np.clip(cube, 0, None)).astype(float)
+    axes = (
+        AxisSpec("y", "navigation", 12, index_in_array=0),
+        AxisSpec("x", "navigation", 16, index_in_array=1),
+        AxisSpec("Energy", "signal", ne, units=units, scale=scale, offset=offset, index_in_array=2),
+    )
+    return AxiommSignalPayload(data=cube, axes=axes, signal_kind="signal1d")
+
+
+def test_pipeline_consistent_across_kev_and_ev_axes():
+    """Physically-identical axes (1.0-8.98 keV, non-zero offset) in keV vs eV must give the
+    same cations, intensities and labels -- the line filter must convert units like integration."""
+    pytest.importorskip("sklearn")
+    pytest.importorskip("xraylib")
+    kev = _payload_on_axis(units="keV", scale=0.02, offset=1.0, seed=0)
+    ev = _payload_on_axis(units="eV", scale=20.0, offset=1000.0, seed=0)   # same physical grid
+    kw = dict(groups=2, components=4, reference=_controlled_reference(),
+              beam_energy_kev=15.0, seed=0)
+    rk, re = Pipeline(**kw).run(kev), Pipeline(**kw).run(ev)
+    assert [dict(q.net_intensities) for q in rk.quantification] == \
+           [dict(q.net_intensities) for q in re.quantification]
+    assert [row["label"] for row in rk.clusters] == [row["label"] for row in re.clusters]
+
+
 def test_permissive_reproduces_pre_s7_labels():
     """permissive == the old always-name-best behaviour (the reversible default)."""
     pytest.importorskip("sklearn")

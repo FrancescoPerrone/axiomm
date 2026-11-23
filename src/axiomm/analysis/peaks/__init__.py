@@ -67,9 +67,11 @@ def measure_peaks(means, energy_axis, reference=None, *, lines=None, measurer=No
             raise PayloadValidationError(
                 "measure_peaks needs a reference (to derive lines) or an explicit "
                 "line_energies mapping.")
-        emin = float(energy_axis.offset)
-        emax = float(energy_axis.offset) + float(energy_axis.scale) * (int(energy_axis.size) - 1)
-        lines = reference.line_energies(reference.cations_in_range(emin, emax))
+        # Select lines on the SAME keV grid the integration uses (unit-aware: an eV axis,
+        # or a non-zero offset, must not be read as keV here while integration converts it).
+        from axiomm.analysis.peaks.energy import resolve_energy_axis
+        grid = resolve_energy_axis(energy_axis, int(energy_axis.size))
+        lines = reference.line_energies(reference.cations_in_range(float(grid[0]), float(grid[-1])))
     return measure_cluster_means(means, energy_axis, lines, measurer=measurer or NetIntensityMeasurer())
 
 
