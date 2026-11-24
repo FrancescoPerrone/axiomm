@@ -88,7 +88,7 @@ def fuse_peak_sets(per_energy_peak_sets, source_energy):
 
 
 def fused_k_factors(element_refs, source_energy, *, reference, scale=None,
-                    _compute=None) -> KFactorSet:
+                    cross_energy_status=None, _compute=None) -> KFactorSet:
     """A :class:`KFactorSet` with each element's k-factor at its measurement energy.
 
     ``source_energy`` maps ``symbol -> excitation_kev`` (``None`` elements are
@@ -132,6 +132,8 @@ def fused_k_factors(element_refs, source_energy, *, reference, scale=None,
             params={"source_energy_kev": {s: e for s, e in source.items()},
                     "reference_element": reference, "reference_energy_kev": e_ref,
                     "cross_energy_scale": {e: float(f) for e, f in scale.items()},
+                    "cross_energy_status": (dict(cross_energy_status)
+                                            if cross_energy_status is not None else None),
                     "method": "per-element k-factor at best-excited energy "
                               "(I0+live-time+dead-time normalized intensities)"}),
         diagnostics=diagnostics)
@@ -162,8 +164,11 @@ def bridge_cross_calibration(per_energy_net, element_refs, energies, *, referenc
     with **no usable bridge link** is uncalibrated: it keeps scale 1 (warned), or raises
     under ``"raise"``.
 
-    Returns ``({energy: scale}, diagnostics)``. ``edge_fn(ref) -> edge_keV`` and the
-    sensitivity source ``_compute`` are injectable so the logic tests without xraylib.
+    Returns ``({energy: scale}, {energy: status}, diagnostics)`` where ``status`` is one
+    of ``reference`` / ``no_bridge_elements`` / ``no_usable_link`` /
+    ``refused_low_confidence`` / ``applied_low_confidence`` / ``applied`` — so a scale of
+    1.0 is never ambiguous. ``edge_fn(ref) -> edge_keV`` and the sensitivity source
+    ``_compute`` are injectable so the logic tests without xraylib.
 
     The scale is a single per-energy *rebalancing* factor, not a per-element or
     matrix correction; a large dispersion signals the per-energy model is a poor
@@ -199,11 +204,19 @@ def bridge_cross_calibration(per_energy_net, element_refs, energies, *, referenc
     bridge = [s for s, es in exciting.items() if len(es) >= 2]
     diagnostics: list[Diagnostic] = []
     scale = {e: 1.0 for e in energies}
+    # Per-energy outcome, so a scale of 1.0 is never ambiguous downstream: the reference is
+    # 1.0 by definition, and every other way an energy ends at 1.0 (no bridge elements, no
+    # usable link, refused for low confidence) is distinguished from an applied factor that
+    # happens to be ~1.0. Carried into provenance.
+    status = {e: ("reference" if e == reference_energy else "pending") for e in energies}
     if not bridge:
+        for e in energies:
+            if e != reference_energy:
+                status[e] = "no_bridge_elements"
         diagnostics.append(Diagnostic(
             "info", "bridge_none",
             "no element is excited by more than one energy; cross-energy scale left at 1."))
-        return scale, diagnostics
+        return scale, status, diagnostics
 
     sens: dict[tuple, float] = {}
     for e in energies:
@@ -247,6 +260,7 @@ def bridge_cross_calibration(per_energy_net, element_refs, energies, *, referenc
         pts, used = points_for(e)
         if not pts:
             # No usable bridge link: this energy is uncalibrated.
+            status[e] = "no_usable_link"
             msg = (f"no usable bridge pair links {e} keV to the {reference_energy} keV "
                    "reference; the energy is uncalibrated")
             if on_low_confidence == "raise":
@@ -278,16 +292,18 @@ def bridge_cross_calibration(per_energy_net, element_refs, energies, *, referenc
         if low and on_low_confidence == "raise":
             raise CrossCalibrationError(base + " Refusing per bridge_low_confidence='raise'.")
         if low and on_low_confidence == "refuse":
+            status[e] = "refused_low_confidence"
             diagnostics.append(Diagnostic(
                 "warning", "bridge_low_confidence",
                 base + " Low confidence: correction refused, scale left at 1.0."))
             continue
         scale[e] = est
+        status[e] = "applied_low_confidence" if low else "applied"
         diagnostics.append(Diagnostic(
             "warning" if low else "info",
             "bridge_low_confidence" if low else "bridge_cross_calibration",
             base + (" Low confidence: applied with caution." if low else " Applied.")))
-    return scale, diagnostics
+    return scale, status, diagnostics
 
 
 def _weighted_median(points):

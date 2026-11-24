@@ -175,25 +175,30 @@ def quantify(peaks, kfactors, elements, *, reference_name: str | None = None) ->
     # --- provenance chain (P9) ------------------------------------------
     prov_k = kfactors.provenance
     kp = prov_k.params if prov_k else {}
-    provenance = AnalysisProvenance(
-        tool="quant", backend="cliff_lorimer",
-        params={
-            "reference": reference,
-            "reference_name": reference_name,
-            "kfactor_values": dict(k),
-            "kfactor_method": kp.get("method"),
-            "kfactor_line_method": kp.get("line_method"),
-            "physical_model": kp.get("physical_model"),
-            "xraylib_version": kp.get("xraylib_version"),
-            "xraylib_backend": kp.get("xraylib_backend"),
-            "excitation_kev": kp.get("excitation_kev"),
-            "oxide_forms": {
-                sym: list(el_by_sym[sym].oxide_form)
-                for sym in k if el_by_sym[sym].oxide_form is not None
-            },
-            "cluster_id": peaks.cluster_id,
+    params = {
+        "reference": reference,
+        "reference_name": reference_name,
+        "kfactor_values": dict(k),
+        "kfactor_method": kp.get("method"),
+        "kfactor_line_method": kp.get("line_method"),
+        "physical_model": kp.get("physical_model"),
+        "xraylib_version": kp.get("xraylib_version"),
+        "xraylib_backend": kp.get("xraylib_backend"),
+        "excitation_kev": kp.get("excitation_kev"),
+        "oxide_forms": {
+            sym: list(el_by_sym[sym].oxide_form)
+            for sym in k if el_by_sym[sym].oxide_form is not None
         },
-    )
+        "cluster_id": peaks.cluster_id,
+    }
+    # Carry the fused cross-energy provenance so it is not dropped at quantification and
+    # survives save/load (#2): the per-energy bridge scale AND why each energy ended there
+    # (applied / refused / no link / …). Absent on the single-energy path, so omit then.
+    if kp.get("cross_energy_scale") is not None:
+        params["cross_energy_scale"] = kp["cross_energy_scale"]
+    if kp.get("cross_energy_status") is not None:
+        params["cross_energy_status"] = kp["cross_energy_status"]
+    provenance = AnalysisProvenance(tool="quant", backend="cliff_lorimer", params=params)
     return QuantResult(
         net_intensities=net, wt_percent_element=wt_element, wt_percent_oxide=wt_oxide,
         reference_element=reference,

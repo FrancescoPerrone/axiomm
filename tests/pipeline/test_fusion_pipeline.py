@@ -87,6 +87,42 @@ def test_fusion_path_runs_and_uses_both_energies():
     assert "Si" in nets and "Ca" in nets
 
 
+def test_fusion_provenance_carries_cross_energy_and_round_trips(tmp_path):
+    """#2: the bridge scale AND the per-energy status reach the quant provenance (not dropped
+    at quantification) and survive save/load. JSON coerces float energy keys to strings, so
+    compare by stringified keys."""
+    pytest.importorskip("sklearn")
+    pytest.importorskip("xraylib")
+    group = MultiEnergyMapGroup.from_pairs([(2.9, _map(0)), (13.55, _map(1))])
+    r = Pipeline(groups=2, components=4, seed=0, reference=_ref(), reference_element="Si",
+                 fusion_cross_cal="bridge").run(group)
+    q = r.quantification[0].provenance.params
+    assert "cross_energy_scale" in q and "cross_energy_status" in q
+    assert set(q["cross_energy_status"].values()) <= {
+        "reference", "no_bridge_elements", "no_usable_link",
+        "refused_low_confidence", "applied_low_confidence", "applied"}
+
+    def by_str(d):
+        return {str(k): v for k, v in d.items()}
+
+    from axiomm.pipeline import load_result
+    r.save(tmp_path / "out")
+    q2 = load_result(tmp_path / "out").quantification[0].provenance.params
+    assert by_str(q2["cross_energy_scale"]) == by_str(q["cross_energy_scale"])
+    assert by_str(q2["cross_energy_status"]) == by_str(q["cross_energy_status"])
+
+
+def test_single_energy_quant_provenance_has_no_cross_energy_keys():
+    """The single-energy path has no cross-energy correction, so those keys are absent
+    (not carried as nulls)."""
+    pytest.importorskip("sklearn")
+    pytest.importorskip("xraylib")
+    r = Pipeline(groups=2, components=4, seed=0, reference=_ref(), reference_element="Si",
+                 beam_energy_kev=13.55).run(_map(0))
+    params = r.quantification[0].provenance.params
+    assert "cross_energy_scale" not in params and "cross_energy_status" not in params
+
+
 def test_fusion_reliability_uses_source_raw_counting_basis():
     """#4: fused reliability grades each element's net-count floor on the RAW source counts,
     not the monitor-normalized fused quant; provenance records the source-raw basis."""

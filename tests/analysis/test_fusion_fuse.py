@@ -87,7 +87,7 @@ def test_bridge_cross_calibration_derives_scale():
     per_energy_net = {2.9: {0: {"Si": 10.0}, 1: {"Si": 10.0}},
                       13.55: {0: {"Si": 2.0}, 1: {"Si": 2.0}}}
     s = {("Si", 2.9): 2.0, ("Si", 13.55): 1.0}
-    scale, diags = bridge_cross_calibration(
+    scale, _, diags = bridge_cross_calibration(
         per_energy_net, [_ref("Si", 14)], [2.9, 13.55], reference_energy=13.55,
         edge_fn=lambda r: 1.84, _compute=_fake_compute(s))
     # conc(Si,13.55)=2/1=2 ; conc(Si,2.9)=10/2=5 ; scale[2.9]=2/5=0.4
@@ -104,12 +104,12 @@ def test_bridge_eligibility_screen_excludes_unreliable_points():
     per = {2.9: {0: {"Si": 10.0}, 1: {"Si": 10.0}, 2: {"Si": 10.0}},
            13.55: {0: {"Si": 2.0}, 1: {"Si": 2.0}, 2: {"Si": 500.0}}}
     s = {("Si", 2.9): 2.0, ("Si", 13.55): 1.0}
-    _, diags_all = bridge_cross_calibration(
+    _, _, diags_all = bridge_cross_calibration(
         per, [_ref("Si", 14)], [2.9, 13.55], reference_energy=13.55,
         edge_fn=lambda r: 1.84, _compute=_fake_compute(s))
     assert any(d.code == "bridge_low_confidence" for d in diags_all)     # outlier spreads ratios
     eligible = {("Si", 2.9, 0), ("Si", 13.55, 0), ("Si", 2.9, 1), ("Si", 13.55, 1)}   # cluster 2 out
-    scale_sc, diags_sc = bridge_cross_calibration(
+    scale_sc, _, diags_sc = bridge_cross_calibration(
         per, [_ref("Si", 14)], [2.9, 13.55], reference_energy=13.55,
         edge_fn=lambda r: 1.84, eligible=eligible, _compute=_fake_compute(s))
     assert scale_sc[2.9] == pytest.approx(0.4)
@@ -117,11 +117,34 @@ def test_bridge_eligibility_screen_excludes_unreliable_points():
     assert not any(d.code == "bridge_low_confidence" for d in diags_sc)
 
 
+def test_bridge_status_distinguishes_scale_one_cases():
+    # #2: a scale of 1.0 must be unambiguous — the per-energy status says WHY.
+    s = {("Si", 2.9): 2.0, ("Si", 13.55): 1.0}
+
+    def run(per, **kw):
+        return bridge_cross_calibration(
+            per, [_ref("Si", 14)], [2.9, 13.55], reference_energy=13.55,
+            edge_fn=kw.pop("edge_fn", lambda r: 1.84), _compute=_fake_compute(s), **kw)
+
+    _, st_applied, _ = run({2.9: {0: {"Si": 10.0}, 1: {"Si": 10.0}},
+                            13.55: {0: {"Si": 2.0}, 1: {"Si": 2.0}}})
+    assert st_applied[13.55] == "reference" and st_applied[2.9] == "applied"
+    _, st_low, _ = run({2.9: {0: {"Si": 10.0}}, 13.55: {0: {"Si": 2.0}}})   # single point, flag
+    assert st_low[2.9] == "applied_low_confidence"
+    _, st_ref, _ = run({2.9: {0: {"Si": 10.0}}, 13.55: {0: {"Si": 2.0}}}, on_low_confidence="refuse")
+    assert st_ref[2.9] == "refused_low_confidence"
+    _, st_nolink, _ = run({2.9: {0: {"Si": 0.0}}, 13.55: {0: {"Si": 2.0}}})   # Si net 0 at 2.9
+    assert st_nolink[2.9] == "no_usable_link"
+    _, st_nobridge, _ = run({2.9: {0: {"Si": 10.0}}, 13.55: {0: {"Si": 2.0}}},
+                            edge_fn=lambda r: 5.0)                            # Si excited only at 13.55
+    assert st_nobridge[2.9] == "no_bridge_elements"
+
+
 def test_bridge_single_point_is_low_confidence():
     # one shared cluster -> one bridge point: no agreement can be established
     per_energy_net = {2.9: {0: {"Si": 10.0}}, 13.55: {0: {"Si": 2.0}}}
     s = {("Si", 2.9): 2.0, ("Si", 13.55): 1.0}
-    scale, diags = bridge_cross_calibration(
+    scale, _, diags = bridge_cross_calibration(
         per_energy_net, [_ref("Si", 14)], [2.9, 13.55], reference_energy=13.55,
         edge_fn=lambda r: 1.84, _compute=_fake_compute(s))
     assert scale[2.9] == pytest.approx(0.4)          # applied (flag default)
@@ -138,7 +161,7 @@ def test_bridge_weight_driven_outlier_is_flagged():
     weights = {c: 1 for c in range(9)}
     weights[9] = 1000
     s = {("Si", 2.9): 1.0, ("Si", 13.55): 1.0}
-    scale, diags = bridge_cross_calibration(
+    scale, _, diags = bridge_cross_calibration(
         {2.9: net_lo, 13.55: net_hi}, [_ref("Si", 14)], [2.9, 13.55], reference_energy=13.55,
         edge_fn=lambda r: 1.0, cluster_weights=weights, dispersion_limit=2.0,
         _compute=_fake_compute(s))
@@ -177,7 +200,7 @@ def test_bridge_uses_true_median_for_even_count():
     # not the upper-middle value (4.0) a naive ratios[len//2] would return.
     per_energy_net = {2.9: {0: {"Si": 1.0, "Mg": 1.0}}, 13.55: {0: {"Si": 2.0, "Mg": 4.0}}}
     s = {("Si", 2.9): 1.0, ("Si", 13.55): 1.0, ("Mg", 2.9): 1.0, ("Mg", 13.55): 1.0}
-    scale, _ = bridge_cross_calibration(
+    scale, _, _ = bridge_cross_calibration(
         per_energy_net, [_ref("Si", 14), _ref("Mg", 12)], [2.9, 13.55],
         reference_energy=13.55, edge_fn=lambda r: 1.0, _compute=_fake_compute(s))
     assert scale[2.9] == pytest.approx(3.0)
@@ -188,7 +211,7 @@ def test_bridge_unresolved_energy_warns_and_leaves_scale_one():
     # no usable pair -> scale stays 1.0 with an explicit per-energy warning.
     per_energy_net = {2.9: {0: {"Si": 0.0}}, 13.55: {0: {"Si": 2.0}}}
     s = {("Si", 2.9): 1.0, ("Si", 13.55): 1.0}
-    scale, diags = bridge_cross_calibration(
+    scale, _, diags = bridge_cross_calibration(
         per_energy_net, [_ref("Si", 14)], [2.9, 13.55], reference_energy=13.55,
         edge_fn=lambda r: 1.0, _compute=_fake_compute(s))
     assert scale[2.9] == 1.0
@@ -199,7 +222,7 @@ def test_bridge_weights_by_pixel_count():
     # one bridge element, two clusters (ratios 2 and 4); the 10x-heavier cluster dominates
     per = {2.9: {0: {"Si": 1.0}, 1: {"Si": 1.0}}, 13.55: {0: {"Si": 2.0}, 1: {"Si": 4.0}}}
     s = {("Si", 2.9): 1.0, ("Si", 13.55): 1.0}
-    scale, _ = bridge_cross_calibration(
+    scale, _, _ = bridge_cross_calibration(
         per, [_ref("Si", 14)], [2.9, 13.55], reference_energy=13.55, edge_fn=lambda r: 1.0,
         cluster_weights={0: 10, 1: 1}, _compute=_fake_compute(s))
     assert scale[2.9] == pytest.approx(2.0)   # weighted-median pulled to the heavy cluster
@@ -214,7 +237,7 @@ def _high_dispersion():
 
 def test_bridge_low_confidence_flag_applies_with_warning():
     per, s = _high_dispersion()
-    scale, diags = bridge_cross_calibration(
+    scale, _, diags = bridge_cross_calibration(
         per, [_ref("Si", 14)], [2.9, 13.55], reference_energy=13.55, edge_fn=lambda r: 1.0,
         dispersion_limit=2.0, on_low_confidence="flag", _compute=_fake_compute(s))
     assert scale[2.9] == pytest.approx(5.5)   # applied despite dispersion
@@ -223,7 +246,7 @@ def test_bridge_low_confidence_flag_applies_with_warning():
 
 def test_bridge_low_confidence_refuse_leaves_scale_one():
     per, s = _high_dispersion()
-    scale, diags = bridge_cross_calibration(
+    scale, _, diags = bridge_cross_calibration(
         per, [_ref("Si", 14)], [2.9, 13.55], reference_energy=13.55, edge_fn=lambda r: 1.0,
         dispersion_limit=2.0, on_low_confidence="refuse", _compute=_fake_compute(s))
     assert scale[2.9] == 1.0
@@ -242,7 +265,7 @@ def test_bridge_cross_calibration_none_when_no_bridge():
     # Ca and Ti are each excited only at 13.55 keV (edges 4.04 / 4.97) -> no bridge.
     per_energy_net = {2.9: {0: {}}, 13.55: {0: {"Ca": 5.0, "Ti": 3.0}}}
     edges = {"Ca": 4.04, "Ti": 4.97}
-    scale, diags = bridge_cross_calibration(
+    scale, _, diags = bridge_cross_calibration(
         per_energy_net, [_ref("Ca", 20), _ref("Ti", 22)], [2.9, 13.55], reference_energy=13.55,
         edge_fn=lambda r: edges[r.symbol], _compute=_fake_compute({}))
     assert scale == {2.9: 1.0, 13.55: 1.0}

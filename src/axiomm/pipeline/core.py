@@ -638,7 +638,7 @@ class Pipeline:
                 "energy in the group; choose a reference measurable by one of the energies.")
         # Bridge-element cross-calibration: elements measurable at >1 energy set a
         # per-energy scale that rebalances the light-vs-mid-Z footing (folded into k).
-        scale = None
+        scale = bridge_status = None
         if cfg.fusion_cross_cal == "bridge":
             per_energy_net = {
                 e: {ps.cluster_id: {m.label: m.net for m in ps.measurements} for ps in psets}
@@ -651,7 +651,7 @@ class Pipeline:
                         for e in payloads for cid in cluster_ids for r in element_refs
                         if per_energy_raw.get(e, {}).get(cid, {}).get(r.symbol, -1.0)
                         >= rel_cfg.floor_for(r.symbol)}
-            scale, cc_diag = bridge_cross_calibration(
+            scale, bridge_status, cc_diag = bridge_cross_calibration(
                 per_energy_net, element_refs, list(payloads),
                 reference_energy=source_energy[cfg.reference_element], edge_fn=element_edge_kev,
                 cluster_weights=cluster_weights, dispersion_limit=cfg.bridge_dispersion_limit,
@@ -659,7 +659,8 @@ class Pipeline:
             diagnostics += cc_diag
         fused_peaks = fuse_peak_sets(per_energy_peaks, source_energy)
         source_refs = [r for r in element_refs if source_energy.get(r.symbol) is not None]
-        k = fused_k_factors(source_refs, source_energy, reference=cfg.reference_element, scale=scale)
+        k = fused_k_factors(source_refs, source_energy, reference=cfg.reference_element,
+                            scale=scale, cross_energy_status=bridge_status)
         quant_elements = self._quant_elements(reference, source_refs)
         quant = quantify_cluster_means(list(fused_peaks), k, quant_elements, reference_name=reference.name)
         # Source-aware counting basis (#4): grade each element's net-count floor against the RAW
