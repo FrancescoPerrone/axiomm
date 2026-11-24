@@ -432,19 +432,23 @@ class Pipeline:
         diagnostics.append(Diagnostic(
             "info", "fusion_engaged",
             f"multi-energy fusion over {sorted(payloads)} keV; clustering on {cluster_basis}."))
-        # The current multi-energy defaults (fused clustering and/or bridge cross-calibration)
-        # are EXPERIMENTAL pending the cross-energy comparability guard (#3): until it lands,
-        # fused composition is not on a guaranteed common physical scale. Mark it loudly (reports
-        # + saved provenance), never silently; defaults are unchanged.
+        # Default multi-energy behaviour is the conservative baseline: cluster on the primary
+        # (highest-energy) map and apply NO automatic bridge cross-calibration
+        # (``fusion_clustering="primary"`` + ``fusion_cross_cal="none"``). The cross-energy
+        # comparability guard (#3, below) still puts the fused composition on a per-incident-photon
+        # scale. Opting into fused clustering and/or the bridge is EXPERIMENTAL: a single per-energy
+        # bridge scalar is a coarse model and fused clustering mixes energies' loadings, so the
+        # cross-energy wt% is not guaranteed comparable. Flag that choice loudly (reports + saved
+        # provenance), never silently.
         experimental = cfg.fusion_clustering == "fused" or cfg.fusion_cross_cal == "bridge"
         if experimental:
             diagnostics.append(Diagnostic(
                 "warning", "fusion_experimental",
                 "multi-energy fusion cross-energy composition is EXPERIMENTAL: fused clustering "
-                "and/or bridge cross-calibration are active and the cross-energy comparability "
-                "guard is pending, so fused composition is not guaranteed to be on a common "
-                "physical scale. Treat the composition as exploratory; phase identification via "
-                "fused clustering is more robust than the cross-energy wt%."))
+                "and/or bridge cross-calibration are active (the conservative default is "
+                "primary-map clustering with no bridge), so the fused composition is not "
+                "guaranteed to be on a common physical scale. Treat the composition as "
+                "exploratory; phase identification is more robust than the cross-energy wt%."))
         primary = payloads[ems[-1].excitation_kev]
 
         reducer, n_components = self._resolve_reduction(cfg, diagnostics)
@@ -520,11 +524,13 @@ class Pipeline:
     def _fused_cluster_features(self, payloads, primary, reducer, n_components, cfg, diagnostics):
         """Return ``(primary_decomposition, features_to_cluster_on)``.
 
-        With ``fusion_clustering="fused"`` (default), cluster on the standardized,
-        concatenated per-energy loadings, so a phase distinguished only at a low
-        energy (e.g. P-rich apatite) forms its own cluster; ``"primary"`` clusters
-        on the highest-energy map alone. The reported decomposition is always the
-        primary map's, for a consistent single-energy scree/factors view."""
+        ``fusion_clustering="primary"`` (the default) clusters on the highest-energy
+        map alone — one segmentation, no cross-energy mixing. The opt-in
+        ``"fused"`` mode instead clusters on the standardized, concatenated
+        per-energy loadings, so a phase distinguished only at a low energy (e.g.
+        P-rich apatite) can form its own cluster, at the cost of mixing energies'
+        features. The reported decomposition is always the primary map's, for a
+        consistent single-energy scree/factors view."""
         primary_decomp = reducer.decompose(primary, n_components=n_components)
         if cfg.fusion_clustering != "fused" or len(payloads) == 1:
             return primary_decomp, primary_decomp

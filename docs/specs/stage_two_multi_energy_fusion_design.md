@@ -110,9 +110,12 @@ behaviour kept as an explicit fallback when the scalers are absent.
 
 A **pre-quantification fusion step**: `MultiEnergyMapGroup` → verified registration →
 per-element energy selection → cross-calibrated net intensities → the existing
-`quantify` / reliability / match path, unchanged. For clustering, an optional fused
-element-map feature set may be offered; the default remains per-map single-energy
-clustering. Single payload ⇒ this step is a no-op.
+`quantify` / reliability / match path, unchanged. For clustering, the default
+(`fusion_clustering="primary"`) produces **one shared segmentation from the
+highest-energy (primary) map** — a single-energy clustering basis, applied to every
+map — not independent per-map clustering and not fused features. An optional fused
+element-map feature set (`fusion_clustering="fused"`) may be opted into. Single
+payload ⇒ this step is a no-op.
 
 ## 9. API sketch (additive)
 
@@ -156,3 +159,29 @@ diagnostics. Downstream quantification/matching consume the fused intensities as
   explicit fallback when scalers are absent.
 - Whether clustering should ever consume fused features by default — **no** (proposed and
   kept): clustering stays per-map; fusion acts at quantification.
+
+## 13. Implemented multi-energy defaults (reconciled with the spec)
+
+The shipped code had briefly drifted to `fusion_clustering="fused"` +
+`fusion_cross_cal="bridge"` as the defaults. That is **reconciled back to the
+conservative baseline this spec argued for** (§8, §12):
+
+- **`fusion_clustering="primary"` (default)** — one shared segmentation from the
+  highest-energy map; `"fused"` (cluster on standardized, concatenated per-energy
+  loadings) is **opt-in**.
+- **`fusion_cross_cal="none"` (default)** — no automatic bridge correction. The I0 +
+  live-time + dead-time + per-element-k normalization (§7) already puts the maps on a
+  common per-incident-photon footing; `"bridge"` (§7.5 consistency correction) is an
+  **opt-in refinement**, not the default.
+- **Cross-energy comparability guard (prerequisite).** The conservative `"none"` default
+  is only safe because the fused quantification runs on a **cross-map** normalization
+  (counts per raw I0, no per-map median) so exposure/monitor differences cancel; when a
+  map lacks a usable `intensity_norm`, fused composition is **withheld** (clusters +
+  per-acquisition evidence retained) rather than quantified on incomparable intensities.
+- **Opting into `"fused"` and/or `"bridge"` is marked EXPERIMENTAL** — a loud
+  `fusion_experimental` diagnostic, a report banner, and a provenance flag that travels
+  through save/load — because a single per-energy bridge scalar is a coarse model and
+  fused clustering mixes energies' features, so the cross-energy wt% is not guaranteed
+  comparable. Phase *identification* is more robust than the cross-energy composition.
+- Both clustering-mode and bridge-mode stay **independently user-selectable** for
+  exploratory runs; the single-energy path is unchanged and does not read these fields.

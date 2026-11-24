@@ -58,8 +58,8 @@ class PipelineConfig:
     line_resolution_kev: float = 0.13    # detector FWHM proxy; lines closer than this overlap
     normalize: bool = True               # divide by the payload's intensity_norm (I0/dead-time) when present
     classification: object = "family_aware"   # label policy: name / dict / ClassificationPolicy instance
-    fusion_cross_cal: str = "bridge"           # multi-energy cross-calibration: "bridge" or "none"
-    fusion_clustering: str = "fused"           # cluster on "fused" (all energies) or "primary" (highest) features
+    fusion_cross_cal: str = "none"             # multi-energy cross-calibration: "none" (default) or "bridge" (experimental)
+    fusion_clustering: str = "primary"         # cluster on "primary" (highest-energy map, default) or "fused" (all energies, experimental)
     bridge_dispersion_limit: float = 2.0       # bridge ratios spreading wider than this (max/min) = low confidence
     bridge_low_confidence: str = "flag"        # what to do then: "flag" (apply+warn), "refuse" (scale=1+warn), "raise"
     energy_selection: object = "best_excited"  # fusion per-element energy policy: name / policy instance

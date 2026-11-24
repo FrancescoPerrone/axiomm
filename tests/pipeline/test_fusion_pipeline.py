@@ -81,12 +81,28 @@ def test_fusion_path_runs_and_uses_both_energies():
     assert r.phase_map is not None and r.minerals is not None
     codes = {d.code for d in r.diagnostics}
     assert "fusion_engaged" in codes and "navigation_grid_verified" in codes
-    assert "fusion_clustering_fused" in codes      # default clusters on both energies
-    assert "bridge_cross_calibration" in codes or "bridge_none" in codes
     # the fused composition carries a light element (Si, measured at 2.9 keV) AND a
     # mid-Z element (Ca, measured at 13.55 keV) — neither single energy sees both.
     nets = set().union(*[set(q.net_intensities) for q in r.quantification])
     assert "Si" in nets and "Ca" in nets
+
+
+def test_fusion_default_is_primary_clustering_no_bridge():
+    """#5: the conservative default for an explicit multi-energy group is primary-map
+    clustering with no bridge cross-calibration — NOT fused clustering / bridge. The
+    single-energy path keeps its own (unrelated) defaults."""
+    pytest.importorskip("sklearn")
+    pytest.importorskip("xraylib")
+    group = MultiEnergyMapGroup.from_pairs([(2.9, _map(0)), (13.55, _map(1))])
+    pipe = Pipeline(groups=2, components=4, seed=0, reference=_ref(), reference_element="Si")
+    assert pipe._config_dict()["fusion_clustering"] == "primary"
+    assert pipe._config_dict()["fusion_cross_cal"] == "none"
+    r = pipe.run(group)
+    codes = {d.code for d in r.diagnostics}
+    assert "fusion_clustering_fused" not in codes          # not clustering on fused features
+    assert "bridge_cross_calibration" not in codes          # no automatic bridge
+    assert "fusion_experimental" not in codes               # conservative default is not experimental
+    assert r.provenance["fusion_experimental"] is False
 
 
 def test_beam_energy_does_not_broadcast_across_group():
@@ -100,12 +116,13 @@ def test_beam_energy_does_not_broadcast_across_group():
     assert "2.9" in msg and "13.55" in msg and "99" not in msg
 
 
-def test_fusion_experimental_marker_on_defaults_and_report(tmp_path):
+def test_fusion_experimental_marker_when_opted_in(tmp_path):
     pytest.importorskip("sklearn")
     pytest.importorskip("xraylib")
     group = MultiEnergyMapGroup.from_pairs([(2.9, _map(0)), (13.55, _map(1))])
-    r = Pipeline(groups=2, components=4, seed=0, reference=_ref(), reference_element="Si").run(group)
-    # default fused+bridge is experimental: diagnostic + provenance flag + report banner
+    # opting back into fused+bridge is experimental: diagnostic + provenance flag + report banner
+    r = Pipeline(groups=2, components=4, seed=0, reference=_ref(), reference_element="Si",
+                 fusion_clustering="fused", fusion_cross_cal="bridge").run(group)
     assert any(d.code == "fusion_experimental" for d in r.diagnostics)
     assert r.provenance["fusion_experimental"] is True
     assert "EXPERIMENTAL" in r.report_html().content
@@ -123,6 +140,36 @@ def test_fusion_primary_none_is_not_experimental():
                  fusion_clustering="primary", fusion_cross_cal="none").run(group)
     assert not any(d.code == "fusion_experimental" for d in r.diagnostics)
     assert r.provenance["fusion_experimental"] is False
+
+
+def test_fusion_clustering_and_bridge_flagged_independently():
+    """#5: clustering-mode and bridge-mode are orthogonal switches — each one alone
+    engages its own feature and is flagged experimental on its own; the conservative
+    default (primary + none) is the only combination that is not experimental."""
+    pytest.importorskip("sklearn")
+    pytest.importorskip("xraylib")
+    group = MultiEnergyMapGroup.from_pairs([(2.9, _map(0)), (13.55, _map(1))])
+
+    # any of these means the bridge code path ran; none of them means bridge is off
+    BRIDGE_CODES = {"bridge_none", "bridge_unresolved_energy",
+                    "bridge_low_confidence", "bridge_cross_calibration"}
+
+    def run(clustering, cross_cal):
+        return Pipeline(groups=2, components=4, seed=0, reference=_ref(),
+                        reference_element="Si", fusion_clustering=clustering,
+                        fusion_cross_cal=cross_cal).run(group)
+
+    # fused clustering alone (bridge off): fused-features diagnostic, NO bridge, experimental
+    r_fused = run("fused", "none")
+    codes = {d.code for d in r_fused.diagnostics}
+    assert "fusion_clustering_fused" in codes and not (codes & BRIDGE_CODES)
+    assert r_fused.provenance["fusion_experimental"] is True
+
+    # bridge alone (primary clustering): bridge path ran, NO fused features, experimental
+    r_bridge = run("primary", "bridge")
+    codes = {d.code for d in r_bridge.diagnostics}
+    assert "fusion_clustering_fused" not in codes and (codes & BRIDGE_CODES)
+    assert r_bridge.provenance["fusion_experimental"] is True
 
 
 def _payload_exposure(exposure):
