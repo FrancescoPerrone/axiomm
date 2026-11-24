@@ -36,7 +36,13 @@ def test_bridge_low_confidence_config_validation():
 
 
 def _map(seed=0, ny=8, nx=10, ne=400):
-    """Two spatial domains: upper = Mg+Si+Ca, lower = Mg+Si."""
+    """Two spatial domains: upper = Mg+Si+Ca, lower = Mg+Si.
+
+    NB this fixture puts the SAME lines in both energies (a Ca line even at 2.9 keV, which
+    physically cannot excite Ca's 4.04 keV edge), so it only exercises that fusion *engages*
+    and routes by edge — not that each element is pulled from the map that truly excites it.
+    Edge-faithful routing is tested end-to-end by test_fusion_excitation_aware_routing_end_to_end
+    (and at the policy level in tests/analysis/test_fusion_selection.py)."""
     rng = np.random.default_rng(seed)
     e = np.arange(ne) * 0.02
     cube = np.full((ny, nx, ne), 2.0)
@@ -378,6 +384,51 @@ def test_fusion_union_eligibility_and_per_map_axis():
     # it; the union of ranges keeps it, measured on lo's own axis without error.
     assert "Al" in nets
     assert "Si" in nets and "Ca" in nets      # both maps' ranges are represented
+
+
+def _ref_exc():
+    """Edge-faithful reference: P/Si are excitable at 2.9 keV (edges 2.14 / 1.84 keV);
+    Ca/Fe edges (4.04 / 7.11 keV) are above 2.9, so they can only be measured at 13.55 keV."""
+    els = {
+        "O": ElementRef("O", 0.525, 15.999, 8, None, "Ka"),
+        "P": ElementRef("P", 2.013, 30.974, 15, ("P2O5", 2, 5), "Ka"),
+        "Si": ElementRef("Si", 1.740, 28.085, 14, ("SiO2", 1, 2), "Ka"),
+        "Ca": ElementRef("Ca", 3.690, 40.078, 20, ("CaO", 1, 1), "Ka"),
+        "Fe": ElementRef("Fe", 6.400, 55.845, 26, ("FeO", 1, 1), "Ka"),
+    }
+    minerals = (
+        MineralEndmember("Apatite", "phosphate", {"Ca": 5, "P": 3, "O": 12}, None, "i",
+                         basis="atom_counts"),
+        MineralEndmember("Ferrosilite", "pyroxene", {"Fe": 1, "Si": 1, "O": 3}, None, "i",
+                         basis="atom_counts"),
+    )
+    return MineralogyReference(
+        name="exc", version="1", elements=els, minerals=minerals,
+        structural_exclude=frozenset({"O"}), family_display={"phosphate": "Ap", "pyroxene": "Px"})
+
+
+def test_fusion_excitation_aware_routing_end_to_end():
+    """#7: each energy's map carries ONLY the elements that energy can excite — P,Si at
+    2.9 keV; Ca,Fe at 13.55 keV (Ca/Fe edges are above 2.9). Edge-aware routing must therefore
+    assemble the fused composition from BOTH maps: Ca/Fe come from the high map (they are ABSENT
+    from the low map) and P/Si from the low map, so no single acquisition can yield this element
+    set. Unlike _map (same lines at both energies), a broken routing here would measure Ca where
+    there is no Ca line and the test would fail."""
+    pytest.importorskip("sklearn")
+    pytest.importorskip("xraylib")
+    lo = _map_axis(0, scale=0.02, offset=0.0, ne=700,
+                   upper=[(2.013, 300), (1.740, 300)], lower=[(1.740, 200)])   # P, Si only
+    hi = _map_axis(1, scale=0.02, offset=0.0, ne=700,
+                   upper=[(3.690, 300), (6.400, 300)], lower=[(3.690, 200)])   # Ca, Fe only
+    group = MultiEnergyMapGroup.from_pairs([(2.9, lo), (13.55, hi)])
+    r = Pipeline(groups=2, components=4, seed=0, reference=_ref_exc(),
+                 reference_element="Si").run(group)
+    nets = set().union(*[set(q.net_intensities) for q in r.quantification])
+    assert {"P", "Si", "Ca", "Fe"} <= nets
+    # one domain carries P (low-map only) together with Ca+Fe (high-map only) — impossible from
+    # either single acquisition, so routing pulled each element from the map that excites it.
+    assert any(q.net_intensities.get("P", 0.0) > 0.0 and q.net_intensities.get("Ca", 0.0) > 0.0
+               and q.net_intensities.get("Fe", 0.0) > 0.0 for q in r.quantification)
 
 
 def test_energy_selection_config_recorded_and_validated():
