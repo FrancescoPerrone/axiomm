@@ -46,6 +46,24 @@ def test_reliability_config_defaults_are_frozen():
     assert dict(cfg.element_count_floors) == {}
 
 
+def test_reliability_floor_uses_counting_nets_when_given():
+    # #4: the net-count floor is a counting-statistics screen, so it reads the RAW source
+    # counts (counting_nets), not the monitor-normalized quant net. The two disagree on
+    # purpose here to prove which one the floor uses.
+    r = assess_reliability(_quant({"Si": 1.0}), pixel_count=100, heterogeneity=0.05,
+                           total_counts=1.0e5, counting_nets={"Si": 500.0})
+    assert r.element_status["Si"] == "reportable"                  # raw counts clear the floor
+    assert r.provenance.params["counting_basis"] == "source_raw_counts"
+    r2 = assess_reliability(_quant({"Si": 999.0}), pixel_count=100, heterogeneity=0.05,
+                            total_counts=1.0e5, counting_nets={"Si": 1.0})
+    assert r2.element_status["Si"] == "below_count_floor"          # raw counts below the floor
+    # default (no counting_nets) still grades the quant net and records the legacy basis
+    r3 = assess_reliability(_quant({"Si": 999.0}), pixel_count=100, heterogeneity=0.05,
+                            total_counts=1.0e5)
+    assert r3.element_status["Si"] == "reportable"
+    assert r3.provenance.params["counting_basis"] == "quant_net"
+
+
 def test_reliability_thresholds_are_inclusive_at_the_boundary():
     # Exactly at every default threshold -> reportable_estimate.
     r = assess_reliability(_quant({"Si": 50.0}), pixel_count=20,

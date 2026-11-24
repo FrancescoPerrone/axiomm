@@ -139,7 +139,7 @@ def fused_k_factors(element_refs, source_energy, *, reference, scale=None,
 
 def bridge_cross_calibration(per_energy_net, element_refs, energies, *, reference_energy,
                              edge_fn, cluster_weights=None, dispersion_limit=2.0,
-                             on_low_confidence="flag", _compute=None):
+                             on_low_confidence="flag", eligible=None, _compute=None):
     """Cross-energy scale from **bridge elements** — those excited at ≥2 energies.
 
     An element measurable at two energies should report the same concentration from
@@ -168,6 +168,12 @@ def bridge_cross_calibration(per_energy_net, element_refs, energies, *, referenc
     The scale is a single per-energy *rebalancing* factor, not a per-element or
     matrix correction; a large dispersion signals the per-energy model is a poor
     fit, which is why it is reported and gated rather than hidden.
+
+    ``eligible`` optionally restricts which bridge points are used to those that
+    passed a reliability screen: a set of ``(symbol, energy, cluster_id)`` that
+    cleared the net-count floor. A point contributes only when the element is
+    eligible at *both* its energy and the reference energy for that cluster.
+    ``None`` keeps the legacy behaviour (any shared-support point with net>0).
     """
     compute = _compute or compute_k_factors
     refs_by_sym = {r.symbol: r for r in element_refs}
@@ -219,6 +225,14 @@ def bridge_cross_calibration(per_energy_net, element_refs, energies, *, referenc
             if not (s_e and s_e > 0 and s_r and s_r > 0):
                 continue
             for c in set(net_e) & set(net_r):
+                # Reliability screen (#4): a bridge point sets the cross-energy scale only
+                # when the element clears its net-count floor at BOTH energies for that
+                # cluster (not merely net>0), so a near-floor noisy measurement cannot drag
+                # the rebalancing factor. ``eligible`` holds (symbol, energy, cluster) that
+                # passed; ``None`` keeps the legacy net>0 behaviour.
+                if eligible is not None and not (
+                        (sym, e, int(c)) in eligible and (sym, reference_energy, int(c)) in eligible):
+                    continue
                 ne, nr = net_e[c].get(sym, 0.0), net_r[c].get(sym, 0.0)
                 if ne > 0 and nr > 0:
                     ratio = (nr / s_r) / (ne / s_e)

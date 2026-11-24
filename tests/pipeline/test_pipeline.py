@@ -156,6 +156,19 @@ def test_save_overwrite_guard_is_bundle_wide(tmp_path):
     assert load_result(tmp_path).minerals is None
 
 
+def test_single_energy_reliability_uses_source_raw_counting_basis():
+    """#4: single-energy reliability grades the net-count floor on the RAW (un-normalized)
+    counts, not the normalized quant intensities; provenance records the source-raw basis."""
+    pytest.importorskip("sklearn")
+    pytest.importorskip("xraylib")
+    ref = _controlled_reference()
+    r = Pipeline(groups=2, components=4, reference=ref, beam_energy_kev=15.0, seed=0).run(
+        _payload(counts=400.0))
+    assert r.reliability is not None
+    assert all(rel.provenance.params["counting_basis"] == "source_raw_counts"
+               for rel in r.reliability)
+
+
 def test_save_load_full_chain(tmp_path):
     pytest.importorskip("sklearn")
     pytest.importorskip("xraylib")

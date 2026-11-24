@@ -195,9 +195,9 @@ class Pipeline:
             return self._run_fused(source)   # S8 multi-energy path (opt-in)
         cfg = self.config
         diagnostics: list[Diagnostic] = []
-        payload = self._read_payload(source)
+        payload = raw_payload = self._read_payload(source)
         if cfg.normalize:
-            payload = self._normalize_payload(payload, diagnostics)
+            payload = self._normalize_payload(raw_payload, diagnostics)
 
         # dimensional reduction -> clustering -> cluster mean spectra (pluggable)
         reducer, n_components = self._resolve_reduction(cfg, diagnostics)
@@ -224,7 +224,9 @@ class Pipeline:
 
         # peaks -> quantification -> reliability -> mineral matching
         try:
-            minerals_bundle = self._quantify_and_match(payload, means, reference, cfg, diagnostics)
+            minerals_bundle = self._quantify_and_match(
+                payload, means, reference, cfg, diagnostics,
+                raw_payload=raw_payload, clustering=clustering)
         except AnalysisDependencyError as exc:
             diagnostics.append(Diagnostic(
                 "warning", "minerals_skipped_dependency",
@@ -394,7 +396,8 @@ class Pipeline:
         ``None`` (the default ``best_excited``). ``select_energies`` resolves a name."""
         return cfg.energy_selection
 
-    def _quantify_and_match(self, payload, means, reference, cfg, diagnostics):
+    def _quantify_and_match(self, payload, means, reference, cfg, diagnostics,
+                            *, raw_payload=None, clustering=None):
         cations, signal_axis = self._cations_for_quant(payload, reference, cfg, diagnostics)
         peaks = measure_peaks(means, signal_axis, reference)
 
@@ -402,8 +405,18 @@ class Pipeline:
                               excitation_kev=cfg.beam_energy_kev, reference=cfg.reference_element)
         quant_elements = self._quant_elements(reference, reference.element_refs(cations))
         quant = quantify_cluster_means(list(peaks), k, quant_elements, reference_name=reference.name)
+        # The net-count floor is a counting-statistics screen, so grade it on the RAW
+        # (un-normalized) net counts, not the monitor-normalized quant intensities whose
+        # magnitude no longer reflects how many photons were counted (#4). The weight
+        # percents still come from the normalized quant.
+        counting_nets = None
+        if raw_payload is not None and clustering is not None:
+            raw_means = compute_cluster_means(clustering, raw_payload)
+            counting_nets = {int(ps.cluster_id): {m.label: m.net for m in ps.measurements}
+                             for ps in measure_peaks(raw_means, _signal_axis(raw_payload), reference)}
         reliability = assess_cluster_reliability(
-            list(quant), means, config=cfg.reliability or ReliabilityConfig())
+            list(quant), means, config=cfg.reliability or ReliabilityConfig(),
+            counting_nets=counting_nets)
 
         from axiomm.analysis.mineralogy.match import MatchConfig, match_clusters
         minerals = match_clusters(list(quant), reference, reliabilities=list(reliability),
@@ -601,6 +614,20 @@ class Pipeline:
                 _signal_axis(payload), reference))
             for e, payload in payloads.items()
         }
+        # Raw (un-normalized) net counts per energy for the COUNTING-STATISTICS screen (#4):
+        # reliability's net-count floor and the bridge eligibility are counting screens, so
+        # they must read the raw source counts, not the monitor-normalized intensities that
+        # are fused into the quant. Same valid masks as the quant means, each map on its axis.
+        raw_by_e = {em.excitation_kev: em.payload for em in group}
+        per_energy_raw = {
+            e: {int(ps.cluster_id): {m.label: m.net for m in ps.measurements}
+                for ps in measure_peaks(
+                    compute_cluster_means(clustering, raw_by_e[e], valid_mask=quant_masks.get(e)),
+                    _signal_axis(raw_by_e[e]), reference)}
+            for e in payloads
+        }
+        rel_cfg = cfg.reliability or ReliabilityConfig()
+        cluster_ids = [int(c) for c in primary_means.cluster_ids]
         # Choose each element's best-excited energy (pluggable policy), then fuse.
         source_energy, sel_diag = select_energies(
             group, element_refs, policy=self._resolve_energy_selection(cfg))
@@ -618,19 +645,35 @@ class Pipeline:
                 for e, psets in per_energy_peaks.items()}
             cluster_weights = {int(cid): int(pc) for cid, pc
                                in zip(primary_means.cluster_ids, primary_means.pixel_counts, strict=True)}
+            # Reliability-screened eligibility (#4): only (element, energy, cluster) points whose
+            # RAW net clears the element's count floor may set the scale — not merely net>0.
+            eligible = {(r.symbol, e, cid)
+                        for e in payloads for cid in cluster_ids for r in element_refs
+                        if per_energy_raw.get(e, {}).get(cid, {}).get(r.symbol, -1.0)
+                        >= rel_cfg.floor_for(r.symbol)}
             scale, cc_diag = bridge_cross_calibration(
                 per_energy_net, element_refs, list(payloads),
                 reference_energy=source_energy[cfg.reference_element], edge_fn=element_edge_kev,
                 cluster_weights=cluster_weights, dispersion_limit=cfg.bridge_dispersion_limit,
-                on_low_confidence=cfg.bridge_low_confidence)
+                on_low_confidence=cfg.bridge_low_confidence, eligible=eligible)
             diagnostics += cc_diag
         fused_peaks = fuse_peak_sets(per_energy_peaks, source_energy)
         source_refs = [r for r in element_refs if source_energy.get(r.symbol) is not None]
         k = fused_k_factors(source_refs, source_energy, reference=cfg.reference_element, scale=scale)
         quant_elements = self._quant_elements(reference, source_refs)
         quant = quantify_cluster_means(list(fused_peaks), k, quant_elements, reference_name=reference.name)
+        # Source-aware counting basis (#4): grade each element's net-count floor against the RAW
+        # counts in the map that actually measured it (its source energy), not always the primary
+        # map. The weight percents stay from the fused quant; only the floor's input is source-raw.
+        counting_nets = {cid: {} for cid in cluster_ids}
+        for r in source_refs:
+            raw_e = per_energy_raw.get(source_energy.get(r.symbol), {})
+            for cid in cluster_ids:
+                net = raw_e.get(cid, {}).get(r.symbol)
+                if net is not None:
+                    counting_nets[cid][r.symbol] = net
         reliability = assess_cluster_reliability(
-            list(quant), primary_means, config=cfg.reliability or ReliabilityConfig())
+            list(quant), primary_means, config=rel_cfg, counting_nets=counting_nets)
         from axiomm.analysis.mineralogy.match import MatchConfig, match_clusters
         minerals = match_clusters(list(quant), reference, reliabilities=list(reliability),
                                   config=cfg.match or MatchConfig())

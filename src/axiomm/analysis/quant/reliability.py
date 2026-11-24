@@ -162,20 +162,31 @@ def _classify_element(net: float, floor: float) -> str:
 
 def assess_reliability(quant, *, pixel_count, heterogeneity, total_counts,
                        config: ReliabilityConfig | None = None,
-                       cluster_id: int | None = None) -> ReliabilityReport:
+                       cluster_id: int | None = None,
+                       counting_nets: Mapping[str, float] | None = None) -> ReliabilityReport:
     """Assess one cluster's quantification against the reliability thresholds.
 
     Non-finite or out-of-range ``pixel_count`` / ``heterogeneity`` /
     ``total_counts`` yield ``cluster_status == "invalid"``; a cluster with no
     element above its count floor can never be ``reportable_estimate``.
+
+    ``counting_nets`` is the *counting-statistics* basis for the per-element
+    net-count floor: the **raw** (un-normalized) net counts from the map that
+    actually measured each element. The net-count floor is a Poisson/counting
+    screen, so it must be applied to raw counts, not to monitor-normalized
+    (per-incident-photon) intensities, whose magnitude no longer reflects how
+    many photons were counted. When ``None`` (single caller passing nothing),
+    the floor falls back to ``quant.net_intensities`` as before. The *weight
+    percents* always come from ``quant`` — only the floor's input changes.
     """
     config = config or ReliabilityConfig()
     if cluster_id is None:
         cluster_id = getattr(quant, "cluster_id", None)
 
+    counts = counting_nets if counting_nets is not None else quant.net_intensities
     element_status = {
-        sym: _classify_element(float(net), config.floor_for(sym))
-        for sym, net in quant.net_intensities.items()
+        sym: _classify_element(float(counts.get(sym, quant.net_intensities[sym])), config.floor_for(sym))
+        for sym in quant.net_intensities
     }
 
     invalid_reasons: list[str] = []
@@ -259,6 +270,8 @@ def assess_reliability(quant, *, pixel_count, heterogeneity, total_counts,
             "min_total_counts": config.min_total_counts,
             "count_floor": config.count_floor,
             "element_count_floors": dict(config.element_count_floors),
+            # which intensities fed the net-count floor: raw source counts vs the quant net
+            "counting_basis": "source_raw_counts" if counting_nets is not None else "quant_net",
         },
     )
     return ReliabilityReport(
@@ -270,6 +283,7 @@ def assess_reliability(quant, *, pixel_count, heterogeneity, total_counts,
 
 def assess_cluster_reliability(quant_results, cluster_means,
                                config: ReliabilityConfig | None = None,
+                               *, counting_nets: Mapping[int, Mapping[str, float]] | None = None,
                                ) -> tuple[ReliabilityReport, ...]:
     """Assess each cluster's quantification, aligning by explicit ``cluster_id``.
 
@@ -279,6 +293,10 @@ def assess_cluster_reliability(quant_results, cluster_means,
     ``cluster_id`` is an error rather than a silent mis-alignment. The returned
     reports follow ``cluster_means.cluster_ids`` order regardless of the order
     of ``quant_results``.
+
+    ``counting_nets`` maps ``cluster_id -> {element: raw_net}`` — the raw,
+    source-specific net counts used for the per-element net-count floor (see
+    :func:`assess_reliability`); ``None`` keeps the legacy ``quant`` basis.
     """
     config = config or ReliabilityConfig()
     if cluster_means.heterogeneity is None or cluster_means.total_counts is None:
@@ -336,6 +354,7 @@ def assess_cluster_reliability(quant_results, cluster_means,
                 total_counts=float(cluster_means.total_counts[i]),
                 config=config,
                 cluster_id=cid,
+                counting_nets=(counting_nets.get(cid) if counting_nets is not None else None),
             )
         )
     return tuple(reports)

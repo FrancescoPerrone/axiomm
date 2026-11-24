@@ -87,6 +87,19 @@ def test_fusion_path_runs_and_uses_both_energies():
     assert "Si" in nets and "Ca" in nets
 
 
+def test_fusion_reliability_uses_source_raw_counting_basis():
+    """#4: fused reliability grades each element's net-count floor on the RAW source counts,
+    not the monitor-normalized fused quant; provenance records the source-raw basis."""
+    pytest.importorskip("sklearn")
+    pytest.importorskip("xraylib")
+    group = MultiEnergyMapGroup.from_pairs([(2.9, _map(0)), (13.55, _map(1))])
+    r = Pipeline(groups=2, components=4, seed=0, reference=_ref(), reference_element="Si",
+                 fusion_cross_cal="bridge").run(group)
+    assert r.reliability is not None
+    assert all(rel.provenance.params["counting_basis"] == "source_raw_counts"
+               for rel in r.reliability)
+
+
 def test_fusion_default_is_primary_clustering_no_bridge():
     """#5: the conservative default for an explicit multi-energy group is primary-map
     clustering with no bridge cross-calibration — NOT fused clustering / bridge. The

@@ -96,6 +96,27 @@ def test_bridge_cross_calibration_derives_scale():
     assert any(d.code == "bridge_cross_calibration" for d in diags)
 
 
+def test_bridge_eligibility_screen_excludes_unreliable_points():
+    # #4: clusters 0,1 are consistent (ratio 0.4); cluster 2 is a noisy outlier (ratio 100).
+    # Without a reliability screen the outlier spreads the ratios -> low confidence. Screening
+    # cluster 2 out (its raw counts are below floor, so it is not in `eligible`) leaves two
+    # consistent points -> a confident cross-calibration.
+    per = {2.9: {0: {"Si": 10.0}, 1: {"Si": 10.0}, 2: {"Si": 10.0}},
+           13.55: {0: {"Si": 2.0}, 1: {"Si": 2.0}, 2: {"Si": 500.0}}}
+    s = {("Si", 2.9): 2.0, ("Si", 13.55): 1.0}
+    _, diags_all = bridge_cross_calibration(
+        per, [_ref("Si", 14)], [2.9, 13.55], reference_energy=13.55,
+        edge_fn=lambda r: 1.84, _compute=_fake_compute(s))
+    assert any(d.code == "bridge_low_confidence" for d in diags_all)     # outlier spreads ratios
+    eligible = {("Si", 2.9, 0), ("Si", 13.55, 0), ("Si", 2.9, 1), ("Si", 13.55, 1)}   # cluster 2 out
+    scale_sc, diags_sc = bridge_cross_calibration(
+        per, [_ref("Si", 14)], [2.9, 13.55], reference_energy=13.55,
+        edge_fn=lambda r: 1.84, eligible=eligible, _compute=_fake_compute(s))
+    assert scale_sc[2.9] == pytest.approx(0.4)
+    assert any(d.code == "bridge_cross_calibration" for d in diags_sc)
+    assert not any(d.code == "bridge_low_confidence" for d in diags_sc)
+
+
 def test_bridge_single_point_is_low_confidence():
     # one shared cluster -> one bridge point: no agreement can be established
     per_energy_net = {2.9: {0: {"Si": 10.0}}, 13.55: {0: {"Si": 2.0}}}
