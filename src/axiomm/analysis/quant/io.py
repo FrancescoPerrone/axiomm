@@ -17,7 +17,10 @@ Schema history:
   ``background_per_channel`` / ``window_channels`` / ``cluster_id``;
   ``reliability`` gained ``cluster_id`` and the honest status vocabulary.
 * **v3** — ``quant`` gained ``observation_status`` (per-element acquisition
-  status), so a zero wt% is no longer conflated with "unobserved".
+  status), so a zero wt% is no longer conflated with "unobserved". The vocabulary
+  was later extended (additively, within v3) with the no-measurement coverage
+  reasons ``not_excited`` / ``out_of_coverage``, whose keys may be absent from
+  ``net_intensities`` since they describe elements never measured (B1).
 
 Each bump is a breaking structural change, so ``SCHEMA_VERSION`` was
 incremented rather than reused. Older files are rejected with a clear message;
@@ -35,7 +38,7 @@ from axiomm.analysis.errors import (
     PayloadSerializationError,
 )
 from axiomm.analysis.models import AnalysisProvenance, Diagnostic
-from axiomm.analysis.quant.models import OBSERVATION_STATUSES
+from axiomm.analysis.quant.models import NO_MEASUREMENT_STATUSES, OBSERVATION_STATUSES
 from axiomm.analysis.quant.reliability import CLUSTER_STATUSES, ELEMENT_STATUSES
 
 SCHEMA_VERSION = 3
@@ -286,7 +289,10 @@ def _validate_quant_dict(doc: dict, where: str) -> None:
             raise PayloadSerializationError(
                 f"{where}.observation_status[{sym!r}]: {status!r} not in {sorted(OBSERVATION_STATUSES)}."
             )
-    extra_obs = sorted(set(obs) - set(net))
+    # Measured statuses must correspond to a net-intensity entry; the no-measurement
+    # coverage statuses (not_excited / out_of_coverage) describe elements with no net by
+    # design, so they are permitted to be absent from net_intensities (B1).
+    extra_obs = sorted(s for s in set(obs) - set(net) if obs[s] not in NO_MEASUREMENT_STATUSES)
     if extra_obs:
         raise PayloadSerializationError(
             f"{where}.observation_status: keys {extra_obs} absent from net_intensities."

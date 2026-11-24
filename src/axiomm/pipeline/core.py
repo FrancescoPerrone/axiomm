@@ -56,6 +56,17 @@ def _signal_range(axis):
     return float(grid[0]), float(grid[-1])
 
 
+def _refine_observation(obs, eligibility):
+    """Fill coverage-aware reasons into an ``observation_status`` (B1): an element with no
+    measured peak (status ``not_measured`` or absent) takes its eligibility reason
+    (``not_excited`` / ``out_of_coverage``); an actually-measured status is left untouched."""
+    out = dict(obs)
+    for sym, reason in eligibility.items():
+        if out.get(sym, "not_measured") == "not_measured":
+            out[sym] = reason
+    return out
+
+
 class Pipeline:
     """Run the whole analysis with one call: ``Pipeline().run(source)``.
 
@@ -663,6 +674,23 @@ class Pipeline:
                             scale=scale, cross_energy_status=bridge_status)
         quant_elements = self._quant_elements(reference, source_refs)
         quant = quantify_cluster_means(list(fused_peaks), k, quant_elements, reference_name=reference.name)
+        # Coverage-aware source eligibility (B1): record WHY a reference cation has no measured
+        # composition — ``not_excited`` (edge above every supplied energy — physical, can't
+        # fluoresce) vs ``out_of_coverage`` (excited, but its line is outside the spectral window
+        # of the map that would measure it — acquisition) vs the measured statuses quantify
+        # already assigned. A physical/instrument limit must read differently from a measured absence.
+        range_by_e = {e: _signal_range(_signal_axis(p)) for e, p in payloads.items()}
+        eligibility = {}
+        for r in element_refs:
+            e = source_energy.get(r.symbol)
+            if e is None:
+                eligibility[r.symbol] = "not_excited"
+            elif not (range_by_e[e][0] <= r.line_energy_kev <= range_by_e[e][1]):
+                eligibility[r.symbol] = "out_of_coverage"
+        if eligibility:
+            quant = tuple(dataclasses.replace(
+                q, observation_status=_refine_observation(q.observation_status, eligibility))
+                for q in quant)
         # Source-aware counting basis (#4): grade each element's net-count floor against the RAW
         # counts in the map that actually measured it (its source energy), not always the primary
         # map. The weight percents stay from the fused quant; only the floor's input is source-raw.
