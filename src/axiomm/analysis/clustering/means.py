@@ -44,7 +44,12 @@ def compute_cluster_means(result: ClusteringResult, source) -> ClusterMeanSpectr
                 )
             )
             continue
-        means[i] = X[mask].mean(axis=0)
+        # Average over finite pixels only: an invalid-divisor pixel (masked to NaN by
+        # cross-map normalization) is EXCLUDED, not mixed in. Finite data is unaffected.
+        rows = X[mask]
+        finite = np.isfinite(rows).all(axis=1)
+        if finite.any():
+            means[i] = rows[finite].mean(axis=0)
 
     heterogeneity = np.full(cluster_ids.size, np.nan, dtype=float)
     total_counts = np.zeros(cluster_ids.size, dtype=float)

@@ -147,6 +147,45 @@ class Pipeline:
             "(intensity_norm), median-scaled to preserve overall magnitude" + tail))
         return dataclasses.replace(payload, data=normalized, intensity_norm=None)
 
+    def _normalize_cross_map(self, payload, diagnostics):
+        """Cross-acquisition comparability normalisation for the FUSED QUANT (#3).
+
+        Divides by the **raw** ``intensity_norm`` (I0/dead-time) *without* the per-map
+        median rescale that ``_normalize_payload`` applies, so two maps land on one
+        per-incident-photon scale and an exposure/monitor difference cancels across
+        energies. Invalid-divisor pixels are masked to ``NaN`` (excluded from the
+        cluster means, never left as raw counts). Returns ``(payload_or_None,
+        comparable)``: without a usable ``intensity_norm`` the cross-energy scale cannot
+        be established, and the caller then withholds the fused composition.
+        """
+        norm = getattr(payload, "intensity_norm", None)
+        if norm is None:
+            return None, False
+        data = np.asarray(payload.data, dtype=np.float64)
+        norm = np.asarray(norm, dtype=np.float64)
+        if norm.ndim != 2 or norm.shape != data.shape[:2]:
+            diagnostics.append(Diagnostic(
+                "warning", "cross_map_normalization_skipped",
+                f"intensity_norm shape {norm.shape} does not align with the nav grid "
+                f"{data.shape[:2]}; cross-energy comparability cannot be established."))
+            return None, False
+        usable = np.isfinite(norm) & (norm > 0)
+        if not usable.any():
+            diagnostics.append(Diagnostic(
+                "warning", "cross_map_normalization_skipped",
+                "intensity_norm has no usable (finite, positive) values; cross-energy "
+                "comparability cannot be established."))
+            return None, False
+        div = np.where(usable, norm, np.nan)
+        normalized = data / div[:, :, None]      # invalid-divisor pixels -> NaN (excluded)
+        n_bad = int((~usable).sum())
+        diagnostics.append(Diagnostic(
+            "info", "cross_map_normalization_applied",
+            "fused-quant spectra divided by the raw incident-flux/dead-time divisor "
+            "(intensity_norm) on a common per-incident-photon scale across energies"
+            + (f"; {n_bad} invalid-divisor pixel(s) excluded." if n_bad else ".")))
+        return dataclasses.replace(payload, data=normalized, intensity_norm=None), True
+
     # -- run -----------------------------------------------------------------
     def run(self, source) -> PipelineResult:
         from axiomm.analysis.fusion.models import MultiEnergyMapGroup
@@ -427,9 +466,32 @@ class Pipeline:
             result_kwargs["provenance"] = self._provenance(
                 cfg, decomp, clustering, reference, fusion_experimental=experimental)
             return PipelineResult(**result_kwargs)
+
+        # Cross-energy comparability guard (#3): the fused QUANT uses a cross-map
+        # normalisation (per-incident-photon, no per-map median) so exposure/monitor
+        # differences cancel. Without a usable intensity_norm on every map (or with
+        # normalization off) comparability cannot be established -> withhold the fused
+        # COMPOSITION, keep clusters + per-acquisition evidence.
+        quant_payloads: dict = {}
+        comparable = bool(cfg.normalize)
+        for em in ems:
+            qp, ok = (self._normalize_cross_map(em.payload, diagnostics)
+                      if cfg.normalize else (None, False))
+            quant_payloads[em.excitation_kev] = qp
+            comparable = comparable and ok
+        if not comparable:
+            diagnostics.append(Diagnostic(
+                "warning", "fusion_composition_withheld",
+                "cross-energy comparability could not be established (a map lacks a usable "
+                "intensity_norm, or normalization is off), so fused composition is WITHHELD; "
+                "clusters and per-acquisition evidence are returned. Normalise the maps "
+                "comparably, or quantify each acquisition single-energy."))
+            result_kwargs["provenance"] = self._provenance(
+                cfg, decomp, clustering, reference, fusion_experimental=experimental)
+            return PipelineResult(**result_kwargs)
         try:
             bundle = self._quantify_and_match_fused(
-                group, payloads, clustering, means, reference, cfg, diagnostics)
+                group, quant_payloads, clustering, means, reference, cfg, diagnostics)
         except AnalysisDependencyError as exc:
             diagnostics.append(Diagnostic(
                 "warning", "minerals_skipped_dependency",

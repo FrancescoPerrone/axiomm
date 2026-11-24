@@ -53,7 +53,8 @@ def _map(seed=0, ny=8, nx=10, ne=400):
         AxisSpec("x", "navigation", nx, units="µm", scale=1.0, offset=0.0, index_in_array=1),
         AxisSpec("Energy", "signal", ne, units="keV", scale=0.02, offset=0.0, index_in_array=2),
     )
-    return AxiommSignalPayload(data=cube, axes=axes, signal_kind="signal1d")
+    return AxiommSignalPayload(data=cube, axes=axes, signal_kind="signal1d",
+                               intensity_norm=np.full((ny, nx), 100.0))
 
 
 def _ref():
@@ -124,6 +125,61 @@ def test_fusion_primary_none_is_not_experimental():
     assert r.provenance["fusion_experimental"] is False
 
 
+def _payload_exposure(exposure):
+    cube = (np.arange(4 * 4 * 20).reshape(4, 4, 20).astype(float) + 1.0) * exposure
+    axes = (
+        AxisSpec("y", "navigation", 4, units="µm", scale=1.0, offset=0.0, index_in_array=0),
+        AxisSpec("x", "navigation", 4, units="µm", scale=1.0, offset=0.0, index_in_array=1),
+        AxisSpec("Energy", "signal", 20, units="keV", scale=0.02, offset=0.0, index_in_array=2),
+    )
+    return AxiommSignalPayload(data=cube, axes=axes, signal_kind="signal1d",
+                               intensity_norm=np.full((4, 4), 100.0 * exposure))
+
+
+def test_cross_map_normalization_cancels_exposure():
+    """#3 core guarantee: dividing counts by the raw I0 (no per-map median) removes an
+    exposure/monitor scaling, so two acquisitions of the same composition land on one scale."""
+    pipe = Pipeline()
+    d1, ok1 = pipe._normalize_cross_map(_payload_exposure(1.0), [])
+    d5, ok5 = pipe._normalize_cross_map(_payload_exposure(5.0), [])
+    assert ok1 and ok5
+    assert np.allclose(np.asarray(d1.data), np.asarray(d5.data))   # (counts*e)/(I0*e) == counts/I0
+
+
+def test_cross_map_normalization_withholds_and_masks():
+    pipe = Pipeline()
+    # no intensity_norm -> cannot establish comparability
+    bare = AxiommSignalPayload(
+        data=np.ones((3, 3, 10)),
+        axes=(AxisSpec("y", "navigation", 3, index_in_array=0),
+              AxisSpec("x", "navigation", 3, index_in_array=1),
+              AxisSpec("E", "signal", 10, units="keV", scale=0.02, offset=0.0, index_in_array=2)),
+        signal_kind="signal1d")
+    out, ok = pipe._normalize_cross_map(bare, [])
+    assert out is None and ok is False
+    # an invalid-divisor pixel is masked to NaN (excluded), not left as raw counts
+    norm = np.full((3, 3), 100.0)
+    norm[0, 0] = 0.0
+    p = AxiommSignalPayload(data=np.ones((3, 3, 10)), axes=bare.axes, signal_kind="signal1d",
+                            intensity_norm=norm)
+    out2, ok2 = pipe._normalize_cross_map(p, [])
+    assert ok2 and np.isnan(np.asarray(out2.data)[0, 0]).all()
+
+
+def test_fusion_withholds_composition_without_comparable_normalization():
+    """#3: a map lacking a usable intensity_norm -> comparability can't be established ->
+    fused composition is withheld; clusters and evidence are retained."""
+    pytest.importorskip("sklearn")
+    pytest.importorskip("xraylib")
+    import dataclasses
+    lo = dataclasses.replace(_map(0), intensity_norm=None)       # no I0
+    group = MultiEnergyMapGroup.from_pairs([(2.9, lo), (13.55, _map(1))])
+    r = Pipeline(groups=2, components=4, seed=0, reference=_ref(), reference_element="Si").run(group)
+    assert any(d.code == "fusion_composition_withheld" for d in r.diagnostics)
+    assert r.quantification is None and r.minerals is None and r.phase_map is None
+    assert len(r.clusters) == 2                                  # clusters/evidence kept
+
+
 def test_fusion_navigation_grid_mismatch_raises():
     group = MultiEnergyMapGroup.from_pairs([(2.9, _map(0, nx=10)), (13.55, _map(1, nx=12))])
     with pytest.raises(RegistrationError):
@@ -150,7 +206,8 @@ def _map_axis(seed, *, scale, offset, ne, upper, lower, ny=8, nx=10):
         AxisSpec("x", "navigation", nx, units="µm", scale=1.0, offset=0.0, index_in_array=1),
         AxisSpec("Energy", "signal", ne, units="keV", scale=scale, offset=offset, index_in_array=2),
     )
-    return AxiommSignalPayload(data=cube, axes=axes, signal_kind="signal1d")
+    return AxiommSignalPayload(data=cube, axes=axes, signal_kind="signal1d",
+                               intensity_norm=np.full((ny, nx), 100.0))
 
 
 def _ref_wide():
