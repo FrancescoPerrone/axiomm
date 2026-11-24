@@ -422,9 +422,24 @@ class XRMMapH5Reader:
                     if dtp and dtp in f:
                         dt = np.asarray(f[dtp][...], dtype=np.float64)
                         if dt.shape == (xdim, ydim):
+                            dt_ok = np.isfinite(dt) & (dt > 0)
                             with np.errstate(divide="ignore", invalid="ignore"):
-                                norm = np.where(dt > 0, i0 / dt, i0)
+                                norm = np.where(dt_ok, i0 / dt, i0)
                             note = f"I0 / dtfactor from {i0p!r}, {dtp!r}"
+                            # Honesty: pixels with a non-positive/NaN dtfactor fall back to
+                            # I0-only, so the correction BASIS is mixed across the map. Record
+                            # it rather than claiming a uniform dead-time correction — a
+                            # validated composition must not treat the two bases as identical.
+                            n_fallback = int((~dt_ok).sum())
+                            if n_fallback:
+                                note = (f"I0 / dtfactor from {i0p!r}, {dtp!r} "
+                                        f"({n_fallback} px I0-only where dtfactor<=0/NaN)")
+                                diagnostics.append(Diagnostic(
+                                    "warning", "normalization_mixed_basis",
+                                    f"{n_fallback} pixel(s) had a non-positive/NaN dead-time "
+                                    "factor and were normalised by I0 alone; the correction "
+                                    "basis is mixed across the map (not a uniform dead-time "
+                                    "correction)."))
                         else:
                             diagnostics.append(Diagnostic(
                                 "warning", "normalization_partial",

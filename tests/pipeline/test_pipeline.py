@@ -137,6 +137,25 @@ def test_save_load_clusters_only(tmp_path):
     assert back.minerals is None
 
 
+def test_save_overwrite_guard_is_bundle_wide(tmp_path):
+    """Data safety: save(overwrite=False) must refuse to clobber label_map.npy /
+    pipeline.json (written outside the stage writers), not only the stage sidecars."""
+    from axiomm.analysis.errors import OutputExistsError
+    pytest.importorskip("sklearn")
+    r = Pipeline(groups=2, components=4).run(_payload())
+    r.save(tmp_path)
+    # a second save into the same bundle must raise the named error, before rewriting bytes
+    with pytest.raises(OutputExistsError):
+        r.save(tmp_path)
+    # the guard also fires when ONLY one of the direct files pre-exists (partial bundle)
+    (tmp_path / "pipeline.json").unlink()
+    with pytest.raises(OutputExistsError):
+        r.save(tmp_path)                     # label_map.npy still there
+    # overwrite=True still works end to end
+    r.save(tmp_path, overwrite=True)
+    assert load_result(tmp_path).minerals is None
+
+
 def test_save_load_full_chain(tmp_path):
     pytest.importorskip("sklearn")
     pytest.importorskip("xraylib")

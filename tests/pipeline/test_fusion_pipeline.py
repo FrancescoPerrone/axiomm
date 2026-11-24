@@ -126,10 +126,12 @@ def test_fusion_experimental_marker_when_opted_in(tmp_path):
     assert any(d.code == "fusion_experimental" for d in r.diagnostics)
     assert r.provenance["fusion_experimental"] is True
     assert "EXPERIMENTAL" in r.report_html().content
-    # and it survives export (save/load carries the flag with the result)
+    # and it survives export (save/load carries the flag AND the banner with the result)
     from axiomm.pipeline import load_result
     r.save(tmp_path / "out")
-    assert load_result(tmp_path / "out").provenance.get("fusion_experimental") is True
+    loaded = load_result(tmp_path / "out")
+    assert loaded.provenance.get("fusion_experimental") is True
+    assert "EXPERIMENTAL" in loaded.report_html().content   # banner renders from the loaded result too
 
 
 def test_fusion_primary_none_is_not_experimental():
@@ -227,6 +229,24 @@ def test_fusion_invalid_divisor_pixel_does_not_fail_run():
     r = Pipeline(groups=2, components=4, seed=0, reference=_ref(), reference_element="Si").run(group)
     assert r.phase_map is not None and r.quantification is not None    # whole run succeeds
     assert all(np.all(np.isfinite(list(q.net_intensities.values()))) for q in r.quantification)
+
+
+def test_fusion_empty_cluster_arm_withholds_not_aborts():
+    """#3 robustness: a whole cluster with no valid-divisor pixels in one arm has a NaN mean
+    there; the run must WITHHOLD composition (clusters retained), not abort on the peak
+    measurer's non-finite rejection. The one-invalid-pixel test covers a different case."""
+    pytest.importorskip("sklearn")
+    pytest.importorskip("xraylib")
+    import dataclasses
+    lo = _map(0)
+    norm = np.array(lo.intensity_norm, dtype=float)
+    norm[lo.data.shape[0] // 2:, :] = 0.0        # an entire spatial half (≥1 whole cluster) invalid in the low arm
+    lo = dataclasses.replace(lo, intensity_norm=norm)
+    group = MultiEnergyMapGroup.from_pairs([(2.9, lo), (13.55, _map(1))])
+    r = Pipeline(groups=2, components=4, seed=0, reference=_ref(), reference_element="Si").run(group)
+    assert any(d.code == "fusion_cluster_support_missing" for d in r.diagnostics)
+    assert r.quantification is None and r.minerals is None     # composition withheld, run did NOT abort
+    assert len(r.clusters) == 2                                # clusters/evidence retained
 
 
 def test_fusion_withholds_composition_without_comparable_normalization():

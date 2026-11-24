@@ -497,6 +497,30 @@ class Pipeline:
             result_kwargs["provenance"] = self._provenance(
                 cfg, decomp, clustering, reference, fusion_experimental=experimental)
             return PipelineResult(**result_kwargs)
+        # Per-cluster support guard (#3 robustness): a cluster whose pixels are ALL
+        # invalid-divisor in one arm has a NaN mean there, which the peak measurer would
+        # reject — aborting the whole run on one dead region. Detect it and WITHHOLD
+        # composition (clusters + evidence retained), consistent with the comparability
+        # guard, rather than crashing. Retaining the UNAFFECTED clusters while withholding
+        # only the affected ones is a deferred refinement (fusion design spec §13).
+        labels_flat = np.asarray(clustering.labels).reshape(-1)
+        missing = [(em.excitation_kev, int(cid))
+                   for em in ems if quant_masks.get(em.excitation_kev) is not None
+                   for cid in np.asarray(means.cluster_ids)
+                   if (labels_flat == cid).any()
+                   and not ((labels_flat == cid)
+                            & np.asarray(quant_masks[em.excitation_kev], dtype=bool).reshape(-1)).any()]
+        if missing:
+            where = ", ".join(f"cluster {c} @ {e} keV" for e, c in missing)
+            diagnostics.append(Diagnostic(
+                "warning", "fusion_cluster_support_missing",
+                f"{where}: a whole cluster has no valid (finite, positive-divisor) pixels in that "
+                "map, so its fused composition cannot be measured there; composition is WITHHELD "
+                "(clusters and per-acquisition evidence retained) rather than aborting the run. "
+                "Supply comparable normalisation for every cluster, or quantify single-energy."))
+            result_kwargs["provenance"] = self._provenance(
+                cfg, decomp, clustering, reference, fusion_experimental=experimental)
+            return PipelineResult(**result_kwargs)
         try:
             bundle = self._quantify_and_match_fused(
                 group, quant_payloads, quant_masks, clustering, means, reference, cfg, diagnostics)

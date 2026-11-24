@@ -101,7 +101,18 @@ established synchrotron-XRF method, not an ad-hoc factor:
 The normalization channels used, the per-element source energy, the k-factor energies,
 and any bridge-element residual are all recorded in provenance; an element excited by no
 supplied energy, or a missing I0/live-time channel, is a diagnostic, never a silent
-guess. **General corollary (broader than fusion):** I0 + live-time + dead-time
+guess.
+
+**Implementation honesty (what actually runs, vs the method above).** The reader applies
+**I0** and, where a `dtfactor` channel is present, the **dead-time** correction per pixel;
+**live-time** is read but is *not* applied as a separate factor unless it is non-uniform
+(on the GSECARS 13-IDE subset it was found uniform, so it cancels and was not separately
+divided out — do not claim an explicit live-time division was performed). Where some
+pixels carry a non-positive/NaN `dtfactor`, those pixels fall back to I0-only: the
+correction **basis is then mixed across the map**, and this is recorded as a
+`normalization_mixed_basis` diagnostic rather than presented as a uniform dead-time
+correction. Treating two differently-corrected supports as identical is a known gap:
+preventing quantitative use where the required basis is unverified is deferred (§13). **General corollary (broader than fusion):** I0 + live-time + dead-time
 normalization is standard for *single-energy* quantification too; AXIOMM should read the
 scaler channels and offer normalized intensities on the ordinary path, with raw-count
 behaviour kept as an explicit fallback when the scalers are absent.
@@ -136,10 +147,13 @@ diagnostics. Downstream quantification/matching consume the fused intensities as
 2. Multi-energy engages only on an explicit group; nothing is inferred from filenames.
 3. Registration is verified; mismatched grids raise/refuse with a named diagnostic.
 4. Energy-selection and cross-calibration are pluggable policies with documented defaults.
-5. Each map is normalized by I0 + live-time + dead-time (the scaler channels) before
-   quantification; a missing scaler is a diagnostic with an explicit raw-count fallback.
-   The normalization channels, per-element source energy, k-factor energies, and
-   bridge-element residual are recorded in provenance.
+5. Each map is normalized by I0 and, where the channel is present, dead-time (`dtfactor`)
+   before quantification; live-time is read and divided out only where non-uniform. A
+   missing scaler is a diagnostic with an explicit raw-count fallback; a per-pixel
+   dead-time fallback to I0-only is a `normalization_mixed_basis` diagnostic (the method
+   must not claim all normalization steps ran uniformly). The normalization channels,
+   per-element source energy, k-factor energies, and bridge-element residual are recorded
+   in provenance.
 6. **Test case (not a driver):** fusing Isra's 2.9 + 13.55 keV A21_066 maps recovers the
    light elements (P, Si) alongside Ca/Ti/Fe, enabling an apatite identification that the
    13.55 keV map alone cannot support.
@@ -185,3 +199,23 @@ conservative baseline this spec argued for** (§8, §12):
   comparable. Phase *identification* is more robust than the cross-energy composition.
 - Both clustering-mode and bridge-mode stay **independently user-selectable** for
   exploratory runs; the single-energy path is unchanged and does not read these fields.
+
+**Withholding and support (what a withheld result contains).** When composition is
+withheld — comparability unestablished, or a cluster has no valid support in an arm — the
+returned result preserves **only the primary (highest-energy) payload and its cluster
+means**, plus clusters/evidence and the diagnostics; it does not carry fused per-energy
+composition. Two withhold triggers exist:
+
+- **Comparability** (`fusion_composition_withheld`): a map lacks a usable `intensity_norm`,
+  or normalization is off.
+- **Per-cluster support** (`fusion_cluster_support_missing`): a whole cluster is
+  invalid-divisor in one arm, so its mean there is NaN. The run **withholds composition**
+  rather than aborting on the peak measurer's non-finite rejection.
+
+**Deferred (design decisions, not yet implemented):** (a) *per-cluster* partial
+availability — retain the unaffected clusters' composition while withholding only the
+affected ones, instead of withholding the whole composition; (b) preventing quantitative
+use where the correction basis is unverified (mixed I0-only vs dead-time-corrected support
+across pixels/acquisitions is currently flagged, not gated); (c) carrying per-acquisition
+correction status and valid support through to quant/reliability. These gate any
+promotion of fused wt% from exploratory to quantitative.

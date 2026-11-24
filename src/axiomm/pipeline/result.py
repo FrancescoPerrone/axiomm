@@ -156,6 +156,18 @@ class PipelineResult:
         """Write a self-describing directory (manifest + arrays + stage payloads)."""
         directory = Path(directory)
         directory.mkdir(parents=True, exist_ok=True)
+        # The two files written directly here (label_map.npy, pipeline.json) are not
+        # routed through the overwrite-guarded stage writers, so guard them explicitly
+        # and BEFORE any bytes are written, so overwrite=False is bundle-wide rather than
+        # silently clobbering them (scientific-data safety: never silently overwrite).
+        if not overwrite:
+            from axiomm.analysis.errors import OutputExistsError
+            clashes = [p for p in (directory / "label_map.npy", directory / "pipeline.json")
+                       if p.exists()]
+            if clashes:
+                raise OutputExistsError(
+                    f"{', '.join(p.name for p in clashes)} already exist in {directory}; "
+                    "pass overwrite=True to replace the bundle.")
         write_cluster_means(self.cluster_means, directory, "pipeline", overwrite=overwrite)
         np.save(directory / "label_map.npy", np.asarray(self.label_map))
         cluster_ids = [int(c) for c in np.asarray(self.cluster_means.cluster_ids)]
