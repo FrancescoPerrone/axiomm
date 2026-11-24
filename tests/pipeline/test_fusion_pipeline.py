@@ -140,13 +140,13 @@ def test_cross_map_normalization_cancels_exposure():
     """#3 core guarantee: dividing counts by the raw I0 (no per-map median) removes an
     exposure/monitor scaling, so two acquisitions of the same composition land on one scale."""
     pipe = Pipeline()
-    d1, ok1 = pipe._normalize_cross_map(_payload_exposure(1.0), [])
-    d5, ok5 = pipe._normalize_cross_map(_payload_exposure(5.0), [])
+    d1, _, ok1 = pipe._normalize_cross_map(_payload_exposure(1.0), [])
+    d5, _, ok5 = pipe._normalize_cross_map(_payload_exposure(5.0), [])
     assert ok1 and ok5
     assert np.allclose(np.asarray(d1.data), np.asarray(d5.data))   # (counts*e)/(I0*e) == counts/I0
 
 
-def test_cross_map_normalization_withholds_and_masks():
+def test_cross_map_normalization_withholds_and_keeps_cube_finite():
     pipe = Pipeline()
     # no intensity_norm -> cannot establish comparability
     bare = AxiommSignalPayload(
@@ -155,15 +155,31 @@ def test_cross_map_normalization_withholds_and_masks():
               AxisSpec("x", "navigation", 3, index_in_array=1),
               AxisSpec("E", "signal", 10, units="keV", scale=0.02, offset=0.0, index_in_array=2)),
         signal_kind="signal1d")
-    out, ok = pipe._normalize_cross_map(bare, [])
-    assert out is None and ok is False
-    # an invalid-divisor pixel is masked to NaN (excluded), not left as raw counts
+    out, mask, ok = pipe._normalize_cross_map(bare, [])
+    assert out is None and mask is None and ok is False
+    # an invalid-divisor pixel stays FINITE in the cube (reshape-safe) but False in the mask
     norm = np.full((3, 3), 100.0)
     norm[0, 0] = 0.0
     p = AxiommSignalPayload(data=np.ones((3, 3, 10)), axes=bare.axes, signal_kind="signal1d",
                             intensity_norm=norm)
-    out2, ok2 = pipe._normalize_cross_map(p, [])
-    assert ok2 and np.isnan(np.asarray(out2.data)[0, 0]).all()
+    out2, mask2, ok2 = pipe._normalize_cross_map(p, [])
+    assert ok2 and np.all(np.isfinite(np.asarray(out2.data)))
+    assert mask2[0, 0] == np.False_ and int(np.asarray(mask2).sum()) == 8
+
+
+def test_fusion_invalid_divisor_pixel_does_not_fail_run():
+    """An invalid-divisor pixel must be excluded, not reject the whole cube at reshape."""
+    pytest.importorskip("sklearn")
+    pytest.importorskip("xraylib")
+    import dataclasses
+    lo = _map(0)
+    norm = np.array(lo.intensity_norm, dtype=float)
+    norm[0, 0] = 0.0                              # one invalid-divisor pixel
+    lo = dataclasses.replace(lo, intensity_norm=norm)
+    group = MultiEnergyMapGroup.from_pairs([(2.9, lo), (13.55, _map(1))])
+    r = Pipeline(groups=2, components=4, seed=0, reference=_ref(), reference_element="Si").run(group)
+    assert r.phase_map is not None and r.quantification is not None    # whole run succeeds
+    assert all(np.all(np.isfinite(list(q.net_intensities.values()))) for q in r.quantification)
 
 
 def test_fusion_withholds_composition_without_comparable_normalization():
