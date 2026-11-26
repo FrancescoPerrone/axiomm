@@ -119,14 +119,17 @@ def run_c3() -> dict:
     z = {"Mg": 12, "Al": 13, "Si": 14, "Ca": 20, "Fe": 26}
     le = {"Mg": 1.254, "Al": 1.486, "Si": 1.740, "Ca": 3.690, "Fe": 6.400}
     els = list(protocol.C3_NET_INTENSITIES)
-    refs = [ElementRef(e, le[e], aw[e], z[e], None, "Ka") for e in els]
+    refs = [ElementRef(e, le[e], aw[e], z[e], None, "Ka") for e in els]   # cation k-factor elements
     kfs = compute_k_factors(refs, excitation_kev=protocol.C3_EXCITATION_KEV,
                             reference=protocol.C3_REFERENCE)
     k = dict(kfs.k_factors)
     nets = protocol.C3_NET_INTENSITIES
     pset = PeakMeasurementSet(tuple(PeakMeasurement(e, le[e], nets[e], nets[e], 0.0, 10, True)
                                     for e in els), cluster_id=0)
-    axi = quantify(pset, kfs, refs, reference_name="c3").wt_percent_element
+    # quantify requires O among the elements for oxide conversion; O is NOT a k-factor
+    # element and is not measured — element wt% ratios are over the cations regardless.
+    o_ref = ElementRef("O", 0.525, 15.999, 8, None, "Ka")
+    axi = quantify(pset, kfs, [*refs, o_ref], reference_name="c3").wt_percent_element
     order = els
     I = [nets[e] for e in order]
     kk = [k[e] for e in order]

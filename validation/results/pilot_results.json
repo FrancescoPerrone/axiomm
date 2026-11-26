@@ -1,0 +1,184 @@
+{
+  "environment": {
+    "axiomm_commit": "59c481c3182f28e45eb5a24a89b7313870f994c3",
+    "python": "3.11.2",
+    "platform": "Linux-6.1.0-28-amd64-x86_64-with-glibc2.36",
+    "machine": "x86_64",
+    "packages": {
+      "PyMca5": "5.9.7",
+      "hyperspy": "2.5.0",
+      "exspy": "0.3.2",
+      "PyXRF": null,
+      "numpy": "1.26.4",
+      "scipy": "1.10.1",
+      "xraylib": "4.3.0",
+      "fisx": "1.2.0"
+    },
+    "manifest_hash": "1e2a649527eab4e7c8222cc74cf0bb55290641b1a8f59ceb909805247846b9c6"
+  },
+  "C1": {
+    "primary_reference": "synthetic_truth",
+    "candidate_margins": [
+      0.05,
+      0.1
+    ],
+    "per_stratum": {
+      "S_5k": {
+        "injected_area": 5000.0,
+        "n_obs": 600,
+        "mean_signed_rel_err": 7.822153984017153e-05,
+        "ci95_signed": [
+          -0.0010634737453316765,
+          0.0012199168250120196
+        ],
+        "mean_abs_rel_err": 0.011472265609102401,
+        "rmse_signed": 0.014227994235229083
+      },
+      "S_20k": {
+        "injected_area": 20000.0,
+        "n_obs": 600,
+        "mean_signed_rel_err": -6.627067753854616e-05,
+        "ci95_signed": [
+          -0.0006296471814472827,
+          0.0004971058263701902
+        ],
+        "mean_abs_rel_err": 0.005676218021956985,
+        "rmse_signed": 0.007021097220604244
+      },
+      "S_100k": {
+        "injected_area": 100000.0,
+        "n_obs": 600,
+        "mean_signed_rel_err": -0.00013160762208496641,
+        "ci95_signed": [
+          -0.000392549459896176,
+          0.00012933421572624315
+        ],
+        "mean_abs_rel_err": 0.0025940251507360896,
+        "rmse_signed": 0.003254513009556347
+      }
+    },
+    "proposed_margin": 0.05,
+    "margin_detail": "all high-signal strata CIs within \u00b15%"
+  },
+  "C2": {
+    "deterministic": {
+      "clear_peak": {
+        "net": 19979.518051358744,
+        "state": "measured_positive",
+        "is_detection": true,
+        "pass": true
+      },
+      "zero_window": {
+        "net": 0.0,
+        "state": "measured_zero",
+        "is_detection": false,
+        "pass": true
+      },
+      "out_of_range": {
+        "net": 0.0,
+        "pass": true
+      }
+    },
+    "noisy_blank": {
+      "replicates": 500,
+      "false_detections": 0,
+      "false_detection_rate": 0.0,
+      "detection_threshold": 50.0,
+      "pass": true
+    },
+    "pass": true
+  },
+  "C3": {
+    "rtol": 1e-10,
+    "atol": 1e-12,
+    "k_factors": {
+      "Mg": 2.768595968839819,
+      "Al": 1.6729662220665777,
+      "Si": 1.0,
+      "Ca": 0.11300033959847436,
+      "Fe": 0.028534387704834366
+    },
+    "analytic_fixture": {
+      "intensities": [
+        100.0,
+        50.0
+      ],
+      "kfactors": [
+        2.0,
+        1.0
+      ],
+      "expected_ratio_A_over_B": 4.0,
+      "oracle_ratio": 4.0,
+      "exspy_ratio": 4.0,
+      "oracle_pass": true,
+      "exspy_pass": true
+    },
+    "named_ratios": {
+      "Ca/Si": {
+        "axiomm": 0.06780020375908462,
+        "oracle": 0.06780020375908462,
+        "exspy": 0.06780020375908462,
+        "axiomm_vs_oracle_pass": true,
+        "axiomm_vs_exspy_pass": true
+      },
+      "Fe/Si": {
+        "axiomm": 0.014267193852417183,
+        "oracle": 0.014267193852417183,
+        "exspy": 0.014267193852417181,
+        "axiomm_vs_oracle_pass": true,
+        "axiomm_vs_exspy_pass": true
+      },
+      "Mg/Si": {
+        "axiomm": 0.44297535501437113,
+        "oracle": 0.4429753550143711,
+        "exspy": 0.442975355014371,
+        "axiomm_vs_oracle_pass": true,
+        "axiomm_vs_exspy_pass": true
+      },
+      "Al/Si": {
+        "axiomm": 0.40151189329597864,
+        "oracle": 0.40151189329597864,
+        "exspy": 0.4015118932959786,
+        "axiomm_vs_oracle_pass": true,
+        "axiomm_vs_exspy_pass": true
+      }
+    },
+    "pass": true
+  },
+  "C6": {
+    "rerun_identical": true,
+    "saveload_clusters_identical": true,
+    "saveload_phase_map_identical": true,
+    "pass": true
+  },
+  "C7": {
+    "wall_seconds": 0.0526,
+    "peak_rss_mib": 233.6,
+    "clusters": 2,
+    "pass": true
+  },
+  "C8": {
+    "top_level_present": {
+      "tool": true,
+      "software_version": true,
+      "config": true,
+      "reference_name": true,
+      "reference_version": true,
+      "beam_energy_kev": true
+    },
+    "config_present": {
+      "groups": true,
+      "components": true,
+      "reference": true,
+      "beam_energy_kev": true,
+      "reference_element": true,
+      "seed": true,
+      "classification": true,
+      "normalize": true,
+      "exclude_elements": true,
+      "line_resolution_kev": true
+    },
+    "roundtrip_faithful": true,
+    "pass": true
+  }
+}
