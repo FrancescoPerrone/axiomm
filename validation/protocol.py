@@ -25,9 +25,16 @@ N_REPLICATES = 200              # independent Poisson realisations per stratum
 PILOT_SEED_BASE = 1_000_000
 HELDOUT_SEED_BASE = 9_000_000   # reserved; untouched by the pilot
 
-# -- C2 noisy-blank config ----------------------------------------------------
+# -- C2 noisy-blank config (pilot + disjoint held-out) ------------------------
 C2_BLANK_REPLICATES = 500
-C2_BLANK_SEED_BASE = 2_000_000
+C2_BLANK_SEED_BASE = 2_000_000              # pilot blanks
+C2_BLANK_SEED_BASE_HELDOUT = 8_000_000      # held-out blanks (disjoint)
+
+# -- C2 line-overlap fixtures (AXIOMM resolution policy = line_resolution_kev) -
+# Unresolved pair: 0.04 keV apart (< default 0.13 keV) -> must be flagged unresolved.
+# Resolved pair: 1.95 keV apart -> must NOT be flagged.
+C2_OVERLAP_UNRESOLVED = {"A": 1.700, "B": 1.740}
+C2_OVERLAP_RESOLVED = {"A": 1.740, "C": 3.690}
 
 # -- C3 preregistered positive intensity vector (named Si-referenced ratios) --
 C3_EXCITATION_KEV = 15.0
@@ -49,6 +56,8 @@ def manifest_hash() -> str:
         "HIGH_SIGNAL_STRATA": HIGH_SIGNAL_STRATA, "N_REPLICATES": N_REPLICATES,
         "PILOT_SEED_BASE": PILOT_SEED_BASE, "HELDOUT_SEED_BASE": HELDOUT_SEED_BASE,
         "C2_BLANK_REPLICATES": C2_BLANK_REPLICATES, "C2_BLANK_SEED_BASE": C2_BLANK_SEED_BASE,
+        "C2_BLANK_SEED_BASE_HELDOUT": C2_BLANK_SEED_BASE_HELDOUT,
+        "C2_OVERLAP_UNRESOLVED": C2_OVERLAP_UNRESOLVED, "C2_OVERLAP_RESOLVED": C2_OVERLAP_RESOLVED,
         "C3_EXCITATION_KEV": C3_EXCITATION_KEV, "C3_REFERENCE": C3_REFERENCE,
         "C3_NET_INTENSITIES": C3_NET_INTENSITIES, "C3_RATIOS": C3_RATIOS,
         "C3_RTOL": C3_RTOL, "C3_ATOL": C3_ATOL,

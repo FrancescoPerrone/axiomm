@@ -17,6 +17,10 @@ DETECTION_THRESHOLD = 50.0
 #: The ONLY candidate margins for systematic bias (decision report C1).
 C1_CANDIDATE_MARGINS = (0.05, 0.10)
 
+#: LOCKED C1 margin (signed off 26 Nov 2026): the smallest candidate the pilot
+#: supported in every high-signal stratum. The held-out set is judged against this.
+C1_LOCKED_MARGIN = 0.05
+
 
 def signed_rel_error(estimate: float, truth: float) -> float:
     return (float(estimate) - float(truth)) / float(truth)
@@ -45,6 +49,11 @@ def select_margin(ci_by_stratum: dict, candidates=C1_CANDIDATE_MARGINS):
         if all(lo >= -m and hi <= m for (lo, hi) in ci_by_stratum.values()):
             return m, f"all high-signal strata CIs within ±{m:.0%}"
     return None, "no candidate margin contains every high-signal stratum CI"
+
+
+def within_margin(ci_by_stratum: dict, margin: float) -> bool:
+    """True iff every stratum's 95% CI lies within the LOCKED band ``[-margin, margin]``."""
+    return all(lo >= -margin and hi <= margin for (lo, hi) in ci_by_stratum.values())
 
 
 def is_detection(net: float, threshold: float = DETECTION_THRESHOLD) -> bool:

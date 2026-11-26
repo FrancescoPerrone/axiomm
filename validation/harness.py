@@ -18,7 +18,8 @@ import protocol
 # ---------------------------------------------------------------------------
 # C1 — net line intensities vs synthetic truth (primary); margin by pilot rule
 # ---------------------------------------------------------------------------
-def run_c1() -> dict:
+def run_c1(seed_base: int = protocol.PILOT_SEED_BASE, locked_margin=None,
+           with_pymca: bool = False) -> dict:
     from axiomm.analysis.peaks import NetIntensityMeasurer
     from axiomm.analysis.peaks.net_intensity import PeakWindowConfig
     assert PeakWindowConfig().half_width_kev == generator.HALF_WIDTH_KEV, \
@@ -26,71 +27,117 @@ def run_c1() -> dict:
     axis = generator.make_axis(**protocol.AXIS)
     measurer = NetIntensityMeasurer()
     line_energies = {lbl: e for lbl, e in protocol.LINES}
+    if with_pymca:
+        import pymca_adapter
 
     per_stratum: dict[str, dict] = {}
     for si, (sname, area) in enumerate(protocol.HIGH_SIGNAL_STRATA.items()):
         lines = [(lbl, e, protocol.LINE_SIGMA_KEV, area) for lbl, e in protocol.LINES]
-        signed, absol = [], []
+        ax_signed, ax_abs, py_signed = [], [], []
         for rep in range(protocol.N_REPLICATES):
-            seed = protocol.stratum_seed(protocol.PILOT_SEED_BASE, si, rep)
+            seed = protocol.stratum_seed(seed_base, si, rep)
             counts, truth = generator.generate(axis, lines, protocol.BACKGROUND_PER_CH, seed)
             pset = measurer.measure(counts, axis, line_energies)
             for m in pset.measurements:
                 e = metrics.signed_rel_error(m.net, truth[m.label])
-                signed.append(e)
-                absol.append(abs(e))
-        mean, lo, hi, n = metrics.ci95_mean(signed)
-        per_stratum[sname] = {
-            "injected_area": area, "n_obs": n,
-            "mean_signed_rel_err": mean, "ci95_signed": [lo, hi],
-            "mean_abs_rel_err": float(np.mean(absol)), "rmse_signed": metrics.rmse(signed),
-        }
-    ci_by = {s: tuple(v["ci95_signed"]) for s, v in per_stratum.items()}
-    margin, detail = metrics.select_margin(ci_by)
-    return {"primary_reference": "synthetic_truth",
-            "candidate_margins": list(metrics.C1_CANDIDATE_MARGINS),
-            "per_stratum": per_stratum, "proposed_margin": margin, "margin_detail": detail}
+                ax_signed.append(e)
+                ax_abs.append(abs(e))
+            if with_pymca:
+                for lbl, cen in protocol.LINES:
+                    pn = pymca_adapter.pymca_net_in_window(counts, axis, cen)
+                    if np.isfinite(pn):
+                        py_signed.append(metrics.signed_rel_error(pn, truth[lbl]))
+        a_mean, a_lo, a_hi, a_n = metrics.ci95_mean(ax_signed)
+        entry = {"injected_area": area, "axiomm": {
+            "n_obs": a_n, "mean_signed_rel_err": a_mean, "ci95_signed": [a_lo, a_hi],
+            "mean_abs_rel_err": float(np.mean(ax_abs)), "rmse_signed": metrics.rmse(ax_signed)}}
+        if with_pymca:
+            p_mean, p_lo, p_hi, p_n = metrics.ci95_mean(py_signed)
+            entry["pymca_diagnostic"] = {  # both vs injected truth; secondary (not margin-driving)
+                "n_obs": p_n, "mean_signed_rel_err": p_mean, "ci95_signed": [p_lo, p_hi],
+                "rmse_signed": metrics.rmse(py_signed)}
+        per_stratum[sname] = entry
+
+    ci_by = {s: tuple(v["axiomm"]["ci95_signed"]) for s, v in per_stratum.items()}
+    out = {"primary_reference": "synthetic_truth", "per_stratum": per_stratum,
+           "pymca_secondary": bool(with_pymca)}
+    if locked_margin is not None:
+        passed = metrics.within_margin(ci_by, locked_margin)
+        out.update({"locked_margin": locked_margin, "pass": bool(passed),
+                    "detail": f"every high-signal stratum CI within ±{locked_margin:.0%}"
+                              if passed else "a stratum CI exceeds the locked margin"})
+    else:
+        margin, detail = metrics.select_margin(ci_by)
+        out.update({"candidate_margins": list(metrics.C1_CANDIDATE_MARGINS),
+                    "proposed_margin": margin, "margin_detail": detail})
+    return out
 
 
 # ---------------------------------------------------------------------------
 # C2 — overlaps / missing / zero: exact state semantics + noisy-blank false detect
 # ---------------------------------------------------------------------------
-def run_c2() -> dict:
+def _obs_state(m) -> str:
+    """AXIOMM observation state from the measurer output: a line outside the axis is
+    not_measured; otherwise net > 0 -> measured_positive, else measured_zero."""
+    if not m.in_range:
+        return "not_measured"
+    return "measured_positive" if m.net > 0 else "measured_zero"
+
+
+def run_c2(blank_seed_base: int = protocol.C2_BLANK_SEED_BASE) -> dict:
     from axiomm.analysis.peaks import NetIntensityMeasurer
+    from axiomm.analysis.quant.overlaps import detect_line_overlaps
+    from axiomm.pipeline import PipelineConfig
     axis = generator.make_axis(**protocol.AXIS)
     meas = NetIntensityMeasurer()
-    det = metrics.DETECTION_THRESHOLD
+    res = PipelineConfig().line_resolution_kev   # AXIOMM's declared resolution policy
     deterministic: dict[str, dict] = {}
 
-    # (a) clear peak (noiseless) -> positive net, a detection, measured_positive
+    # (a) clear peak (noiseless) -> measured_positive, a detection
     counts, _ = generator.generate(axis, [("Si", 1.740, 0.02, 20000.0)], 5.0, seed=42, poisson=False)
-    net = meas.measure(counts, axis, {"Si": 1.740}).measurements[0].net
-    deterministic["clear_peak"] = {"net": net, "state": "measured_positive" if net > 0 else "measured_zero",
-                                   "is_detection": metrics.is_detection(net), "pass": bool(net > 0)}
+    m = meas.measure(counts, axis, {"Si": 1.740}).measurements[0]
+    deterministic["clear_peak"] = {"net": m.net, "observation_state": _obs_state(m),
+                                   "is_detection": metrics.is_detection(m.net),
+                                   "pass": bool(_obs_state(m) == "measured_positive")}
 
-    # (b) zero window (background only, noiseless) -> net clamped to 0, NOT a detection
+    # (b) zero window (background only, noiseless) -> measured_zero, NOT a detection
     counts, _ = generator.generate(axis, [], 5.0, seed=42, poisson=False)
-    net = meas.measure(counts, axis, {"Si": 1.740}).measurements[0].net
-    deterministic["zero_window"] = {"net": net, "state": "measured_zero" if net <= 0 else "measured_positive",
-                                    "is_detection": metrics.is_detection(net),
-                                    "pass": bool(net == 0.0 and not metrics.is_detection(net))}
+    m = meas.measure(counts, axis, {"Si": 1.740}).measurements[0]
+    deterministic["zero_window"] = {"net": m.net, "observation_state": _obs_state(m),
+                                    "is_detection": metrics.is_detection(m.net),
+                                    "pass": bool(_obs_state(m) == "measured_zero"
+                                                 and not metrics.is_detection(m.net))}
 
-    # (c) line outside the axis -> no measurement (net 0, not fabricated)
+    # (c) line outside the axis (unavailable) -> not_measured, no fabricated net
     m = meas.measure(counts, axis, {"Zz": 99.0}).measurements[0]
-    deterministic["out_of_range"] = {"net": m.net, "pass": bool(m.net == 0.0)}
+    deterministic["unavailable_out_of_range"] = {"net": m.net, "observation_state": _obs_state(m),
+                                                 "pass": bool(_obs_state(m) == "not_measured"
+                                                              and m.net == 0.0)}
+
+    # (d) unresolved overlap: two lines within the resolution policy must be flagged
+    #     unresolved (AXIOMM must not claim to resolve them); a well-separated pair must not.
+    unresolved = detect_line_overlaps(protocol.C2_OVERLAP_UNRESOLVED, res)
+    resolved = detect_line_overlaps(protocol.C2_OVERLAP_RESOLVED, res)
+    unres_flagged = bool(unresolved and set(unresolved[0]) == set(protocol.C2_OVERLAP_UNRESOLVED))
+    res_not_flagged = bool(len(resolved) == 0)
+    overlap = {"resolution_kev": res,
+               "unresolved_pair_flagged_unresolved": unres_flagged,
+               "resolved_pair_not_flagged": res_not_flagged,
+               "pass": bool(unres_flagged and res_not_flagged)}
 
     # noisy blanks -> false-detection rate under the declared policy (net >= floor)
     false_det = 0
     for rep in range(protocol.C2_BLANK_REPLICATES):
-        counts, _ = generator.generate(axis, [], 5.0, seed=protocol.C2_BLANK_SEED_BASE + rep, poisson=True)
+        counts, _ = generator.generate(axis, [], 5.0, seed=blank_seed_base + rep, poisson=True)
         if metrics.is_detection(meas.measure(counts, axis, {"Si": 1.740}).measurements[0].net):
             false_det += 1
     noisy = {"replicates": protocol.C2_BLANK_REPLICATES, "false_detections": false_det,
              "false_detection_rate": false_det / protocol.C2_BLANK_REPLICATES,
-             "detection_threshold": det,
-             "pass": bool(false_det == 0)}
-    return {"deterministic": deterministic, "noisy_blank": noisy,
-            "pass": bool(all(d["pass"] for d in deterministic.values()) and noisy["pass"])}
+             "detection_threshold": metrics.DETECTION_THRESHOLD, "pass": bool(false_det == 0)}
+
+    ok = all(d["pass"] for d in deterministic.values()) and overlap["pass"] and noisy["pass"]
+    return {"deterministic": deterministic, "overlap": overlap, "noisy_blank": noisy,
+            "pass": bool(ok)}
 
 
 # ---------------------------------------------------------------------------
