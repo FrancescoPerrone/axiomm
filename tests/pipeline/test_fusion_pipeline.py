@@ -432,13 +432,14 @@ def test_fusion_excitation_aware_routing_end_to_end():
 
 
 def _ref_cov():
-    """Reference for coverage statuses: S is excited at 2.9 keV (edge 2.47); Rb's K-edge
+    """Reference for coverage/eligibility: S & Ti are excited at ≥1 energy; Rb's K-edge
     (~15.2 keV) is above both energies, so Rb can never fluoresce in this group."""
     els = {
         "O": ElementRef("O", 0.525, 15.999, 8, None, "Ka"),
         "Si": ElementRef("Si", 1.740, 28.085, 14, ("SiO2", 1, 2), "Ka"),
         "S": ElementRef("S", 2.308, 32.06, 16, ("SO3", 1, 3), "Ka"),
         "Ca": ElementRef("Ca", 3.690, 40.078, 20, ("CaO", 1, 1), "Ka"),
+        "Ti": ElementRef("Ti", 4.510, 47.867, 22, ("TiO2", 1, 2), "Ka"),   # edge 4.97; Kα 4.51
         "Rb": ElementRef("Rb", 13.395, 85.468, 37, None, "Ka"),
     }
     minerals = (
@@ -452,28 +453,51 @@ def _ref_cov():
         structural_exclude=frozenset({"O"}), family_display={"pyroxene": "Px", "sulfate": "Sulf"})
 
 
-def test_fusion_records_coverage_eligibility_statuses(tmp_path):
-    """B1: distinguish WHY a reference cation has no composition — `not_excited` (edge above
-    every supplied energy: Rb) vs `out_of_coverage` (excited, but its line lies outside the
-    spectral window of the map that would measure it: S is routed to 2.9 keV, whose map has a
-    short axis that does not reach S's 2.31 keV line). Both survive save/load."""
+def test_fusion_coverage_fallback_and_not_excited(tmp_path):
+    """B1 (corrected): JOINT ELIGIBILITY with fallback. S is excited at 2.9 keV, but that map's
+    short axis cannot reach S's 2.31 keV line, so selection FALLS BACK to the eligible 13.55 keV
+    source and MEASURES it there — NOT `out_of_coverage`, which would discard the measurable
+    alternative (the exact measured_positive/zero depends on the baseline). Rb's edge is above
+    both energies → `not_excited`. The per-element source selection is persisted and round-trips."""
     pytest.importorskip("sklearn")
     pytest.importorskip("xraylib")
     lo = _map_axis(0, scale=0.01, offset=0.0, ne=200,            # short axis, ~0–2.0 keV
                    upper=[(1.740, 300)], lower=[(1.740, 200)])
-    hi = _map_axis(1, scale=0.02, offset=0.0, ne=700,            # ~0–14 keV
+    hi = _map_axis(1, scale=0.02, offset=0.0, ne=700,            # ~0–14 keV (covers S, Ti, Rb)
                    upper=[(1.740, 200), (3.690, 300)], lower=[(3.690, 200)])
     group = MultiEnergyMapGroup.from_pairs([(2.9, lo), (13.55, hi)])
     r = Pipeline(groups=2, components=4, seed=0, reference=_ref_cov(),
                  reference_element="Si").run(group)
-    obs = r.quantification[0].observation_status
-    assert obs.get("Rb") == "not_excited"          # edge above both energies (physical)
-    assert obs.get("S") == "out_of_coverage"       # excited, line outside its source map window
-    assert "Rb" not in r.quantification[0].net_intensities   # never measured, still carries a reason
+    q = r.quantification[0]
+    assert q.observation_status.get("Rb") == "not_excited"      # edge above both energies
+    # S fell back to the eligible 13.55 keV source and was MEASURED there (not out_of_coverage)
+    assert q.observation_status.get("S") in ("measured_positive", "measured_zero")
+    assert q.provenance.params["source_energy_kev"]["S"] == 13.55   # selection recorded
+    assert "Rb" not in q.net_intensities                        # no source: no fabricated net
     from axiomm.pipeline import load_result
     r.save(tmp_path / "out")
-    obs2 = load_result(tmp_path / "out").quantification[0].observation_status
-    assert obs2.get("Rb") == "not_excited" and obs2.get("S") == "out_of_coverage"
+    q2 = load_result(tmp_path / "out").quantification[0]
+    assert q2.observation_status.get("Rb") == "not_excited"
+    assert q2.provenance.params["source_energy_kev"]["S"] == 13.55
+
+
+def test_fusion_out_of_coverage_only_when_no_eligible_source():
+    """B1: `out_of_coverage` is reported only when NO acquisition jointly excites and covers.
+    Ti (edge 4.97 keV, Kα 4.51) is excited only at 13.55 keV, whose map here ends at ~4.0 keV and
+    cannot reach the Ti line; the 2.9 keV map covers 4.51 keV but cannot excite Ti. No eligible
+    source → `out_of_coverage`, and Ti must carry no fabricated net-intensity entry."""
+    pytest.importorskip("sklearn")
+    pytest.importorskip("xraylib")
+    lo = _map_axis(0, scale=0.01, offset=0.0, ne=500,           # ~0–4.99 keV (covers Ti line 4.51)
+                   upper=[(1.740, 300)], lower=[(1.740, 150)])
+    hi = _map_axis(1, scale=0.01, offset=0.0, ne=400,           # ~0–3.99 keV (does NOT reach 4.51)
+                   upper=[(1.740, 200), (3.690, 300)], lower=[(3.690, 200)])
+    group = MultiEnergyMapGroup.from_pairs([(2.9, lo), (13.55, hi)])
+    r = Pipeline(groups=2, components=4, seed=0, reference=_ref_cov(),
+                 reference_element="Si").run(group)
+    q = r.quantification[0]
+    assert q.observation_status.get("Ti") == "out_of_coverage"
+    assert "Ti" not in q.net_intensities                        # no eligible source: no fabricated net
 
 
 def test_energy_selection_config_recorded_and_validated():

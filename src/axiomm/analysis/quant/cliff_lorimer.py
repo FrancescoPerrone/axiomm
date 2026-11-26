@@ -198,6 +198,12 @@ def quantify(peaks, kfactors, elements, *, reference_name: str | None = None) ->
         params["cross_energy_scale"] = kp["cross_energy_scale"]
     if kp.get("cross_energy_status") is not None:
         params["cross_energy_status"] = kp["cross_energy_status"]
+    # Persist the per-element SOURCE SELECTION so the policy's decisions (not just its name)
+    # survive save/load: which acquisition measured each element, and the reference energy.
+    if kp.get("source_energy_kev") is not None:
+        params["source_energy_kev"] = kp["source_energy_kev"]
+    if kp.get("reference_energy_kev") is not None:
+        params["reference_energy_kev"] = kp["reference_energy_kev"]
     provenance = AnalysisProvenance(tool="quant", backend="cliff_lorimer", params=params)
     return QuantResult(
         net_intensities=net, wt_percent_element=wt_element, wt_percent_oxide=wt_oxide,

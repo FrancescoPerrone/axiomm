@@ -41,18 +41,25 @@ class QuantSection:
             cid = q.cluster_id
             status = dict(getattr(q, "observation_status", {}) or {})
             oxide_key = _oxide_key_map(q)
-            for el in sorted(q.wt_percent_element):
-                # wt_percent_oxide is keyed by oxide formula for oxide-formers,
-                # by element symbol for halogens — resolve the right key per element.
-                name = oxide_key.get(el, el)
-                rows.append([cid, el,
-                             round(float(q.wt_percent_element.get(el, 0.0)), 2),
-                             round(float(q.wt_percent_oxide.get(name, 0.0)), 2),
-                             status.get(el, "")])
+            # Iterate the full observation record, not just measured wt%, so a no-measurement
+            # state is visible rather than hidden: a measured value (incl. measured_zero) shows
+            # its number, while not_excited / out_of_coverage show "NA" — never a fabricated 0 wt%.
+            for el in sorted(set(q.wt_percent_element) | set(status)):
+                if el in q.wt_percent_element:
+                    # wt_percent_oxide is keyed by oxide formula for oxide-formers, by element
+                    # symbol for halogens — resolve the right key per element.
+                    name = oxide_key.get(el, el)
+                    wt_el = round(float(q.wt_percent_element.get(el, 0.0)), 2)
+                    wt_ox = round(float(q.wt_percent_oxide.get(name, 0.0)), 2)
+                else:
+                    wt_el = wt_ox = "NA"      # no measurement: never a fabricated 0 wt%
+                rows.append([cid, el, wt_el, wt_ox, status.get(el, "")])
         table = Table(["cluster", "element", "wt% element", "wt% oxide", "observed as"],
                       rows, "uncorrected wt% estimate")
         note = ("Uncorrected sensitivity-ratio estimate (no matrix correction) — an "
-                "exploratory read-out, not a standards-validated composition.")
+                "exploratory read-out, not a standards-validated composition. "
+                "'NA' marks an element with no measurement (not excited, or its line outside "
+                "the spectral window); 'measured_zero' is a genuine zero.")
         return ReportSection("quant", "Quantification", [note, table])
 
 

@@ -639,14 +639,20 @@ class Pipeline:
         }
         rel_cfg = cfg.reliability or ReliabilityConfig()
         cluster_ids = [int(c) for c in primary_means.cluster_ids]
-        # Choose each element's best-excited energy (pluggable policy), then fuse.
-        source_energy, sel_diag = select_energies(
-            group, element_refs, policy=self._resolve_energy_selection(cfg))
+        # Choose each element's source by JOINT ELIGIBILITY — an acquisition must both excite the
+        # element AND cover its line (within that map's spectral window). The policy ranks only
+        # among eligible acquisitions, so a preferred-but-uncovered source falls back to the next
+        # eligible one rather than discarding a measurable alternative. ``reasons`` names why an
+        # element has no source (not_excited vs out_of_coverage).
+        range_by_e = {e: _signal_range(_signal_axis(p)) for e, p in payloads.items()}
+        source_energy, sel_reasons, sel_diag = select_energies(
+            group, element_refs, policy=self._resolve_energy_selection(cfg), coverage=range_by_e)
         diagnostics += sel_diag
         if source_energy.get(cfg.reference_element) is None:
             raise PayloadValidationError(
-                f"reference_element {cfg.reference_element!r} is not excited by any supplied "
-                "energy in the group; choose a reference measurable by one of the energies.")
+                f"reference_element {cfg.reference_element!r} has no eligible acquisition in the "
+                "group (not excited above its edge, or its line is outside every exciting map's "
+                "spectral window); choose a reference measurable by one of the energies.")
         # Bridge-element cross-calibration: elements measurable at >1 energy set a
         # per-energy scale that rebalances the light-vs-mid-Z footing (folded into k).
         scale = bridge_status = None
@@ -674,22 +680,15 @@ class Pipeline:
                             scale=scale, cross_energy_status=bridge_status)
         quant_elements = self._quant_elements(reference, source_refs)
         quant = quantify_cluster_means(list(fused_peaks), k, quant_elements, reference_name=reference.name)
-        # Coverage-aware source eligibility (B1): record WHY a reference cation has no measured
-        # composition — ``not_excited`` (edge above every supplied energy — physical, can't
-        # fluoresce) vs ``out_of_coverage`` (excited, but its line is outside the spectral window
-        # of the map that would measure it — acquisition) vs the measured statuses quantify
-        # already assigned. A physical/instrument limit must read differently from a measured absence.
-        range_by_e = {e: _signal_range(_signal_axis(p)) for e, p in payloads.items()}
-        eligibility = {}
-        for r in element_refs:
-            e = source_energy.get(r.symbol)
-            if e is None:
-                eligibility[r.symbol] = "not_excited"
-            elif not (range_by_e[e][0] <= r.line_energy_kev <= range_by_e[e][1]):
-                eligibility[r.symbol] = "out_of_coverage"
-        if eligibility:
+        # Coverage-aware source eligibility (B1, corrected): record WHY a reference cation has no
+        # composition, using the joint-eligibility reasons from selection — ``not_excited`` (no
+        # acquisition excites it) vs ``out_of_coverage`` (excited, but no exciting acquisition
+        # covers its line). An element WITH an eligible source is always measured there (its line is
+        # in range), so it keeps its measured status (measured_positive / measured_zero) and is not
+        # overwritten. A physical/instrument limit must read differently from a measured absence.
+        if sel_reasons:
             quant = tuple(dataclasses.replace(
-                q, observation_status=_refine_observation(q.observation_status, eligibility))
+                q, observation_status=_refine_observation(q.observation_status, sel_reasons))
                 for q in quant)
         # Source-aware counting basis (#4): grade each element's net-count floor against the RAW
         # counts in the map that actually measured it (its source energy), not always the primary
