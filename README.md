@@ -229,6 +229,25 @@ separate categories:
 Standards validation remains mandatory before any quantitative-accuracy or
 validated mineral-identification claim.
 
+### Validation status
+
+The v0.1 pipeline is covered by a **preregistered external differential-validation
+programme** (`docs/dev/v0.1_external_validation_preregistration.md`,
+`docs/dev/v0.1_acceptance_criteria.md`). Its **synthetic and software-differential
+comparisons have been executed and pass**: net line intensities against synthetic
+truth (within a locked ±5% margin), behaviour under overlaps / zero / missing lines
+with explicit observation states, Cliff–Lorimer arithmetic matching an independent
+hand-derived oracle and eXSpy to a tight numerical tolerance, reproducibility
+(reruns + save/load), and provenance completeness. The harness and the retained
+results live in [`validation/`](validation/).
+
+**Still gated on independent references:** map-level spatial accuracy and
+confirmatory phase-level accuracy require independent imaging/EPMA, which is not yet
+available, so **no validated phase-accuracy or quantitative-accuracy claim is made.**
+Multi-energy **fusion composition is experimental** and opt-in (the conservative
+default is single-map clustering with no cross-energy bridge); the pipeline records a
+`fusion_experimental` flag whenever the fused path is active.
+
 ## Installation
 
 AXIOMM requires **Python 3.10+**.
