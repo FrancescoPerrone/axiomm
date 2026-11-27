@@ -242,8 +242,9 @@ hand-derived oracle and eXSpy to a tight numerical tolerance, reproducibility
 results live in [`validation/`](validation/).
 
 **Still gated on independent references:** map-level spatial accuracy and
-confirmatory phase-level accuracy require independent imaging/EPMA, which is not yet
-available, so **no validated phase-accuracy or quantitative-accuracy claim is made.**
+confirmatory phase-level accuracy require independent spatial and phase-reference
+evidence that has not yet been documented in the validation record, so **no validated
+phase-accuracy or quantitative-accuracy claim is made.**
 Multi-energy **fusion composition is experimental** and opt-in (the conservative
 default is single-map clustering with no cross-energy bridge); the pipeline records a
 `fusion_experimental` flag whenever the fused path is active.
